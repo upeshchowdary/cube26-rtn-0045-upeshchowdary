@@ -1,0 +1,13 @@
+# Text is stored and checked out with LF on every OS, so file hashes match across Windows and Linux.
+* text=auto eol=lf
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.webp binary
+*.heic binary
+*.heif binary
+*.pdf binary
+*.onnx binary
+
+# Organiser-owned data stays byte-exact (returns_sample.csv is committed with CRLF, as RFC 4180 allows).
+data/** -text
