@@ -217,12 +217,31 @@ method is written next to it. Sections `## Findings` and `## Open questions` are
   `pytest -m db` will run them once `supabase start` completes)
 - `decisions/ADR-003-tenancy-mechanism.md` and `decisions/ADR-004-identity-and-auth.md` written.
 
-**Awaiting**
-- Docker Desktop to fully start (was started; had plugin crash on `docker-offload.exe` 0xC0000005 —
-  this is the same crash class as Git Bash; Docker itself starts fine but the offload plugin faults).
-- `supabase start` (once Docker is up): run `returns-manager db migrate` and `seed demo`.
-- `pytest -m db -q` against the running local Supabase stack.
-- Commit + push `upeshchowdary` branch; open P1 PR.
+- Local Supabase running via Docker on port 54322/54321.
+- `returns-manager db migrate`: applied 0001, 0002, 0003. Migrator connects as `supabase_admin:postgres` because `postgres` role on local Supabase has `rolsuper = f` and cannot execute `ALTER ROLE rm_app_login WITH LOGIN PASSWORD`.
+- `returns-manager seed demo`: seeded 2 orgs (`org_demo_alpha`, `org_demo_bravo`), 7 users; credentials in `.env.demo-users`.
+- `pytest -m db -v`: all 8 DB security tests (`T-SEC-01` through `T-SEC-08`) **passed**.
+- `pytest -q`: **84 passed, 0 skipped, 0 failed** in 2.12 s.
+- `returns-manager dev check`: ruff ok, ruff format ok, mypy ok, 84 tests passed, boundary check ok.
+- P1 Definition of Done met in full.
+
+---
+
+## 2026-09-25 · P2 Reference Data
+
+**Plan**
+1. Draft `ADR-006-rubric-source-substitute.md` (amazon.co.uk PDF as unverified substitute for amazon.in) and finding `findings/F-001-condition-guidelines-marketplace.md`.
+2. Define Pydantic reference models in `agent/src/returns_manager/reference/models.py` and JSON Schemas in `reference/_schemas/` for all §8 reference data types.
+3. Implement RFC 8785 canonical content hashing in `agent/src/returns_manager/reference/hashing.py`.
+4. Create `reference/sources.yaml` with external source documents (Amazon UK condition guidelines PDF, SHA-256 `342a3dc2e9cbdec5467ec03417630f1e2466ac3bbf6d7a6965caf871a35e2718`).
+5. Implement `returns-manager rubric extract` in `agent/src/returns_manager/reference/extract.py` using PyMuPDF (verified exact quotes for `electronics`, `toys_games`, `home_kitchen`, `pet`, `beauty_topical`, `grocery_ingestible`), generate snapshots, and write `reference/rubrics/active.yaml`.
+6. Author category policies in `reference/policies/amazon.co.uk/<category>.yaml` with explicit `source_type` on every field.
+7. Author `reference/categories/sku-category-map.yaml` mapping all 10 sample SKUs.
+8. Author `reference/rules/disposition-params.yaml`, `reference/quality/quality-gate.yaml`, `reference/pricing/gemini.yaml`, `reference/pricing/fx.yaml`.
+9. Author Product Knowledge Cards in `reference/products/<org_id>/<SKU>.yaml` for fixture SKUs across `org_demo_alpha` and `org_demo_bravo`, plus downscaled reference images and `reference/orders/orders-seed.csv`.
+10. Implement `returns-manager reference validate` and `reference hash` in `agent/src/returns_manager/reference/validator.py` (verifying JSON schemas, `content_sha256`, and exact substring matching of rubric quotes against extracted PDF pages).
+11. Migration `0004_reference_data.sql` and loader `returns-manager reference load` in `agent/src/returns_manager/reference/loader.py` with RLS and isolation.
+12. Wire CLI commands, update `dev.py` so `dev check` executes `reference validate`, and write comprehensive unit tests.
 
 ---
 

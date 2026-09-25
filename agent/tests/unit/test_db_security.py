@@ -36,14 +36,24 @@ from returns_manager.security.roles import Forbidden, Permission, Principal, Rol
 
 
 def _migrator_dsn() -> str:
-    dsn = os.environ.get("DATABASE_MIGRATOR_URL") or ""
+    settings = get_settings()
+    dsn = (
+        (settings.database_migrator_url.get_secret_value() if settings.database_migrator_url else None)
+        or os.environ.get("DATABASE_MIGRATOR_URL")
+        or ""
+    )
     if not dsn:
         pytest.skip("DATABASE_MIGRATOR_URL not set; run `npx supabase start` first")
     return dsn
 
 
 def _app_dsn() -> str:
-    dsn = os.environ.get("DATABASE_URL") or ""
+    settings = get_settings()
+    dsn = (
+        (settings.database_url.get_secret_value() if settings.database_url else None)
+        or os.environ.get("DATABASE_URL")
+        or ""
+    )
     if not dsn:
         pytest.skip("DATABASE_URL not set; run `npx supabase start` first")
     return dsn
