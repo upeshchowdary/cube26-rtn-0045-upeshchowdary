@@ -9,6 +9,7 @@ from fastapi import Depends, Header, Request
 
 from returns_manager.config import Settings
 from returns_manager.db.pool import Database
+from returns_manager.intake.service import IntakeService
 from returns_manager.security import api_keys
 from returns_manager.security.auth_jwt import JwtVerifier, user_principal
 from returns_manager.security.roles import Principal, Unauthenticated
@@ -21,6 +22,10 @@ class Services:
     db: Database
     jwt: JwtVerifier | None
     storage: PhotoStorage | None
+
+    @property
+    def intake(self) -> IntakeService:
+        return IntakeService(self.db, self.storage)
 
 
 def services(request: Request) -> Services:

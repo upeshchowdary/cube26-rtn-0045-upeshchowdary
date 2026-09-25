@@ -11,7 +11,7 @@ import sys
 import typer
 
 from returns_manager import __version__
-from returns_manager.cli import dev, p1_commands, reference_commands
+from returns_manager.cli import dev, intake_commands, p1_commands, reference_commands
 from returns_manager.errors import ExitCode, NotBuiltYet, ReturnsManagerError
 
 app = typer.Typer(
@@ -36,7 +36,6 @@ def _stub(group: typer.Typer, name: str, phase: str, help_text: str, full_name: 
 
 # (group, command, phase, help). Group None = top-level command.
 _PLANNED: list[tuple[str | None, str, str, str]] = [
-    (None, "capture", "P3", "Headless capture: create a return and upload photos."),
     (None, "inspect", "P5", "Run (or --dry-run) a judgment inspection for a return."),
     ("quota", "status", "P5", "Show today's request budget used/remaining per model."),
     ("quota", "set-budget", "P5", "Set a model's daily request budget from AI Studio numbers."),
@@ -116,6 +115,7 @@ def _register() -> None:
     for name, sub in built.items():
         _groups[name] = sub
         app.add_typer(sub, name=name, help=_GROUP_HELP[name])
+    app.command("capture")(intake_commands.capture_command)
     for group, name, phase, help_text in _PLANNED:
         if group is None:
             _stub(app, name, phase, help_text, name)

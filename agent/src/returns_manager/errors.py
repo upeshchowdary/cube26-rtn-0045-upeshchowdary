@@ -38,6 +38,34 @@ class NotFound(ReturnsManagerError):
     """The resource does not exist for this caller. Other orgs' resources are reported the same way (404)."""
 
 
+class BadRequest(ReturnsManagerError):
+    """Malformed or invalid request data."""
+
+    exit_code = ExitCode.USAGE
+
+
+class Conflict(ReturnsManagerError):
+    """State conflict, such as invalid status transition or constraint violation."""
+
+    exit_code = ExitCode.FAILURE
+
+
+class QualityGateRefusal(Conflict):
+    """Quality gate rejected submission because <2 non-fail photos without acknowledgement."""
+
+
+class PayloadTooLarge(ReturnsManagerError):
+    """Request payload exceeded maximum allowed size (e.g. 20 MB photo cap)."""
+
+    exit_code = ExitCode.USAGE
+
+
+class UnsupportedMediaType(ReturnsManagerError):
+    """Unsupported payload format or media type."""
+
+    exit_code = ExitCode.USAGE
+
+
 class NotBuiltYet(ReturnsManagerError):
     """A command that exists in the CLI tree but whose phase has not been built yet."""
 

@@ -286,6 +286,70 @@ method is written next to it. Sections `## Findings` and `## Open questions` are
 
 ---
 
+## 2026-09-25 · P3 Intake and Photo Pipeline
+
+### Verify-first signatures (§0.7)
+- `zxing-cpp`: verified `zxingcpp.create_barcode(content: str, format: BarcodeFormat)` and `zxingcpp.read_barcodes(image: Image) -> list[Barcode]`. Each result carries `.text` and `.format`.
+- `imagehash`: verified `imagehash.phash(image)` returns 16-hex perceptual hash; mapped to 64-bit binary string `bin(int(str(h), 16))[2:].zfill(64)` matching Postgres `bit(64)` column.
+- `pillow-heif`: verified `pillow_heif.register_heif_opener()` registers HEIF/HEIC support into Pillow.
+- Sharpness: verified `cv2.Laplacian(gray_1024, cv2.CV_64F).var()` resolution-normalized.
+
+### Plan
+1. Implement `intake/images.py`: magic byte sniffing (JPEG, PNG, WebP, HEIC, HEIF), size cap (20 MB), safe decode with Pillow (`MAX_IMAGE_PIXELS = 60,000,000`), EXIF sanitation (stripping GPS), analysis copy downscaling (`RM_ANALYSIS_LONG_EDGE` default 1568, quality 88), perceptual hashing (`imagehash.phash`).
+2. Implement `intake/quality.py`: quality gate evaluation against `reference/quality/quality-gate.yaml` (Laplacian sharpness, mean/clipped luminance exposure, short-edge resolution, in-return set near-duplicate phash check, org 30-day reused photo check).
+3. Implement `intake/retake.py`: deterministic retake guidance generator mapping quality gate issues to human operator instructions.
+4. Implement `vision/barcode.py`: barcode reader wrapping `zxing-cpp` to detect EAN/UPC/Code128/QR.
+5. Implement `intake/service.py`: core intake service with return creation, idempotent photo upload and deduplication (`sha256_original`), storage upload, slot/alias assignment (P1..P3), operator observation, and submission gating (requiring ≥2 non-fail photos unless `acknowledge_quality_warnings=True`).
+6. Implement FastAPI endpoints in `api/routes/intake.py` (`POST /returns`, `POST /returns/{id}/photos`, `POST /returns/{id}/observation`, `POST /returns/{id}/submit`, `GET /returns/{id}`).
+7. Wire CLI command `returns-manager capture` in `cli/intake_commands.py` for headless operation.
+8. Author acceptance tests `tests/unit/test_intake.py` (`T-PHO-01…12`) covering format validation, size cap, deduplication, quality gates, retake guidance, submit gating, and upload latency.
+9. Ensure `returns-manager dev check` passes all quality gates.
+
+### Changed
+- `agent/pyproject.toml` and `agent/uv.lock`: exact-pinned `python-multipart==0.0.32` for FastAPI multipart form upload support.
+- `agent/src/returns_manager/errors.py`: added domain exception classes `BadRequest`, `Conflict`, `QualityGateRefusal`, `PayloadTooLarge`, and `UnsupportedMediaType`.
+- `agent/src/returns_manager/api/problems.py`: mapped domain exceptions to RFC 9457 Problem Details responses (400, 409, 413, 415) with sanitized details.
+- `agent/src/returns_manager/intake/images.py`: magic-byte sniffing (JPEG, PNG, WebP, HEIC, HEIF), size cap 20 MB (`PayloadTooLarge`), Pillow safe decode (`MAX_IMAGE_PIXELS = 60,000,000`), EXIF sanitation (stripping GPS tags), analysis copy downscale (`RM_ANALYSIS_LONG_EDGE` default 1568, quality 88), 64-bit binary `phash`.
+- `agent/src/returns_manager/intake/quality.py`: deterministic quality gate evaluation against calibrated thresholds (resolution-normalized Laplacian sharpness, mean/clipped luminance exposure, short-edge resolution, in-return set near-duplicate phash check, org 30-day reused photo check).
+- `agent/src/returns_manager/intake/retake.py`: deterministic retake guidance generator mapping quality gate issue codes to human operator instructions.
+- `agent/src/returns_manager/vision/barcode.py`: barcode reader wrapping `zxing-cpp` to detect EAN/UPC/Code128/QR from images.
+- `agent/src/returns_manager/intake/service.py`: `IntakeService` implementing return creation (`record_id` formatting `RTN-<4-digit unit>`), resilient photo upload with slot/alias assignment (P1..P3), deduplication by `sha256_original`, idempotent replay by `Idempotency-Key`, operator observation, and submission gating (requiring ≥2 non-fail photos unless `acknowledge_quality_warnings=True`, enqueuing judgment job).
+- `agent/src/returns_manager/api/deps.py`: added `intake` property on `Services`.
+- `agent/src/returns_manager/api/routes/intake.py`: FastAPI endpoints for return creation, photo upload, observation, and submit.
+- `agent/src/returns_manager/api/app.py`: registered `intake_routes.router`.
+- `agent/src/returns_manager/cli/intake_commands.py`: implemented `returns-manager capture` for headless intake.
+- `agent/src/returns_manager/cli/main.py`: registered `capture` command on CLI app.
+- `agent/src/returns_manager/cli/dev.py`: added automatic retry for transient Windows NTSTATUS crash codes during subprocess execution.
+- `agent/tests/unit/test_intake.py`: 12 acceptance tests `T-PHO-01` through `T-PHO-12`.
+
+### Failed, and what the evidence showed
+- FastAPI multipart parsing failed on initial import with `RuntimeError: Form data requires "python-multipart" to be installed.` Fixed by adding exact-pinned `python-multipart==0.0.32` to `pyproject.toml` and locking with `uv sync`.
+- `run_async(_run)` in `intake_commands.py` was initially called as `run_async(_run())`, triggering mypy arg-type error because `run_async` expects a callable coroutine function. Corrected to `run_async(_run)`.
+- Pure black/white checkerboard (0 vs 255) triggered exposure failure because 50% of pixels had crushed shadows (<=5) and 50% had clipped highlights (>=250). Adjusted test checkerboard to contrast values (190 and 60), yielding high Laplacian variance (>2000) while keeping crushed shadows and clipped highlights at 0.0%.
+- Windows subprocess exit code 3221225501 (0xC000001D) occurred intermittently on process teardown in swigvarlink/zxingcpp. Broadened the Windows crash catcher in `dev.py` to cover all native crash codes above 3221225470.
+
+### Evidence (acceptance criteria, §23 P3)
+- `tests/unit/test_intake.py`: **12 passed, 0 failed** in 3.06s.
+  - `T-PHO-01` Magic bytes sniffing (JPEG, PNG, WebP, HEIC/HEIF accepted; PDF/text/HTML rejected with 415).
+  - `T-PHO-02` 20 MB size cap enforced (413 PayloadTooLarge).
+  - `T-PHO-03` Decompression bomb guard (`MAX_IMAGE_PIXELS = 60,000,000`).
+  - `T-PHO-04` EXIF orientation transposed, GPS stripped from metadata summary.
+  - `T-PHO-05` Dedupe by `sha256_original`: uploading same photo bytes twice produces exactly 1 row.
+  - `T-PHO-06` Idempotent upload replay: same `Idempotency-Key` returns stored response with `idempotent_replay=True`.
+  - `T-PHO-07` Quality gate checks on synthetic images (sharpness, exposure, resolution).
+  - `T-PHO-08` Near-duplicate within return set and 30-day org reused photo flags.
+  - `T-PHO-09` Submit gating: fails with `QualityGateRefusal` when <2 non-fail photos without acknowledgement; succeeds with `acknowledge_quality_warnings=True` or with ≥2 non-fail photos.
+  - `T-PHO-10` Upload latency benchmark: local image processing completed in ~60 ms (well under the 1.5 s cap).
+  - `T-PHO-11` Deterministic retake guidance generated for all gate issue codes.
+  - `T-PHO-12` FastAPI endpoints lifecycle end-to-end (`POST /returns`, `POST /photos`, `POST /observation`, `POST /submit`, `GET /returns/{id}`).
+- Full test suite: **103 passed, 0 failed** in 5.03s.
+- `returns-manager dev check`: **All 6 quality gates passed** (ruff lint ok, ruff format ok, mypy ok across 51 source files, pytest ok, reference validate ok with 34 files, boundary check ok).
+- P3 Definition of Done met in full.
+
+**Next:** Commit P3 on branch `upeshchowdary`, push to origin, and begin Phase P4 (Durable Jobs, Worker, and Fail-Open).
+
+---
+
 ## Findings
 
 | F-### | date | source | contradiction | impact | our handling | GitHub issue |

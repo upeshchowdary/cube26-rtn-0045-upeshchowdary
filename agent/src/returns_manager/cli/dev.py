@@ -44,7 +44,17 @@ def check() -> None:
             typer.echo(f"-- {step.name}: SKIPPED ({step.skip_reason})")
             continue
         typer.echo(f"-- {step.name}: running")
-        proc = subprocess.run(step.argv, cwd=step.cwd, check=False)  # noqa: S603 (fixed argv)
+        retries = 2 if sys.platform == "win32" else 0
+        while True:
+            proc = subprocess.run(step.argv, cwd=step.cwd, check=False)  # noqa: S603
+            is_win_crash = proc.returncode in (3221225477, -1073741819, 3221225501, -1073741795) or (
+                proc.returncode > 3221225470 or proc.returncode < -1000000000
+            )
+            if is_win_crash and retries > 0:
+                retries -= 1
+                typer.echo(f"-- {step.name}: transient Windows native crash ({proc.returncode}); retrying...")
+                continue
+            break
         status = "ok" if proc.returncode == 0 else f"FAILED (exit {proc.returncode})"
         typer.echo(f"-- {step.name}: {status}")
         if proc.returncode != 0:

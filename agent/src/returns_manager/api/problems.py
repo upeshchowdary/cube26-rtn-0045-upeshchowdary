@@ -9,7 +9,15 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from returns_manager.errors import NotFound, ReturnsManagerError
+from returns_manager.errors import (
+    BadRequest,
+    Conflict,
+    NotFound,
+    PayloadTooLarge,
+    QualityGateRefusal,
+    ReturnsManagerError,
+    UnsupportedMediaType,
+)
 from returns_manager.security.controls import ReasonRequired
 from returns_manager.security.roles import Forbidden, Unauthenticated
 
@@ -46,6 +54,11 @@ _MAP: list[tuple[type[Exception], int, str, str]] = [
     (Unauthenticated, 401, "unauthenticated", "Authentication required"),
     (Forbidden, 403, "forbidden", "Not allowed"),
     (NotFound, 404, "not_found", "Not found"),
+    (BadRequest, 400, "bad_request", "Bad request"),
+    (QualityGateRefusal, 409, "retake_required", "Quality gate check failed; retake required"),
+    (Conflict, 409, "conflict", "Conflict"),
+    (PayloadTooLarge, 413, "payload_too_large", "Payload too large"),
+    (UnsupportedMediaType, 415, "unsupported_media_type", "Unsupported media type"),
     (ReasonRequired, 422, "reason_required", "A reason is required"),
 ]
 
@@ -60,7 +73,8 @@ def install(app: FastAPI) -> None:
         for cls, status, code, title in _MAP:
             if isinstance(exc, cls):
                 # 401/404 details never reveal whether another org's resource exists.
-                return problem_response(request, status, code, title, str(exc) if status == 403 else None)
+                detail = str(exc) if status not in (401, 404) else None
+                return problem_response(request, status, code, title, detail)
         return problem_response(request, 500, "internal_error", "Internal error", None)
 
     @app.exception_handler(ReasonRequired)
