@@ -1,0 +1,63 @@
+schema: product-card/v1
+version: 1.0.0
+org_id: org_demo_bravo
+sku: SKU-CANDLE-3
+identifiers:
+  asin: B0DUMMY964
+  fnsku: null
+  gtin: null
+  model_numbers: []
+  barcode_values: []
+title: Aromatherapy Scented Candle Gift Set of 3
+brand: AromaHaven
+category_key: home_kitchen
+distinguishing_features:
+- id: df_glass_jars
+  description: Frosted glass jars with bamboo lids
+  location: product_body
+  importance: critical
+similar_skus: []
+components:
+- id: candle
+  name: candle
+  quantity: 3
+  essential: true
+  replaceable: false
+  verifiable_by_photo: true
+  visual_cues: Three 100g soy wax candles in frosted jars
+  source:
+    type: seller_catalogue
+    ref: cat row 80
+    retrieved_at: null
+- id: gift_box
+  name: gift box
+  quantity: 1
+  essential: false
+  replaceable: true
+  verifiable_by_photo: true
+  visual_cues: Magnetic closure branded gift box
+  source:
+    type: seller_catalogue
+    ref: cat row 80
+    retrieved_at: null
+reference_images:
+- id: ref_front
+  view: front
+  path: images/SKU-CANDLE-3/front.jpg
+  sha256: cfaeb1399ea55fee0aa959cc9ded0e6d9d2f636ae2dd83cbe1d61021ed43d892
+value:
+  synthetic: true
+  list_price:
+    amount_minor: 119900
+    currency: INR
+  recovery_rate_bp:
+    restock_new: 10000
+    restock_used: 6500
+    refurbish: 5500
+    liquidate: 2000
+    dispose: 0
+  refurbish_cost:
+    amount_minor: 0
+    currency: INR
+provenance_notes: Product Knowledge Card for SKU-CANDLE-3 under org_demo_bravo
+content_sha256: fd9ca1c04a82d86b2b4fbc250904d3bd08c5b7a2b9ab3b2d19932c23428ce536

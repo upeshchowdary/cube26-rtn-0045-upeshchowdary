@@ -1,0 +1,63 @@
+schema: product-card/v1
+version: 1.0.0
+org_id: org_demo_alpha
+sku: SKU-PROT-1KG
+identifiers:
+  asin: B0DUMMY357
+  fnsku: null
+  gtin: null
+  model_numbers: []
+  barcode_values: []
+title: Whey Protein Isolate Powder 1kg Chocolate
+brand: NutriFit
+category_key: grocery_ingestible
+distinguishing_features:
+- id: df_safety_seal
+  description: Tamper-evident heat induction neck seal
+  location: packaging
+  importance: critical
+similar_skus: []
+components:
+- id: tub
+  name: tub
+  quantity: 1
+  essential: true
+  replaceable: false
+  verifiable_by_photo: true
+  visual_cues: 1kg black plastic tub with screw lid
+  source:
+    type: seller_catalogue
+    ref: cat row 60
+    retrieved_at: null
+- id: scoop
+  name: scoop
+  quantity: 1
+  essential: false
+  replaceable: true
+  verifiable_by_photo: true
+  visual_cues: 30g clear plastic measuring scoop
+  source:
+    type: seller_catalogue
+    ref: cat row 60
+    retrieved_at: null
+reference_images:
+- id: ref_front
+  view: front
+  path: images/SKU-PROT-1KG/front.jpg
+  sha256: cfaeb1399ea55fee0aa959cc9ded0e6d9d2f636ae2dd83cbe1d61021ed43d892
+value:
+  synthetic: true
+  list_price:
+    amount_minor: 249900
+    currency: INR
+  recovery_rate_bp:
+    restock_new: 10000
+    restock_used: 6500
+    refurbish: 5500
+    liquidate: 2000
+    dispose: 0
+  refurbish_cost:
+    amount_minor: 0
+    currency: INR
+provenance_notes: Product Knowledge Card for SKU-PROT-1KG under org_demo_alpha
+content_sha256: ff162a4dc504689264156f621a375ede4edac205245b6d6315354b867434c50e

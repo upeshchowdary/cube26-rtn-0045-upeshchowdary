@@ -11,7 +11,7 @@ import sys
 import typer
 
 from returns_manager import __version__
-from returns_manager.cli import dev, p1_commands
+from returns_manager.cli import dev, p1_commands, reference_commands
 from returns_manager.errors import ExitCode, NotBuiltYet, ReturnsManagerError
 
 app = typer.Typer(
@@ -36,11 +36,6 @@ def _stub(group: typer.Typer, name: str, phase: str, help_text: str, full_name: 
 
 # (group, command, phase, help). Group None = top-level command.
 _PLANNED: list[tuple[str | None, str, str, str]] = [
-    ("reference", "validate", "P2", "Validate every reference file against its schema and content hash."),
-    ("reference", "hash", "P2", "Compute/refresh content_sha256 of reference files."),
-    ("reference", "load", "P2", "Load reference data into the database."),
-    ("rubric", "extract", "P2", "Download, hash-verify and extract a condition-guidelines source."),
-    ("catalogue", "import", "P2", "Import an organiser-provided catalogue (with provenance)."),
     (None, "capture", "P3", "Headless capture: create a return and upload photos."),
     (None, "inspect", "P5", "Run (or --dry-run) a judgment inspection for a return."),
     ("quota", "status", "P5", "Show today's request budget used/remaining per model."),
@@ -114,6 +109,9 @@ def _register() -> None:
         "controls": p1_commands.controls_app,
         "seed": p1_commands.seed_app,
         "api": p1_commands.api_app,
+        "reference": reference_commands.reference_app,
+        "rubric": reference_commands.rubric_app,
+        "catalogue": reference_commands.catalogue_app,
     }
     for name, sub in built.items():
         _groups[name] = sub

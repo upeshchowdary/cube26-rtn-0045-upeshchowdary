@@ -1,0 +1,52 @@
+schema: product-card/v1
+version: 1.0.0
+org_id: org_demo_alpha
+sku: SKU-CABLE-USBC
+identifiers:
+  asin: B0DUMMY261
+  fnsku: null
+  gtin: null
+  model_numbers: []
+  barcode_values: []
+title: Braided USB-C to USB-C Fast Charging Cable 2m
+brand: LuminaTech
+category_key: electronics
+distinguishing_features:
+- id: df_braided_jacket
+  description: Grey nylon braided cable with aluminium connector shells
+  location: product_body
+  importance: critical
+similar_skus: []
+components:
+- id: cable
+  name: cable
+  quantity: 1
+  essential: true
+  replaceable: false
+  verifiable_by_photo: true
+  visual_cues: 2m braided USB-C cable with Velcro tie
+  source:
+    type: seller_catalogue
+    ref: cat row 100
+    retrieved_at: null
+reference_images:
+- id: ref_front
+  view: front
+  path: images/SKU-CABLE-USBC/front.jpg
+  sha256: eac75a86a681fe6e86078e847af034f03c686000e5185d82e7da55a1f6ef32aa
+value:
+  synthetic: true
+  list_price:
+    amount_minor: 49900
+    currency: INR
+  recovery_rate_bp:
+    restock_new: 10000
+    restock_used: 6500
+    refurbish: 5500
+    liquidate: 2000
+    dispose: 0
+  refurbish_cost:
+    amount_minor: 5000
+    currency: INR
+provenance_notes: Product Knowledge Card for SKU-CABLE-USBC under org_demo_alpha
+content_sha256: b20671ffade66df115072e89749c1bcdef476622654845a8d236b6cece229da8

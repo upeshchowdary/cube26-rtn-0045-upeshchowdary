@@ -30,7 +30,7 @@ def _steps() -> list[Step]:
         Step("ruff format", [py, "-m", "ruff", "format", "--check", "."], AGENT_ROOT),
         Step("mypy", [py, "-m", "mypy"], AGENT_ROOT),
         Step("pytest (non-live)", [py, "-m", "pytest", "-q"], AGENT_ROOT),
-        Step("reference validate", [], AGENT_ROOT, skip_reason="reference data is built in phase P2"),
+        Step("reference validate", [py, "-m", "returns_manager", "reference", "validate"], AGENT_ROOT),
         Step("boundary check", [py, str(REPO_ROOT / "scripts" / "check_boundary.py")], REPO_ROOT),
     ]
 

@@ -1,0 +1,468 @@
+{
+  "$defs": {
+    "ComponentSource": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ref"
+        },
+        "retrieved_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retrieved At"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "ComponentSource",
+      "type": "object"
+    },
+    "DistinguishingFeature": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^df_[a-z0-9_]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "location": {
+          "enum": [
+            "product_body",
+            "packaging",
+            "accessory"
+          ],
+          "title": "Location",
+          "type": "string"
+        },
+        "importance": {
+          "enum": [
+            "critical",
+            "supporting"
+          ],
+          "title": "Importance",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "description",
+        "location",
+        "importance"
+      ],
+      "title": "DistinguishingFeature",
+      "type": "object"
+    },
+    "MoneyMinor": {
+      "additionalProperties": false,
+      "properties": {
+        "amount_minor": {
+          "description": "Amount in minor units (e.g. paise, cents)",
+          "minimum": 0,
+          "title": "Amount Minor",
+          "type": "integer"
+        },
+        "currency": {
+          "default": "INR",
+          "maxLength": 3,
+          "minLength": 3,
+          "title": "Currency",
+          "type": "string"
+        }
+      },
+      "required": [
+        "amount_minor"
+      ],
+      "title": "MoneyMinor",
+      "type": "object"
+    },
+    "ProductComponent": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9_]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "quantity": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Quantity",
+          "type": "integer"
+        },
+        "essential": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": true,
+          "title": "Essential"
+        },
+        "replaceable": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "title": "Replaceable"
+        },
+        "verifiable_by_photo": {
+          "default": true,
+          "title": "Verifiable By Photo",
+          "type": "boolean"
+        },
+        "visual_cues": {
+          "title": "Visual Cues",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/ComponentSource"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "visual_cues",
+        "source"
+      ],
+      "title": "ProductComponent",
+      "type": "object"
+    },
+    "ProductIdentifiers": {
+      "additionalProperties": false,
+      "properties": {
+        "asin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Asin"
+        },
+        "fnsku": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fnsku"
+        },
+        "gtin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gtin"
+        },
+        "model_numbers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Model Numbers",
+          "type": "array"
+        },
+        "barcode_values": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Barcode Values",
+          "type": "array"
+        }
+      },
+      "title": "ProductIdentifiers",
+      "type": "object"
+    },
+    "ProductValue": {
+      "additionalProperties": false,
+      "properties": {
+        "synthetic": {
+          "default": true,
+          "title": "Synthetic",
+          "type": "boolean"
+        },
+        "list_price": {
+          "$ref": "#/$defs/MoneyMinor"
+        },
+        "recovery_rate_bp": {
+          "$ref": "#/$defs/RecoveryRateBp"
+        },
+        "refurbish_cost": {
+          "$ref": "#/$defs/MoneyMinor"
+        }
+      },
+      "required": [
+        "list_price",
+        "recovery_rate_bp",
+        "refurbish_cost"
+      ],
+      "title": "ProductValue",
+      "type": "object"
+    },
+    "RecoveryRateBp": {
+      "additionalProperties": false,
+      "properties": {
+        "restock_new": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Restock New",
+          "type": "integer"
+        },
+        "restock_used": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Restock Used",
+          "type": "integer"
+        },
+        "refurbish": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Refurbish",
+          "type": "integer"
+        },
+        "liquidate": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Liquidate",
+          "type": "integer"
+        },
+        "dispose": {
+          "default": 0,
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Dispose",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "restock_new",
+        "restock_used",
+        "refurbish",
+        "liquidate"
+      ],
+      "title": "RecoveryRateBp",
+      "type": "object"
+    },
+    "ReferenceImage": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^ref_[a-z0-9_]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "view": {
+          "enum": [
+            "front",
+            "back",
+            "left",
+            "right",
+            "top",
+            "bottom",
+            "label",
+            "packaging",
+            "accessories",
+            "contents_layout"
+          ],
+          "title": "View",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "view",
+        "path",
+        "sha256"
+      ],
+      "title": "ReferenceImage",
+      "type": "object"
+    },
+    "SimilarSku": {
+      "additionalProperties": false,
+      "properties": {
+        "sku": {
+          "title": "Sku",
+          "type": "string"
+        },
+        "differs_by": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Differs By",
+          "type": "array"
+        }
+      },
+      "required": [
+        "sku",
+        "differs_by"
+      ],
+      "title": "SimilarSku",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "product-card/v1",
+      "default": "product-card/v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "version": {
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "title": "Version",
+      "type": "string"
+    },
+    "org_id": {
+      "pattern": "^[a-z0-9_]+$",
+      "title": "Org Id",
+      "type": "string"
+    },
+    "sku": {
+      "pattern": "^[A-Z0-9_-]+$",
+      "title": "Sku",
+      "type": "string"
+    },
+    "identifiers": {
+      "$ref": "#/$defs/ProductIdentifiers"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    },
+    "brand": {
+      "title": "Brand",
+      "type": "string"
+    },
+    "category_key": {
+      "title": "Category Key",
+      "type": "string"
+    },
+    "distinguishing_features": {
+      "items": {
+        "$ref": "#/$defs/DistinguishingFeature"
+      },
+      "title": "Distinguishing Features",
+      "type": "array"
+    },
+    "similar_skus": {
+      "items": {
+        "$ref": "#/$defs/SimilarSku"
+      },
+      "title": "Similar Skus",
+      "type": "array"
+    },
+    "components": {
+      "items": {
+        "$ref": "#/$defs/ProductComponent"
+      },
+      "minItems": 1,
+      "title": "Components",
+      "type": "array"
+    },
+    "reference_images": {
+      "items": {
+        "$ref": "#/$defs/ReferenceImage"
+      },
+      "title": "Reference Images",
+      "type": "array"
+    },
+    "value": {
+      "$ref": "#/$defs/ProductValue"
+    },
+    "provenance_notes": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Provenance Notes"
+    },
+    "content_sha256": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Content Sha256"
+    }
+  },
+  "required": [
+    "version",
+    "org_id",
+    "sku",
+    "identifiers",
+    "title",
+    "brand",
+    "category_key",
+    "components",
+    "value"
+  ],
+  "title": "ProductCardV1",
+  "type": "object"
+}

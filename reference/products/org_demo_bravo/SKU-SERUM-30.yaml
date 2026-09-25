@@ -1,0 +1,74 @@
+schema: product-card/v1
+version: 1.0.0
+org_id: org_demo_bravo
+sku: SKU-SERUM-30
+identifiers:
+  asin: B0DUMMY031
+  fnsku: null
+  gtin: null
+  model_numbers: []
+  barcode_values: []
+title: Vitamin C Facial Radiance Serum 30ml
+brand: DermaPure
+category_key: beauty_topical
+distinguishing_features:
+- id: df_amber_bottle
+  description: Amber UV-protective glass bottle with calibrated pipette
+  location: product_body
+  importance: critical
+similar_skus: []
+components:
+- id: bottle
+  name: bottle
+  quantity: 1
+  essential: true
+  replaceable: false
+  verifiable_by_photo: true
+  visual_cues: 30ml amber glass dropper bottle
+  source:
+    type: seller_catalogue
+    ref: cat row 50
+    retrieved_at: null
+- id: dropper
+  name: dropper
+  quantity: 1
+  essential: true
+  replaceable: true
+  verifiable_by_photo: true
+  visual_cues: Glass pipette dropper cap
+  source:
+    type: seller_catalogue
+    ref: cat row 50
+    retrieved_at: null
+- id: leaflet
+  name: leaflet
+  quantity: 1
+  essential: false
+  replaceable: true
+  verifiable_by_photo: true
+  visual_cues: Information and usage leaflet
+  source:
+    type: seller_catalogue
+    ref: cat row 50
+    retrieved_at: null
+reference_images:
+- id: ref_front
+  view: front
+  path: images/SKU-SERUM-30/front.jpg
+  sha256: be4337c12520c2481ec61db62c17b53d6aa67ccdb9efee9a5d42c84cc6614c75
+value:
+  synthetic: true
+  list_price:
+    amount_minor: 149900
+    currency: INR
+  recovery_rate_bp:
+    restock_new: 10000
+    restock_used: 6500
+    refurbish: 5500
+    liquidate: 2000
+    dispose: 0
+  refurbish_cost:
+    amount_minor: 0
+    currency: INR
+provenance_notes: Product Knowledge Card for SKU-SERUM-30 under org_demo_bravo
+content_sha256: d0ce59a1fae7f948e58d2b793812e45adfafc753d01c83782e507666c2054c29

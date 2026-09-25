@@ -1,0 +1,17 @@
+schema: quality-gate/v1
+version: 1.0.0
+calibration_notes: Initial calibrated thresholds on dev fixtures; never calibrated
+  on eval set.
+calibrated_at: '2026-09-25T00:00:00Z'
+calibrated_by: upeshchowdary
+thresholds:
+  min_width: 800
+  min_height: 600
+  max_aspect_ratio: '3.0'
+  blur_laplacian_var_min: '100.0'
+  brightness_mean_min: '40.0'
+  brightness_mean_max: '220.0'
+  contrast_std_min: '25.0'
+  min_file_bytes: 10240
+  max_file_bytes: 20971520
+content_sha256: e4619f97f003d097d7acb142df0ee8d0e0b37f11e885565f58c508aa04b924ab

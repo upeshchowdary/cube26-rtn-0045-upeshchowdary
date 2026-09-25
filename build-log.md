@@ -243,13 +243,54 @@ method is written next to it. Sections `## Findings` and `## Open questions` are
 11. Migration `0004_reference_data.sql` and loader `returns-manager reference load` in `agent/src/returns_manager/reference/loader.py` with RLS and isolation.
 12. Wire CLI commands, update `dev.py` so `dev check` executes `reference validate`, and write comprehensive unit tests.
 
----
+**Changed**
+- `reference/_schemas/*.schema.json`: exported 9 JSON schemas (Draft 2020-12) for all §8 reference data types.
+- `agent/src/returns_manager/reference/models.py`: Pydantic v2 models for products, rubrics, policies, categories, rules, quality gates, pricing, and FX.
+- `agent/src/returns_manager/reference/hashing.py`: RFC 8785 canonical JSON content hashing (`content_sha256 = SHA-256(JCS(parsed_data_without_sha))`).
+- `reference/sources.yaml`: external source document manifest referencing Amazon UK condition guidelines PDF with verified SHA-256 (`342a3dc2e9cbdec5467ec03417630f1e2466ac3bbf6d7a6965caf871a35e2718`).
+- `agent/src/returns_manager/reference/extract.py`: PyMuPDF extractor downloading and verifying PDF SHA-256, extracting page text, extracting exact quotes across 6 categories (`electronics`, `toys_games`, `home_kitchen`, `pet`, `beauty_topical`, `grocery_ingestible`), generating snapshots, and writing `reference/rubrics/active.yaml`.
+- `reference/policies/amazon.co.uk/<category>.yaml`: 6 category policy documents with explicit `source_type` (`amazon_guideline`, `business_policy`, `assumption`) on every field.
+- `reference/categories/sku-category-map.yaml`: mapped all 10 sample SKUs to category keys with rationales.
+- `reference/rules/disposition-params.yaml`, `reference/quality/quality-gate.yaml`, `reference/pricing/gemini.yaml`, `reference/pricing/fx.yaml`: authored and hash-sealed.
+- `agent/src/returns_manager/reference/seed_cards.py`: generated 15 Product Knowledge Cards across `org_demo_alpha` and `org_demo_bravo` with synthetic pricing and downscaled reference images, plus `reference/orders/orders-seed.csv` (24 sample orders).
+- `agent/src/returns_manager/reference/validator.py`: comprehensive reference validator verifying schemas, canonical hashes, image presence/hashes, and exact substring matching against extracted PDF pages.
+- `agent/migrations/0004_reference_data.sql`: schema tables for products, product components, reference images, rubric snapshots, category policies, org policy overrides, and orders, with forced RLS and no DELETE grants. Applied via `returns-manager db migrate`.
+- `agent/src/returns_manager/reference/loader.py`: DB loader loading rubrics, policies, products, and orders under proper tenant transactions. Loaded successfully via `returns-manager reference load`.
+- `agent/src/returns_manager/cli/reference_commands.py`: wired `reference validate|hash|load`, `rubric extract`, and `catalogue import`.
+- `agent/src/returns_manager/__main__.py`: added module entrypoint for direct package CLI execution.
+- `tests/conftest.py`: added shared `db` fixture for all database tests.
+- `tests/unit/test_rubric_quotes.py`: tests verifying exact substring matching of all rubric quotes against extracted PDF pages.
+- `tests/unit/test_reference_validate.py`: tests for reference validation, tampering detection, category coverage, policy source types, product card uniqueness, and RLS tenant isolation in Supabase.
+- `decisions/ADR-006-rubric-source-substitute.md`: recorded decision to use Amazon UK condition guidelines PDF as an explicit `unverified_substitute` with data-driven snapshot selection in `active.yaml`.
+- `findings/F-001-condition-guidelines-marketplace.md`: recorded finding regarding Amazon Seller Central marketplace login barriers and substitute source handling.
 
+**Failed, and what the evidence showed**
+- Boundary check initially failed because `.cache/sources/amazon-uk-condition-guidelines-pdf.pdf` was untracked and caught by the forbidden `.pdf` filter in `scripts/check_boundary.py`. Fixed by configuring `agent/.gitignore` to ignore `.cache/` and pointing `CACHE_DIR` to `agent/.cache/sources/`.
+- `dev.py` invocation of `python -m returns_manager reference validate` failed because `returns_manager` had no `__main__.py`. Fixed by creating `agent/src/returns_manager/__main__.py` importing `main`.
+- In `extract.py`, direct keyword arguments to `ConditionRubricV1` triggered mypy `Unexpected keyword argument "schema"` because the class field is named `schema_` (aliased to `"schema"`). Corrected to pass `schema_="condition-rubric/v1"`.
+- `hashing.py:25` triggered mypy `Returning Any from function declared to return "bool"` because `data.get("content_sha256")` returned `Any`. Coerced to `bool(...)`.
+- `psycopg` dict row factory in `test_db_reference_data_isolation` resulted in `KeyError: 1` when accessing row tuples by index. Fixed by accessing `r["org_id"]`.
+
+**Evidence (acceptance criteria, §23 P2)**
+- `returns-manager reference validate`: **34 file(s) valid** (every reference document matches JSON Schema and canonical RFC 8785 SHA-256).
+- Rubric quotes exact substring matching: verified across all 6 categories via `test_rubric_quotes.py`.
+- `reference/rubrics/active.yaml` dynamically selects active snapshots by data; verified in `test_active_rubrics_cover_all_categories`.
+- `returns-manager reference load`: loaded 6 rubric snapshots, 6 category policies, 15 product cards, and 24 orders into local Supabase.
+- Tenant isolation: verified in `test_db_reference_data_isolation` that each org only sees its own products and orders.
+- Full test suite: **91 passed, 0 failed** in 2.7s.
+- `returns-manager dev check`: **All 6 quality gates passed** (ruff lint ok, ruff format ok, mypy ok across 42 files, pytest ok, reference validate ok, boundary check ok).
+- Organisers asked about target marketplace: recorded in Open Questions OQ-2; UK guidelines marked `unverified_substitute` in all snapshots.
+- F-001 and ADR-006 written.
+
+**Next:** Commit P2, push `upeshchowdary`, and begin Phase P3 (Intake and Photo Pipeline).
+
+---
 
 ## Findings
 
 | F-### | date | source | contradiction | impact | our handling | GitHub issue |
 |---|---|---|---|---|---|---|
+| F-001 | 2026-09-25 | prompt §1.7, §8.3, §26 | Amazon Seller Central requires login; no public amazon.in guidelines | amazon.co.uk guidelines used as unverified substitute | data-driven active.yaml, ADR-006, unverified_substitute tag | pending |
 | F-007 | 2026-09-25 | prompt §0.3/§1.1/§4.2 vs RULES.md R2/R3, GITHUB-GUIDE | prompt: build only in `submissions/<user>/` with the PR CI guard; repo rules: build in own fork, no submissions folder or PR | where files live; which boundary check applies | fork-root layout (human's decision); CI-guard intent kept in `scripts/check_boundary.py` | pending |
 
 F-001…F-006 (§26) are verified and filed in the phases that act on them (P2, P6).

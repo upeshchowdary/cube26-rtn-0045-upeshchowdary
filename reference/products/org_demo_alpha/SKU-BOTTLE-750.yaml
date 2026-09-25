@@ -1,0 +1,63 @@
+schema: product-card/v1
+version: 1.0.0
+org_id: org_demo_alpha
+sku: SKU-BOTTLE-750
+identifiers:
+  asin: B0DUMMY622
+  fnsku: null
+  gtin: null
+  model_numbers: []
+  barcode_values: []
+title: 750ml Insulated Stainless Steel Water Bottle
+brand: HydroPeak
+category_key: home_kitchen
+distinguishing_features:
+- id: df_lid_handle
+  description: Integrated carry loop on screw cap
+  location: accessory
+  importance: critical
+similar_skus: []
+components:
+- id: bottle
+  name: bottle
+  quantity: 1
+  essential: true
+  replaceable: false
+  verifiable_by_photo: true
+  visual_cues: Stainless steel double-walled 750ml flask
+  source:
+    type: seller_catalogue
+    ref: cat row 45
+    retrieved_at: null
+- id: lid
+  name: lid
+  quantity: 1
+  essential: true
+  replaceable: true
+  verifiable_by_photo: true
+  visual_cues: Threaded leakproof lid with silicone seal
+  source:
+    type: seller_catalogue
+    ref: cat row 45
+    retrieved_at: null
+reference_images:
+- id: ref_front
+  view: front
+  path: images/SKU-BOTTLE-750/front.jpg
+  sha256: 5a29603d49f30b2846cc7ea8cf2ac9628adcf7b44c5ee37de839cbe3621ab6d1
+value:
+  synthetic: true
+  list_price:
+    amount_minor: 129900
+    currency: INR
+  recovery_rate_bp:
+    restock_new: 10000
+    restock_used: 6500
+    refurbish: 5500
+    liquidate: 2000
+    dispose: 0
+  refurbish_cost:
+    amount_minor: 20000
+    currency: INR
+provenance_notes: Product Knowledge Card for SKU-BOTTLE-750 under org_demo_alpha
+content_sha256: 984c8241ab29497d4610c589e4257257ad93de07018585e129d6b8c87b425f23
