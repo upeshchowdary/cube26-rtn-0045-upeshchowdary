@@ -14,7 +14,8 @@ from returns_manager.db.pool import Database
 from returns_manager.errors import BadRequest, Conflict, NotFound, QualityGateRefusal
 from returns_manager.ids import new_id, new_storage_uuid
 from returns_manager.intake.images import process_photo
-from returns_manager.intake.quality import assess_photo_quality
+from returns_manager.intake.quality import assess_photo_quality, load_thresholds
+from returns_manager.jobs.queue import JobQueue, compute_job_priority
 from returns_manager.storage.photos import PhotoStorage, photo_object_key
 from returns_manager.vision.barcode import read_barcodes_from_image
 
@@ -68,8 +69,6 @@ class PhotoRecord:
     uploaded_at: str
     storage_key_original: str
     storage_key_analysis: str | None
-    signed_url_original: str | None = None
-    signed_url_analysis: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -133,11 +132,14 @@ def format_record_id(unit_id: str, return_seq: int = 1, record_id: str | None = 
             raise BadRequest(f"Invalid record_id '{record_id}': must match RTN-<4-digit>(-<seq>)?")
         return record_id
 
-    # Extract digits from unit_id
+    # The unit number is the unit_id's digits (UNIT-0014 -> 0014). Without digits there is no deterministic
+    # record_id, so the caller must pass one explicitly.
     digits = "".join(c for c in unit_id if c.isdigit())
-    unit_num = int(digits[-4:]) if digits else (abs(hash(unit_id)) % 9999) + 1
-    if unit_num == 0:
-        unit_num = 1
+    if not digits or int(digits[-4:]) == 0:
+        raise BadRequest(
+            f"unit_id '{unit_id}' has no unit number; pass record_id explicitly (RTN-<4-digit>(-<seq>)?)"
+        )
+    unit_num = int(digits[-4:])
 
     if return_seq == 1:
         return f"RTN-{unit_num:04d}"
@@ -145,9 +147,20 @@ def format_record_id(unit_id: str, return_seq: int = 1, record_id: str | None = 
 
 
 class IntakeService:
-    def __init__(self, db: Database, storage: PhotoStorage | None = None) -> None:
+    def __init__(
+        self,
+        db: Database,
+        storage: PhotoStorage | None = None,
+        *,
+        analysis_long_edge: int = 1568,
+        job_max_attempts: int = 5,
+        high_value_threshold_minor: int = 500000,
+    ) -> None:
         self.db = db
         self.storage = storage
+        self.analysis_long_edge = analysis_long_edge
+        self.job_max_attempts = job_max_attempts
+        self.high_value_threshold_minor = high_value_threshold_minor
 
     async def create_return(
         self,
@@ -263,11 +276,7 @@ class IntakeService:
             )
             photos: list[PhotoRecord] = []
             for p in await res_p.fetchall():
-                signed_orig = None
-                signed_analysis = None
-                if self.storage:
-                    with io.BytesIO():
-                        pass  # placeholder
+                # Signed URLs are issued only on request, per photo (GET /photos/{id}/url), never inline.
                 photos.append(
                     PhotoRecord(
                         photo_id=p["photo_id"],
@@ -287,8 +296,6 @@ class IntakeService:
                         uploaded_at=p["uploaded_at"].isoformat(),
                         storage_key_original=p["storage_key_original"],
                         storage_key_analysis=p["storage_key_analysis"],
-                        signed_url_original=signed_orig,
-                        signed_url_analysis=signed_analysis,
                     )
                 )
 
@@ -371,7 +378,7 @@ class IntakeService:
                     )
 
             # 3. Process photo safely
-            processed = process_photo(photo_bytes)
+            processed = process_photo(photo_bytes, max_long_edge=self.analysis_long_edge)
 
             # 4. Dedupe by sha256_original within this return
             res_hash = await conn.execute(
@@ -457,11 +464,12 @@ class IntakeService:
                 """
                 SELECT phash::text FROM rm.return_photos
                 WHERE org_id = %s AND return_id <> %s
-                  AND uploaded_at >= now() - interval '30 days'
+                  AND uploaded_at >= now() - make_interval(days => %s)
                   AND phash IS NOT NULL
+                ORDER BY uploaded_at DESC
                 LIMIT 500
                 """,
-                (org_id, return_id),
+                (org_id, return_id, load_thresholds().reused_window_days),
             )
             org_30d_phashes = [r["phash"] for r in await res_org_phashes.fetchall() if r["phash"]]
 
@@ -582,6 +590,34 @@ class IntakeService:
                 note=r["note"],
             )
 
+    async def _job_priority(self, conn: Any, org_id: str, return_id: str) -> int:
+        """Enqueue priority (§10.3) from the item's list price and the operator's latest observation."""
+        cur = await conn.execute(
+            """
+            SELECT (p.card -> 'value' -> 'list_price' ->> 'amount_minor')::bigint AS list_price_minor
+            FROM rm.returns r
+            JOIN rm.products p ON p.org_id = r.org_id AND p.sku = r.ordered_sku AND p.active
+            WHERE r.org_id = %s AND r.return_id = %s
+            ORDER BY p.created_at DESC LIMIT 1
+            """,
+            (org_id, return_id),
+        )
+        price_row = await cur.fetchone()
+        cur = await conn.execute(
+            """
+            SELECT observed_state FROM rm.operator_observations
+            WHERE org_id = %s AND return_id = %s ORDER BY recorded_at DESC LIMIT 1
+            """,
+            (org_id, return_id),
+        )
+        obs_row = await cur.fetchone()
+        return compute_job_priority(
+            kind="judgment",
+            item_value_minor=price_row["list_price_minor"] if price_row else None,
+            high_value_threshold_minor=self.high_value_threshold_minor,
+            observed_state=obs_row["observed_state"] if obs_row else None,
+        )
+
     async def submit_return(
         self,
         org_id: str,
@@ -607,11 +643,14 @@ class IntakeService:
                     """
                     SELECT job_id FROM rm.inspection_jobs
                     WHERE org_id = %s AND return_id = %s AND kind = 'judgment'
+                    ORDER BY created_at DESC LIMIT 1
                     """,
                     (org_id, return_id),
                 )
                 j = await res_job.fetchone()
-                job_id = j["job_id"] if j else new_id()
+                if j is None:
+                    raise Conflict("Return is queued but has no judgment job; ask an admin to requeue it")
+                job_id = j["job_id"]
                 return SubmitResult(job_id=job_id, return_id=return_id, status="queued")
 
             if curr_status != "capturing":
@@ -637,28 +676,15 @@ class IntakeService:
                     "Retake failing photos or submit with acknowledge_quality_warnings=true."
                 )
 
-            # Transition return to 'queued'
-            await conn.execute(
-                """
-                UPDATE rm.returns
-                SET status = 'queued', submitted_at = now()
-                WHERE org_id = %s AND return_id = %s
-                """,
-                (org_id, return_id),
+            priority = await self._job_priority(conn, org_id, return_id)
+            job = await JobQueue.enqueue_job(
+                conn,
+                org_id=org_id,
+                return_id=return_id,
+                kind="judgment",
+                priority=priority,
+                max_attempts=self.job_max_attempts,
             )
-
-            # Enqueue judgment job
-            job_id = new_id()
-            idem_key = f"judgment:{return_id}"
-            await conn.execute(
-                """
-                INSERT INTO rm.inspection_jobs (
-                    job_id, org_id, return_id, kind, status, idempotency_key, priority
-                ) VALUES (%s, %s, %s, 'judgment', 'pending', %s, 0)
-                ON CONFLICT (org_id, idempotency_key) DO UPDATE SET updated_at = now()
-                RETURNING job_id
-                """,
-                (job_id, org_id, return_id, idem_key),
-            )
+            job_id = job.job_id
 
             return SubmitResult(job_id=job_id, return_id=return_id, status="queued")

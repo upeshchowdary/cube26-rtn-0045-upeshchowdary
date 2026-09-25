@@ -25,7 +25,13 @@ class Services:
 
     @property
     def intake(self) -> IntakeService:
-        return IntakeService(self.db, self.storage)
+        return IntakeService(
+            self.db,
+            self.storage,
+            analysis_long_edge=self.settings.rm_analysis_long_edge,
+            job_max_attempts=self.settings.rm_job_max_attempts,
+            high_value_threshold_minor=self.settings.rm_high_value_threshold_minor,
+        )
 
 
 def services(request: Request) -> Services:

@@ -346,7 +346,126 @@ method is written next to it. Sections `## Findings` and `## Open questions` are
 - `returns-manager dev check`: **All 6 quality gates passed** (ruff lint ok, ruff format ok, mypy ok across 51 source files, pytest ok, reference validate ok with 34 files, boundary check ok).
 - P3 Definition of Done met in full.
 
-**Next:** Commit P3 on branch `upeshchowdary`, push to origin, and begin Phase P4 (Durable Jobs, Worker, and Fail-Open).
+**Next:** Begin Phase P4 (Durable Jobs, Worker, and Fail-Open).
+
+---
+
+## 2026-09-25 · P4 Durable Jobs, Worker, and Fail-Open
+
+### Plan
+1. Schema migration `0005_jobs_and_operations.sql`:
+   - `rm.worker_heartbeats`: host, pid, version, concurrency, started_at, last_seen_at.
+   - `rm.model_request_ledger`: operational request budget tracking per model per Pacific calendar day.
+   - Grant SELECT, INSERT, UPDATE on operational tables to `rm_app`. Apply migration.
+2. State machines (`agent/src/returns_manager/jobs/statemachine.py`):
+   - Return status: `capturing` -> `queued` -> `inspecting` -> `pending` / `awaiting_operator` / `awaiting_review` / `awaiting_signoff` / `finalized` / `needs_attention`.
+   - Job status: `pending` -> `in_progress` -> `succeeded` / `failed_retryable` / `needs_attention` / `cancelled`.
+   - Strict transition functions raising `InvalidTransitionError` on disallowed moves.
+3. Errors, retry & backoff (`agent/src/returns_manager/jobs/retry.py`):
+   - Error classification mapping provider, rate limit, quota, and domain errors to retryable or non-retryable classes.
+   - Jittered exponential backoff: `now + min(300 s, 2^attempts * 5 s) * uniform(0.8, 1.2)`.
+4. Circuit breaker (`agent/src/returns_manager/jobs/circuit.py`):
+   - Per-model breaker with `CLOSED`, `OPEN`, `HALF_OPEN`.
+   - `RM_CIRCUIT_FAILURE_THRESHOLD` consecutive failures trigger cooldown `RM_CIRCUIT_COOLDOWN_S`.
+5. Free-tier request budget (`agent/src/returns_manager/jobs/budget.py`):
+   - Atomic reservation and usage tracking against daily quota budgets (`RM_DAILY_REQUEST_BUDGET_*`).
+   - Pacific midnight reset boundary calculation.
+   - Client-side token bucket rate limiter for RPM (`RM_RPM_LIMIT_JUDGMENT`).
+6. Queue service (`agent/src/returns_manager/jobs/queue.py`):
+   - Priority calculation per §10.3 (base 0, +20 high-value, +30 empty_box/damaged, +10 escalation).
+   - Inspection idempotency key generation per §10.5.
+   - Job claiming via `rm.claim_next_job`, lease renewal, and lease reaping via `rm.reap_expired_leases`.
+7. Worker loop (`agent/src/returns_manager/jobs/worker.py`):
+   - Asyncio concurrency pool with N worker slots, heartbeats every 30 s, graceful shutdown on cancel/SIGTERM.
+   - Fail-open execution guarantees: failure records error without guessed grades; return stays pending or needs_attention.
+   - Startup assert for lease sizing: `RM_JOB_LEASE_S > worst-case timeout`.
+8. API & CLI integration:
+   - `GET /api/v1/jobs/{job_id}` endpoint in `agent/src/returns_manager/api/routes/jobs.py`.
+   - CLI commands `returns-manager worker` and `returns-manager jobs list|retry|cancel`.
+9. Acceptance tests (`agent/tests/unit/test_jobs.py`):
+   - `T-Q-01` through `T-Q-12` (state machines, retry backoff, circuit breaker, quota budgets, concurrency, fairness, heartbeats, graceful shutdown).
+   - `T-FO-01` through `T-FO-03` (fail-open drills on timeout, refusal, schema errors).
+10. Run `returns-manager dev check`, verify all 6 quality gates, record DoD and evidence.
+
+---
+
+## 2026-09-25 · Full-repo error sweep and P4 completion (handover to a new agent)
+
+**Plan.** Run every gate (ruff, format, mypy, all non-live tests incl. `db`, reference validate, boundary
+check); probe the uncommitted P4 code against the live local database; fix what is wrong; add the
+missing P4 tests.
+
+**Baseline (method: `dev check` pieces run separately).** 103 tests passed, mypy clean, reference validate
+and boundary ok; ruff 31 errors + 4 unformatted files, all in the uncommitted P4 code. Passing tests hid
+real bugs because P4 had no tests at all.
+
+**Confirmed by a throwaway probe against local Supabase (then fixed)**
+- The default ("stub") job handler moved a never-inspected return to `awaiting_operator` and marked the job
+  `succeeded`: a decision-ready state with no inspection (violates §10.6). Now: without a handler every job
+  ends `needs_attention` (`configuration`), photos intact.
+- Kill switch read with `ORDER BY scope DESC LIMIT 1`: global OFF + org ON let model calls through. Now uses
+  `controls.effective` (global AND org, as the 0002 migration comment and §6.7 say).
+- `Worker.run(max_jobs=1)` returned 0 after processing a job (it counted jobs under no tenant context, which
+  RLS always answers with 0). Now counts this worker's finished jobs.
+- Not a bug (my first reading was wrong): budget reservation is race-free; the upsert's row lock serialises
+  it (20 parallel reservations against budget 5 → exactly 5 allowed). Kept, and now covered by T-Q-14.
+
+**Found by reading, fixed**
+- Operational holds (kill switch, open circuit, exhausted quota) re-queued with `next_attempt_at = now()`:
+  a busy loop that also incremented `attempts` on every claim. New `JobQueue.hold_job` gives the attempt
+  back and delays (60 s / circuit cooldown / next Pacific midnight).
+- The worker reserved 1 daily-quota request per job even for the stub handler; request tokens belong to the
+  model client (P5). The worker now only holds jobs when today's budget is already spent.
+- Circuit breakers used a global registry with hard-coded 5/60 s, ignoring `RM_CIRCUIT_*`.
+- Return status in the failure paths was written directly, bypassing the state machine; a job whose return
+  had gone back to `capturing` (retake) still inspected it. Now every move goes through
+  `transition_return_status`; stale jobs are cancelled.
+- Graceful shutdown lost track of in-flight jobs (the cancelled slot removed them before release) and used a
+  sleep-poll loop. Rewritten: wait for slots, snapshot, cancel, release leases as `shutdown`.
+- Unknown exceptions tripped the provider circuit; typed errors (timeout, network, config, invalid state,
+  quota, circuit) were classified by message substrings. Now typed first; unknown errors retry but never
+  count toward the circuit.
+- Submit bypassed `JobQueue.enqueue_job`: key `judgment:{return_id}` instead of §10.5, priority always 0, and
+  a replay could return a made-up job id. Now §10.5 key (job kind included, so escalation/audit of the same
+  photos cannot collide with the judgment job), §10.3 priority, `RM_JOB_MAX_ATTEMPTS`.
+- `GET /api/v1/jobs/{id}` existed but was not registered; `worker` and `jobs list|retry|cancel` were stubs.
+  Built (`jobs/service.py`, `cli/job_commands.py`).
+- `record_id` fallback used Python `hash()` (random per process) → now a 400 asking for an explicit id.
+  Removed the leftover `io.BytesIO` placeholder in `get_return`; `RM_ANALYSIS_LONG_EDGE` is now honoured.
+- **Quality gate config was not used.** Thresholds were hard-coded; `quality-gate.yaml` held different,
+  unused keys and claimed "calibrated on dev fixtures" (none exist). The file now holds the §9.2 values,
+  states "NOT YET CALIBRATED", and the code loads it (version 1.1.0; version recorded in each photo's
+  quality metrics).
+- **Reference images were fake (F-008).** `seed_cards.py` wrote a truncated "1x1 JPEG" with one byte
+  changed; none decoded, and unrelated SKUs shared identical bytes (alpha lamp == bravo puzzle). The
+  validator only checked hashes and silently skipped missing files. Validator now requires every listed
+  image to exist, decode fully, and not be byte-identical to another SKU's image (22 errors found). Images
+  removed; cards are v1.1.0 with `reference_images: []` and provenance stating they are synthetic
+  placeholders — so §11.2a will skip the model with `no_product_reference` until real photos exist.
+- **`rm.reference_images` key bug (F-009).** PK `(org_id, ref_image_id)` while every card uses
+  `ref_front`: loading 15 cards left one image row per org. Migration `0006` keys it by
+  `(org_id, sku, card_version, ref_image_id)`. The loader also left old card versions `active`; now exactly
+  one active version per SKU.
+- Reference writers produced CRLF on Windows; all now write LF.
+- Tests that proved nothing: T-SEC-02 asserted nothing inside its loop; T-SEC-05 looked up a made-up id.
+  Both now seed real org-B rows in all 12 tenant tables / a real org-B photo and assert org A sees none.
+
+**Failed along the way.** A sed replacement inserted literal newlines (repaired); PowerShell 5.1 read a
+UTF-8 file as cp1252 and wrote a BOM (reversed byte-exactly; a scan of every changed file finds no BOM,
+mojibake or CRLF). Git Bash fork crashes (0xC0000005) recurred; heavy commands moved to PowerShell. The
+`--version` subprocess test hit the same native crash once (6/6 clean when repeated); it now retries only
+that exit code, as `dev check` already does.
+
+**Evidence.** `returns-manager dev check`: ruff ok, format ok, mypy ok (61 files), **136 passed** (was
+103; +23 in `test_jobs.py`: T-Q-01…19, T-FO-01…04), reference validate ok (34 files), boundary ok. The
+full suite was run 3 times: 136/136 each time. `db migrate` applied 0006; `reference load` reloaded 15 cards.
+Worker DB tests run inside a fixture that parks all pre-existing jobs and restores them exactly.
+
+**P4 acceptance (§23): met** — T-Q-*, T-FO-* green, including kill-worker (lease reclaim) and outage drills.
+Not yet built: system-chain events for circuit open/close and control changes (P7).
+
+**Next.** Commit P4 + fixes; then P5. **Blocker for P5:** real photos of physical products for the
+reference cards (and the eval set).
 
 ---
 
@@ -356,6 +475,9 @@ method is written next to it. Sections `## Findings` and `## Open questions` are
 |---|---|---|---|---|---|---|
 | F-001 | 2026-09-25 | prompt §1.7, §8.3, §26 | Amazon Seller Central requires login; no public amazon.in guidelines | amazon.co.uk guidelines used as unverified substitute | data-driven active.yaml, ADR-006, unverified_substitute tag | pending |
 | F-007 | 2026-09-25 | prompt §0.3/§1.1/§4.2 vs RULES.md R2/R3, GITHUB-GUIDE | prompt: build only in `submissions/<user>/` with the PR CI guard; repo rules: build in own fork, no submissions folder or PR | where files live; which boundary check applies | fork-root layout (human's decision); CI-guard intent kept in `scripts/check_boundary.py` | pending |
+
+| F-008 | 2026-09-25 | own repo: `seed_cards.py`, `reference/products/*/images` | P2 log says product cards have "downscaled reference images"; the files were generated, truncated, non-decodable and shared across unrelated SKUs, and card provenance ("cat row N", brands) was invented | model would compare returns against noise; eval credibility | images removed, cards marked synthetic placeholders, validator decodes and de-duplicates images | pending |
+| F-009 | 2026-09-25 | own repo: migration 0004 | `reference_images` PK `(org_id, ref_image_id)` vs card-local image ids | only one reference image per org survived loading | migration 0006 re-keys by card; loader deactivates old card versions | pending |
 
 F-001…F-006 (§26) are verified and filed in the phases that act on them (P2, P6).
 

@@ -1,17 +1,28 @@
 schema: quality-gate/v1
-version: 1.0.0
-calibration_notes: Initial calibrated thresholds on dev fixtures; never calibrated
-  on eval set.
-calibrated_at: '2026-09-25T00:00:00Z'
-calibrated_by: upeshchowdary
+version: 1.1.0
+calibration_notes: >-
+  NOT YET CALIBRATED. These are the placeholder thresholds of build prompt §9.2, copied verbatim. They
+  must be calibrated on dev fixtures (never the eval set) once real fixture photos exist; record the
+  fixtures used, the date and the person here and bump the version. Decimal thresholds are strings
+  because hashed reference documents carry no floats.
+calibrated_at: 'not calibrated'
+calibrated_by: 'n/a (build prompt §9.2 placeholders)'
 thresholds:
-  min_width: 800
-  min_height: 600
-  max_aspect_ratio: '3.0'
-  blur_laplacian_var_min: '100.0'
-  brightness_mean_min: '40.0'
-  brightness_mean_max: '220.0'
-  contrast_std_min: '25.0'
-  min_file_bytes: 10240
-  max_file_bytes: 20971520
-content_sha256: e4619f97f003d097d7acb142df0ee8d0e0b37f11e885565f58c508aa04b924ab
+  sharpness_long_edge_px: 1024
+  sharpness_laplacian_var_pass_min: '120.0'
+  sharpness_laplacian_var_fail_below: '60.0'
+  exposure_mean_fail_below: '40.0'
+  exposure_mean_fail_above: '225.0'
+  exposure_mean_warn_below: '60.0'
+  exposure_mean_warn_above: '200.0'
+  exposure_clipped_pct_warn_above: '5.0'
+  exposure_clipped_pct_fail_above: '15.0'
+  exposure_crushed_pct_warn_above: '5.0'
+  exposure_crushed_pct_fail_above: '15.0'
+  resolution_short_edge_pass_min: 1080
+  resolution_short_edge_fail_below: 720
+  near_duplicate_hamming_flag_at_or_below: 5
+  near_duplicate_hamming_ok_above: 10
+  reused_photo_hamming_at_or_below: 4
+  reused_photo_window_days: 30
+content_sha256: ea56f1dd07ffd1ab0c7e9beed97c4106ebae1f350d95cb81de269ca2d39f37fe

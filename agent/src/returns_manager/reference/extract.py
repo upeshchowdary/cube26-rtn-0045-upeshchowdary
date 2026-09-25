@@ -403,7 +403,9 @@ def extract_and_write_rubrics(
 
     # Save extracted pages cache for offline/reproducible validation
     cache_pages_path = rubrics_dir / "_extracted_pages.json"
-    cache_pages_path.write_text(json.dumps(pages, indent=2, ensure_ascii=False), encoding="utf-8")
+    cache_pages_path.write_text(
+        json.dumps(pages, indent=2, ensure_ascii=False), encoding="utf-8", newline="\n"
+    )
 
     rubrics = extract_rubric_definitions(pages)
     active_map: dict[str, str] = {}
@@ -413,7 +415,9 @@ def extract_and_write_rubrics(
         data = rubric.model_dump(by_alias=True)
         data["content_sha256"] = compute_reference_content_sha256(data)
         out_file = rubrics_dir / f"{cat_key}.yaml"
-        out_file.write_text(yaml.dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+        out_file.write_text(
+            yaml.dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8", newline="\n"
+        )
         active_map[cat_key] = rubric.snapshot_id
         written_files[cat_key] = str(out_file)
 
@@ -425,6 +429,8 @@ def extract_and_write_rubrics(
         "active_snapshots": active_map,
     }
     active_doc["content_sha256"] = compute_reference_content_sha256(active_doc)
-    active_file.write_text(yaml.dump(active_doc, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    active_file.write_text(
+        yaml.dump(active_doc, sort_keys=False, allow_unicode=True), encoding="utf-8", newline="\n"
+    )
 
     return written_files

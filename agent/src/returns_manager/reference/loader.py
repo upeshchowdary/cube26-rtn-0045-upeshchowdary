@@ -195,7 +195,7 @@ async def load_products(db: Database, ref_dir: Path | None = None) -> dict[str, 
                         org_id, sku, card_version, ref_image_id, view,
                         storage_key, sha256
                     ) VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (org_id, ref_image_id) DO UPDATE SET
+                    ON CONFLICT (org_id, sku, card_version, ref_image_id) DO UPDATE SET
                         view = EXCLUDED.view,
                         storage_key = EXCLUDED.storage_key,
                         sha256 = EXCLUDED.sha256
@@ -212,6 +212,15 @@ async def load_products(db: Database, ref_dir: Path | None = None) -> dict[str, 
                             img.sha256,
                         ),
                     )
+
+                # Exactly one active card version per SKU: older versions stay for traceability, inactive.
+                await conn.execute(
+                    """
+                    UPDATE rm.products SET active = false
+                    WHERE org_id = %s AND sku = %s AND card_version <> %s AND active
+                    """,
+                    (org_id, card.sku, card.version),
+                )
 
                 org_count += 1
         counts[org_id] = org_count

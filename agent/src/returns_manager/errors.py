@@ -66,6 +66,36 @@ class UnsupportedMediaType(ReturnsManagerError):
     exit_code = ExitCode.USAGE
 
 
+class InvalidTransitionError(Conflict):
+    """An illegal state machine transition was attempted."""
+
+    def __init__(self, entity: str, current: str | None, target: str, trigger: str | None = None) -> None:
+        trig_str = f" via trigger '{trigger}'" if trigger else ""
+        super().__init__(f"Invalid {entity} transition from '{current}' to '{target}'{trig_str}")
+        self.entity = entity
+        self.current = current
+        self.target = target
+        self.trigger = trigger
+
+
+class CircuitOpenError(ReturnsManagerError):
+    """Circuit breaker is open for the model; calls temporarily blocked."""
+
+    exit_code = ExitCode.FAILURE
+
+
+class QuotaExhaustedError(ReturnsManagerError):
+    """Model request quota exhausted for today."""
+
+    exit_code = ExitCode.SPEND_GUARD_REFUSED
+
+
+class HandlerNotConfigured(ReturnsManagerError):
+    """The worker has no handler for a job kind (the Judgment Agent is wired in P5). Never retried."""
+
+    exit_code = ExitCode.CONFIG_INVALID
+
+
 class NotBuiltYet(ReturnsManagerError):
     """A command that exists in the CLI tree but whose phase has not been built yet."""
 

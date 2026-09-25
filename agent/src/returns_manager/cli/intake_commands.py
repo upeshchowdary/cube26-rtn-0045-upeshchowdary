@@ -46,7 +46,14 @@ def capture_command(
 
     async def _run() -> None:
         async with db:
-            svc = IntakeService(db, storage)
+            settings = get_settings()
+            svc = IntakeService(
+                db,
+                storage,
+                analysis_long_edge=settings.rm_analysis_long_edge,
+                job_max_attempts=settings.rm_job_max_attempts,
+                high_value_threshold_minor=settings.rm_high_value_threshold_minor,
+            )
             typer.echo(f"Creating return for unit {unit_id} (order {order_id})...")
             ret = await svc.create_return(
                 org_id=org_id,

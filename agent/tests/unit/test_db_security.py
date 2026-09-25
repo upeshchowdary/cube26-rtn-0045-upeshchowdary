@@ -17,20 +17,27 @@ T-SEC-08  Kill-switch rules: global writes only without tenant context; reason r
 
 from __future__ import annotations
 
+import io
 import os
 import uuid
 from collections.abc import AsyncIterator
+from typing import Any
 
 import pytest
 import pytest_asyncio
+from PIL import Image
 
 from returns_manager.config import get_settings
 from returns_manager.db.migrate import migrate
 from returns_manager.db.pool import Database, UnsafeDatabaseRole, run_async
+from returns_manager.errors import NotFound
 from returns_manager.ids import new_id
+from returns_manager.intake.service import IntakeService
+from returns_manager.jobs.queue import JobQueue
 from returns_manager.security import api_keys, controls
 from returns_manager.security.controls import Control
 from returns_manager.security.roles import Forbidden, Permission, Principal, Role, require
+from returns_manager.storage.signed_urls import signed_url_for_photo
 
 # ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -62,6 +69,83 @@ def _app_dsn() -> str:
 def _fresh_org() -> str:
     """Fresh, unique org_id per test run; never reuses rows (no DELETE grants)."""
     return f"org_t{uuid.uuid4().hex[:12]}"
+
+
+# Every table that carries org_id and row-level security (organizations is checked via its own row).
+TENANT_TABLES: tuple[str, ...] = (
+    "organizations",
+    "memberships",
+    "api_keys",
+    "returns",
+    "return_photos",
+    "operator_observations",
+    "inspection_jobs",
+    "products",
+    "product_components",
+    "reference_images",
+    "org_policy_overrides",
+    "orders",
+)
+
+
+def _jpeg() -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", (1200, 900), (120, 130, 140)).save(buf, format="JPEG")
+    return buf.getvalue()
+
+
+async def _seed_every_tenant_table(db: Database, org_id: str) -> dict[str, str]:
+    """Give `org_id` at least one row in every tenant table (through the normal services where they exist)."""
+    svc = IntakeService(db)
+    ret = await svc.create_return(
+        org_id=org_id, actor_id="op_seed", order_id="ORD-SEC-1", unit_id="UNIT-0042", ordered_sku="SKU-SEC"
+    )
+    photo = await svc.upload_photo(
+        org_id=org_id, actor_id="op_seed", return_id=ret.return_id, photo_bytes=_jpeg()
+    )
+    await svc.record_observation(
+        org_id=org_id, actor_id="op_seed", return_id=ret.return_id, observed_state="damaged"
+    )
+    await api_keys.create_key(
+        db, org_id=org_id, name="seed", scopes=["returns:read"], created_by="test", env="local"
+    )
+    async with db.transaction(org_id) as conn:
+        await JobQueue.enqueue_job(conn, org_id, ret.return_id, idempotency_key=f"seed-{new_id()}")
+        await conn.execute(
+            "INSERT INTO rm.memberships (user_id, org_id, role, operator_label) "
+            "VALUES (%s, %s, 'operator', %s)",
+            (uuid.uuid4(), org_id, f"op_{new_id()[:8].lower()}"),
+        )
+        await conn.execute(
+            """INSERT INTO rm.products
+                 (org_id, sku, card_version, title, brand, category_key, card_sha256, card)
+               VALUES (%s, 'SKU-SEC', '1.0.0', 't', 'b', 'electronics', %s, '{}'::jsonb)""",
+            (org_id, "0" * 64),
+        )
+        await conn.execute(
+            """INSERT INTO rm.product_components (org_id, sku, card_version, component_id, name, quantity,
+                 visual_cues, source)
+               VALUES (%s, 'SKU-SEC', '1.0.0', 'part', 'part', 1, 'cue', '{}'::jsonb)""",
+            (org_id,),
+        )
+        await conn.execute(
+            """INSERT INTO rm.reference_images
+                 (org_id, sku, card_version, ref_image_id, view, storage_key, sha256)
+               VALUES (%s, 'SKU-SEC', '1.0.0', 'ref_front', 'front', 'k', %s)""",
+            (org_id, "0" * 64),
+        )
+        await conn.execute(
+            """INSERT INTO rm.org_policy_overrides (org_id, key, value, source_type, updated_by)
+               VALUES (%s, 'opened_item_route', '"liquidate"'::jsonb, 'business_policy', 'test')""",
+            (org_id,),
+        )
+        await conn.execute(
+            """INSERT INTO rm.orders
+                 (org_id, order_id, unit_id, ordered_sku, quantity, fulfilment_route, ordered_at)
+               VALUES (%s, 'ORD-SEC-1', 'UNIT-0042', 'SKU-SEC', 1, 'fba', now())""",
+            (org_id,),
+        )
+    return {"return_id": ret.return_id, "photo_id": photo.photo_id}
 
 
 # ── fixtures ───────────────────────────────────────────────────────────────────
@@ -120,32 +204,23 @@ def test_t_sec_01_app_refuses_bypass_role() -> None:
 @pytest.mark.db
 @pytest.mark.asyncio
 async def test_t_sec_02_org_isolation_zero_rows(db: Database, two_orgs: tuple[str, str]) -> None:
-    """Org alpha sees its own org row; it sees 0 rows of bravo in every tenant table."""
+    """Bravo gets a row in every tenant table; alpha sees none of them (and bravo sees all of its own)."""
     alpha, bravo = two_orgs
+    await _seed_every_tenant_table(db, bravo)
 
-    # Alpha's own org row is visible.
-    async with db.transaction(alpha) as conn:
-        cur = await conn.execute("SELECT org_id FROM rm.organizations")
-        rows = await cur.fetchall()
-    assert any(r["org_id"] == alpha for r in rows)
-    assert not any(r["org_id"] == bravo for r in rows), "alpha must not see bravo's org"
-
-    # All other tenant tables are empty for alpha (only organizations was seeded).
-    for table in (
-        "memberships",
-        "api_keys",
-        "returns",
-        "return_photos",
-        "operator_observations",
-        "inspection_jobs",
-    ):
-        async with db.transaction(alpha) as conn:
-            cur = await conn.execute(f"SELECT count(*) AS n FROM rm.{table}")  # noqa: S608
-            row = await cur.fetchone()
-        assert row is not None
-        # If alpha has no data in this table yet, 0 rows is correct.
-        # If alpha DID insert rows (e.g. api_keys from T-SEC-07 running first), they should show.
-        # We only assert bravo's data is not here — verified by checking bravo's org in organizations above.
+    for table in TENANT_TABLES:
+        for viewer, expect_rows in ((alpha, False), (bravo, True)):
+            async with db.transaction(viewer) as conn:
+                cur = await conn.execute(
+                    f"SELECT count(*) AS n FROM rm.{table} WHERE org_id = %s",  # noqa: S608
+                    (bravo,),
+                )
+                row = await cur.fetchone()
+            assert row is not None
+            if expect_rows:
+                assert row["n"] > 0, f"seeding failed: bravo sees no rows in rm.{table}"
+            else:
+                assert row["n"] == 0, f"alpha sees {row['n']} of bravo's rows in rm.{table}"
 
 
 # ── T-SEC-03 ───────────────────────────────────────────────────────────────────
@@ -193,24 +268,30 @@ async def test_t_sec_04_no_tenant_context_zero_rows(db: Database, two_orgs: tupl
 @pytest.mark.db
 @pytest.mark.asyncio
 async def test_t_sec_05_photo_not_found_for_wrong_org(db: Database, two_orgs: tuple[str, str]) -> None:
-    """Looking up a photo_id that belongs to bravo while authenticated as alpha returns 0 rows (→ 404).
+    """Alpha asking for a signed URL of bravo's REAL photo gets NotFound (→ 404), exactly like a made-up id.
 
-    This proves RLS makes another org's photos indistinguishable from non-existent ones.
-    The signed_url_for_photo path explicitly raises NotFound when the row is invisible.
+    The storage client is never reached: ownership is checked first, inside alpha's tenant transaction.
     """
-    alpha, _ = two_orgs
-    # There are no actual photos in the DB, so any photo_id lookup returns 0 rows under any org context.
-    # The test verifies that the DB query itself returns nothing for a bravo photo_id under alpha context.
-    fake_photo_id = f"photo_{new_id()}"
-    async with db.transaction(alpha) as conn:
-        cur = await conn.execute(
-            "SELECT photo_id FROM rm.return_photos WHERE photo_id = %s",
-            (fake_photo_id,),
-        )
-        row = await cur.fetchone()
-    assert row is None, (
-        "a non-existent photo ID must return None (indistinguishable from another org's photo)"
-    )
+    alpha, bravo = two_orgs
+    seeded = await _seed_every_tenant_table(db, bravo)
+    bravo_photo_id = seeded["photo_id"]
+
+    class _StorageMustNotBeCalled:
+        photos_bucket = "rm-return-photos"
+
+        async def signed_url(self, *args: object, **kwargs: object) -> str:
+            raise AssertionError("storage reached before the ownership check")
+
+    alpha_user = Principal(kind="user", org_id=alpha, actor_id="op-alpha", role=Role.OPERATOR)
+    storage: Any = _StorageMustNotBeCalled()
+    for photo_id in (bravo_photo_id, f"photo_{new_id()}"):
+        with pytest.raises(NotFound):
+            await signed_url_for_photo(db, storage, alpha_user, photo_id, "analysis", 300)
+
+    # The photo really exists for its own org.
+    async with db.transaction(bravo) as conn:
+        cur = await conn.execute("SELECT 1 FROM rm.return_photos WHERE photo_id = %s", (bravo_photo_id,))
+        assert await cur.fetchone() is not None
 
 
 # ── T-SEC-06 ───────────────────────────────────────────────────────────────────

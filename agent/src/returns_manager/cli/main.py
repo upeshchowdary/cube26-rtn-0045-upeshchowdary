@@ -11,7 +11,7 @@ import sys
 import typer
 
 from returns_manager import __version__
-from returns_manager.cli import dev, intake_commands, p1_commands, reference_commands
+from returns_manager.cli import dev, intake_commands, job_commands, p1_commands, reference_commands
 from returns_manager.errors import ExitCode, NotBuiltYet, ReturnsManagerError
 
 app = typer.Typer(
@@ -39,11 +39,7 @@ _PLANNED: list[tuple[str | None, str, str, str]] = [
     (None, "inspect", "P5", "Run (or --dry-run) a judgment inspection for a return."),
     ("quota", "status", "P5", "Show today's request budget used/remaining per model."),
     ("quota", "set-budget", "P5", "Set a model's daily request budget from AI Studio numbers."),
-    (None, "worker", "P4", "Run the job worker."),
     ("audit", "run", "P9", "Blind audit re-judgment on the audit model (eval runs)."),
-    ("jobs", "list", "P4", "List jobs."),
-    ("jobs", "retry", "P4", "Retry a job."),
-    ("jobs", "cancel", "P4", "Cancel a job."),
     ("review", "list", "P8", "List returns awaiting review or sign-off."),
     ("review", "resolve", "P8", "Resolve a review from a resolution file."),
     ("review", "signoff", "P8", "Approve or reject a sign-off (four-eyes)."),
@@ -111,11 +107,13 @@ def _register() -> None:
         "reference": reference_commands.reference_app,
         "rubric": reference_commands.rubric_app,
         "catalogue": reference_commands.catalogue_app,
+        "jobs": job_commands.jobs_app,
     }
     for name, sub in built.items():
         _groups[name] = sub
         app.add_typer(sub, name=name, help=_GROUP_HELP[name])
     app.command("capture")(intake_commands.capture_command)
+    app.command("worker")(job_commands.worker_command)
     for group, name, phase, help_text in _PLANNED:
         if group is None:
             _stub(app, name, phase, help_text, name)

@@ -18,13 +18,21 @@ def test_help_exits_zero_and_lists_command_groups(capsys: pytest.CaptureFixture[
         assert group in out
 
 
+# Native access violation (0xC0000005) that this Windows machine intermittently raises in child processes
+# (build log P0/P3); `dev check` retries the same codes. Any other failure fails immediately.
+_WIN_ACCESS_VIOLATION = (3221225477, -1073741819)
+
+
 def test_entry_point_is_installed_as_returns_manager() -> None:
-    proc = subprocess.run(
-        [sys.executable, "-m", "returns_manager.cli", "--version"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    for _ in range(3):
+        proc = subprocess.run(
+            [sys.executable, "-m", "returns_manager.cli", "--version"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if not (sys.platform == "win32" and proc.returncode in _WIN_ACCESS_VIOLATION):
+            break
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout.startswith("returns-manager ")
 

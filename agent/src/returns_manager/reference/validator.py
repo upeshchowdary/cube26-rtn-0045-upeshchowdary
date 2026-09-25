@@ -11,12 +11,14 @@ Validates:
 
 from __future__ import annotations
 
+import io
 import json
 import re
 from pathlib import Path
 from typing import Any
 
 import yaml
+from PIL import Image
 
 from returns_manager.canonical.hashing import sha256_hex
 from returns_manager.config import REPO_ROOT
@@ -251,6 +253,7 @@ class ReferenceValidator:
             return
 
         valid_categories = set(category_map.mapping.keys()) if category_map else set()
+        image_owners: dict[str, str] = {}  # sha256 -> "org/sku" that first listed it
 
         for org_dir in sorted(products_dir.iterdir()):
             if not org_dir.is_dir() or org_dir.name.startswith("."):
@@ -274,15 +277,30 @@ class ReferenceValidator:
                             f"{f.name}: category_key {doc.category_key!r} has no active rubric snapshot"
                         )
 
-                    # Validate reference image paths and hashes if image exists
+                    # Every listed reference image must exist, match its hash, decode completely, and be
+                    # this product's own photo (the same bytes under two different SKUs cannot be both).
                     for ref_img in doc.reference_images:
                         img_path = org_dir / ref_img.path
-                        if img_path.exists():
-                            actual_sha = sha256_hex(img_path.read_bytes())
-                            if actual_sha != ref_img.sha256:
-                                self.error(
-                                    f"{f.name}: image {ref_img.path} sha256 mismatch (actual={actual_sha})"
-                                )
+                        if not img_path.is_file():
+                            self.error(f"{f.name}: image {ref_img.path} does not exist")
+                            continue
+                        data = img_path.read_bytes()
+                        actual_sha = sha256_hex(data)
+                        if actual_sha != ref_img.sha256:
+                            self.error(
+                                f"{f.name}: image {ref_img.path} sha256 mismatch (actual={actual_sha})"
+                            )
+                        try:
+                            with Image.open(io.BytesIO(data)) as im:
+                                im.load()
+                        except Exception as exc:
+                            self.error(f"{f.name}: image {ref_img.path} does not decode ({exc})")
+                        owner = image_owners.setdefault(actual_sha, f"{org_id}/{doc.sku}")
+                        if owner.split("/", 1)[1] != doc.sku:
+                            self.error(
+                                f"{f.name}: image {ref_img.path} is byte-identical to a reference image of "
+                                f"{owner}; a reference image must show this product"
+                            )
 
                     self.validated_files.append(f)
                 except Exception as exc:
@@ -315,7 +333,7 @@ def hash_all_reference_files(ref_dir: Path | None = None) -> list[tuple[Path, st
             continue
         new_hash = compute_reference_content_sha256(raw)
         raw["content_sha256"] = new_hash
-        path.write_text(yaml.dump(raw, sort_keys=False, allow_unicode=True), encoding="utf-8")
+        path.write_text(yaml.dump(raw, sort_keys=False, allow_unicode=True), encoding="utf-8", newline="\n")
         updated.append((path, new_hash))
 
     return updated
