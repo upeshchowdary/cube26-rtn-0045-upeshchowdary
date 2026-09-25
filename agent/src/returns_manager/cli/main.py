@@ -12,6 +12,7 @@ import typer
 
 from returns_manager import __version__
 from returns_manager.cli import (
+    audit_commands,
     chain_commands,
     dev,
     inspect_commands,
@@ -19,6 +20,7 @@ from returns_manager.cli import (
     job_commands,
     p1_commands,
     reference_commands,
+    review_commands,
 )
 from returns_manager.errors import ExitCode, NotBuiltYet, ReturnsManagerError
 
@@ -44,10 +46,6 @@ def _stub(group: typer.Typer, name: str, phase: str, help_text: str, full_name: 
 
 # (group, command, phase, help). Group None = top-level command.
 _PLANNED: list[tuple[str | None, str, str, str]] = [
-    ("audit", "run", "P9", "Blind audit re-judgment on the audit model (eval runs)."),
-    ("review", "list", "P8", "List returns awaiting review or sign-off."),
-    ("review", "resolve", "P8", "Resolve a review from a resolution file."),
-    ("review", "signoff", "P8", "Approve or reject a sign-off (four-eyes)."),
     ("evidence", "show", "P10", "Show a unit's evidence record."),
     ("evidence", "export", "P10", "Export evidence records (JSONL or flat CSV)."),
     ("economics", "report", "P11", "Unit-economics report (paid-equivalent cost)."),
@@ -113,6 +111,8 @@ def _register() -> None:
         "simulate": inspect_commands.simulate_app,
         "chain": chain_commands.chain_app,
         "ledger": chain_commands.ledger_app,
+        "review": review_commands.review_app,
+        "audit": audit_commands.audit_app,
     }
     for name, sub in built.items():
         _groups[name] = sub

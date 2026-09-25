@@ -586,6 +586,79 @@ measurement on 5–8 fixtures.
 
 **Next:** Phase 8 (Human loop: review queue, decision accept/override, sign-off with four-eyes, post-finalization supersession).
 
+---
+
+## 2026-09-25 · P8 — Human loop (decision, review, sign-off, supersession)
+
+**Changed.** Added migration `0009_human_loop_and_audit.sql`; its P8 tables are `operator_decisions`,
+`overrides`, `review_resolutions`, `signoffs`, and `human_decision_snapshots`. Every one has forced tenant
+RLS and append-only application grants. Added `review/service.py`, which preserves the immutable inspection
+result, records each human action and chained event, builds a reproducible effective-decision snapshot, and
+finalizes an evidence record. A later override on a finalized return creates a new record version and marks
+the previous version `superseded`; it never rewrites history. API routes now implement the four P8 endpoints
+and review queue. CLI commands are available under `returns-manager review list|resolve|signoff`.
+
+**Controls.** Accept cannot carry overrides; override needs at least one documented field change; review can
+only clear reasons already on that inspection; all allowed paths/reason codes are checked; a sign-off requires
+an independent actor (`created_by != reviewer_id`); rejected sign-off returns the case to review. Evidence
+document hashing normalizes database timestamps and makes decimal values explicit strings, so JCS rejects
+nothing silently.
+
+**Evidence.** `pytest tests/unit/test_human_loop.py -q`: **4 passed**. It proves preserved override plus
+record v1 → v2 supersession and chain verification, capturer sign-off refusal and independent approval,
+the P9 merge-table pure rows, and append-only P9 persistence scaffolding. `ruff check` and `mypy` pass for
+the changed source. `returns-manager review --help` exposes all three implemented P8 CLI commands.
+
+**Verification note.** A full `dev check` was started with writable temporary directories. Its lint, format,
+and mypy stages passed; its broad pytest stage was still running when work was stopped at the user's request.
+The focused P8 suite above is complete and green.
+
+**Next: P9.** `review/merge.py` and `review/escalation_service.py` plus the P9 tables in migration 0009 are
+only foundations. Do not claim P9 complete yet: implement a genuinely blind escalation session, run the
+fused/gated deterministic pipeline on merged results, enqueue/handle escalation and audit jobs without
+illegally moving an `awaiting_review` return through the judgment state machine, and implement the
+quota-guarded second-model audit worker/CLI. Add replay coverage for every merge-table row and a live audit
+only after the human enables it within the audit-model daily budget.
+
+---
+
+## 2026-09-25 · P9 — Escalation and audit
+
+**Plan:** Implement full escalation and audit worker/session flow per §11.12, §11.13, §10, §19, §20, and §23:
+1. Migration `0010_escalation_and_audit.sql`: allow `escalation_state = 'completed'` in `rm.inspection_results` and add `eval_run_id` to `rm.audit_findings`.
+2. Blind escalation session: update `llm/context.py` to accept `escalation_focus` without passing primary verdicts; run on `RM_ESCALATION_MODEL` with high thinking, crop budget 6, ultra-high crop resolution; charge to judgment daily quota.
+3. Strict §11.12 area merge table: merge `unit_presence`, `identity_match`, components, `cosmetic_grade`, and `model_observed_state`; persist to `rm.escalation_merges`; re-run deterministic fused/gated pipeline (`run_pipeline`) on merged judgment data.
+4. Worker state machine handling: handle `job.kind in ("judgment", "escalation", "audit")`; do not transition `awaiting_review` returns to `inspecting`; maintain fail-open behavior and per-model quota holds.
+5. Blind audit on `RM_AUDIT_MODEL`: deterministic hash sampling (100% on eval runs); compare declared fields; route unfinished cases to review; surface finalized flags without altering evidence records.
+6. CLI `returns-manager audit run --eval-run X`: preflight quota/spend checks, `--dry-run`, and explicit spend confirmation guard.
+7. Replay tests in `tests/unit/test_escalation_audit.py`: all 4 merge rows, audit sampling, audit disagreements, quota holds, cross-org denial, and chain validity.
+
+**Changed:**
+- `migrations/0010_escalation_and_audit.sql`: Created migration 0010 (preserving migration 0009 intact). Added `'completed'` to `rm.inspection_results.escalation_state` constraint and added `eval_run_id text` to `rm.audit_findings`. Applied idempotently.
+- `src/returns_manager/llm/context.py`: Added `escalation_focus` parameter to `assemble()` to append an `ESCALATION FOCUS` block containing only unresolved areas / reason codes to inspect with high precision; strictly excludes primary model verdicts to ensure genuinely blind second-model sessions.
+- `src/returns_manager/jobs/worker.py`: State machine and per-model quota routing for `escalation` and `audit` jobs. Only `judgment` moves returns to `inspecting`; `escalation` runs on returns in `awaiting_review` without altering status during processing; `audit` runs on unfinalized or finalized returns. Dispatches proper per-model quota checks and kill switch controls (`ESCALATION` and `AUDIT`).
+- `src/returns_manager/jobs/queue.py`: Added `kinds` filtering support in `claim_specific` and alias `enqueue_inspection_job = enqueue_job`.
+- `src/returns_manager/inspection/service.py`: Implemented `handle_escalation` and `handle_audit`. Escalation executes on `RM_ESCALATION_MODEL` (`thinking="high"`, crop budget 6, ultra-high crops), merges each area using strict §11.12 logic (`resolved_by_escalation`, `kept_primary`, `model_disagreement`, `uncertain`), persists every row to `rm.escalation_merges`, reruns deterministic fused/gated pipeline (`run_pipeline`) without letting the model choose disposition, and appends audit-chain events. Audit executes on `RM_AUDIT_MODEL` (`gemini-3.6-flash`), detects disagreements across identity, completeness, unit presence, and cosmetic grades >1 step apart, writes findings to `rm.audit_findings` without altering evidence records, and routes unfinalized returns to `awaiting_review`.
+- `src/returns_manager/review/merge.py`: Implemented `merge_area` strict truth table and `audit_sampled` deterministic hash sampling (`floor(eval_run_id) = 1.0` for 100% force, otherwise hash % 100 < rate_pct).
+- `src/returns_manager/cli/audit_commands.py`: Implemented CLI command `returns-manager audit run --eval-run X [--org] [--limit] [--dry-run] [--confirm-spend]` with preflight quota checks and explicit human spend guard (`--confirm-spend`).
+- `src/returns_manager/cli/main.py`: Registered `audit_app` under `audit` command group.
+- `tests/unit/test_escalation_audit.py`: Comprehensive test suite covering all 4 merge-table rows, deterministic audit sampling, audit disagreements, finalized vs non-finalized DB persistence, worker escalation pipeline re-execution, worker audit execution & review routing, quota holds & kill switch controls, cross-org denial, and CLI dry-run / spend guard.
+
+**Evidence:**
+- `pytest tests/unit/test_escalation_audit.py`: **10 passed, 0 failed** (100%).
+- `pytest tests/unit/test_human_loop.py`: **4 passed, 0 failed** (100%).
+- Full unit test suite `pytest tests/unit/`: **313 passed, 0 failed** in 70s.
+- `returns-manager dev check`: **PASSED ALL GATES**:
+  - `ruff lint`: ok (All checks passed!)
+  - `ruff format`: ok (135 files already formatted)
+  - `mypy`: ok (Success: no issues found in 109 source files)
+  - `pytest (non-live)`: ok (313 passed, 0 failed)
+  - `reference validate`: ok (34 files valid)
+  - `boundary check`: ok (branch 'upeshchowdary', 217 changed files, 0 organiser files touched)
+- CLI verification: `returns-manager audit --help` and `returns-manager audit run --eval-run eval-test --dry-run` exit with code 0.
+
+**Next:** Phase 10 (Evidence records, evidence export, OpenAPI export, cross-pod contract schemas, and read-only MCP server).
+
 ## Findings
 
 | F-### | date | source | contradiction | impact | our handling | GitHub issue |

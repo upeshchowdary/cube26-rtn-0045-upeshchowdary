@@ -257,13 +257,29 @@ class Worker:
 
     async def _process_job(self, job: JobRecord) -> bool:
         """Process a claimed job, failing open (§10.2, §10.6). Returns True when the job finished."""
-        model_id = self.settings.rm_judgment_model
+        if job.kind == "audit":
+            model_id = self.settings.rm_audit_model
+            daily_budget = self.settings.rm_daily_request_budget_audit
+            kill_control = controls.Control.AUDIT
+        elif job.kind == "escalation":
+            model_id = self.settings.rm_escalation_model
+            daily_budget = self.settings.rm_daily_request_budget_judgment
+            kill_control = controls.Control.ESCALATION
+        else:
+            model_id = self.settings.rm_judgment_model
+            daily_budget = self.settings.rm_daily_request_budget_judgment
+            kill_control = controls.Control.MODEL_CALLS
         breaker = self.breakers.get(model_id)
 
         # 1. Kill switch (§6.7): effective value = global AND org.
         eff = await controls.effective(self.db, job.org_id)
-        if not eff[controls.Control.MODEL_CALLS].enabled:
-            await self._hold(job, "model_calls_disabled", "Model calls are switched off (kill switch)", 60)
+        if not eff[controls.Control.MODEL_CALLS].enabled or not eff[kill_control].enabled:
+            await self._hold(
+                job,
+                "model_calls_disabled",
+                f"{kill_control.value} is switched off (kill switch)",
+                60,
+            )
             return False
 
         # 2. Circuit breaker (§10.4).
@@ -279,33 +295,65 @@ class Worker:
             budget = await get_budget_status(
                 conn,
                 model_id,
-                self.settings.rm_daily_request_budget_judgment,
+                daily_budget,
                 self.settings.rm_quota_reset_tz,
             )
         if not budget.allowed:
             delay = (budget.next_reset_utc - datetime.now(UTC)).total_seconds()
+            reset_iso = budget.next_reset_utc.isoformat()
             await self._hold(
                 job,
                 "quota_exhausted",
-                f"Daily request budget exhausted (resets at {budget.next_reset_utc.isoformat()})",
+                f"Daily request budget for {model_id} exhausted (resets at {reset_iso})",
                 max(delay, 1.0),
             )
             return False
 
-        # 4. The return moves to `inspecting`. If it no longer can (e.g. a retake sent it back to
-        #    capturing), this job is stale and is cancelled.
-        try:
+        # 4. State transitions on claim (§10.1):
+        #    Only judgment jobs transition the return from QUEUED -> INSPECTING.
+        #    Escalation jobs run on returns in awaiting_review and keep them there while working.
+        #    Audit jobs run on unfinalized or finalized returns and do not move them to inspecting.
+        if job.kind == "judgment":
+            try:
+                async with self.db.transaction(job.org_id) as conn:
+                    moved = await _set_return_status(
+                        conn, job.org_id, job.return_id, ReturnStatus.INSPECTING, "job_claimed"
+                    )
+                    if moved is None:
+                        raise InvalidTransitionError(
+                            "return", None, str(ReturnStatus.INSPECTING), "job_claimed"
+                        )
+            except InvalidTransitionError as exc:
+                logger.warning("Cancelling stale job %s: %s", job.job_id, exc)
+                async with self.db.transaction(job.org_id) as conn:
+                    await JobQueue.mark_job_cancelled(conn, job.org_id, job.job_id)
+                return True
+        elif job.kind == "escalation":
             async with self.db.transaction(job.org_id) as conn:
-                moved = await _set_return_status(
-                    conn, job.org_id, job.return_id, ReturnStatus.INSPECTING, "job_claimed"
+                cur = await conn.execute(
+                    "SELECT status FROM rm.returns WHERE org_id = %s AND return_id = %s",
+                    (job.org_id, job.return_id),
                 )
-                if moved is None:
-                    raise InvalidTransitionError("return", None, str(ReturnStatus.INSPECTING), "job_claimed")
-        except InvalidTransitionError as exc:
-            logger.warning("Cancelling stale job %s: %s", job.job_id, exc)
+                row = await cur.fetchone()
+                if row is None or row["status"] != str(ReturnStatus.AWAITING_REVIEW):
+                    logger.warning(
+                        "Cancelling stale escalation job %s for return %s in status %s",
+                        job.job_id,
+                        job.return_id,
+                        row["status"] if row else "missing",
+                    )
+                    await JobQueue.mark_job_cancelled(conn, job.org_id, job.job_id)
+                    return True
+        elif job.kind == "audit":
             async with self.db.transaction(job.org_id) as conn:
-                await JobQueue.mark_job_cancelled(conn, job.org_id, job.job_id)
-            return True
+                cur = await conn.execute(
+                    "SELECT status FROM rm.returns WHERE org_id = %s AND return_id = %s",
+                    (job.org_id, job.return_id),
+                )
+                row = await cur.fetchone()
+                if row is None or row["status"] == str(ReturnStatus.CAPTURING):
+                    await JobQueue.mark_job_cancelled(conn, job.org_id, job.job_id)
+                    return True
 
         # 5. The handler runs outside any transaction (a model call must not pin a pooled connection). Its
         #    results, the return's state transition and the job's success mark are then one transaction.
@@ -314,16 +362,24 @@ class Worker:
             async with self.db.transaction(job.org_id) as conn:
                 if result.persist is not None:
                     await result.persist(conn)
-                await _set_return_status(
-                    conn, job.org_id, job.return_id, result.target_return_status, "inspection_complete"
-                )
+                if job.kind != "audit":
+                    await _set_return_status(
+                        conn, job.org_id, job.return_id, result.target_return_status, "inspection_complete"
+                    )
                 await JobQueue.mark_job_succeeded(conn, job.org_id, job.job_id)
             breaker.record_success()
             return True
         except Exception as exc:
-            return await self._fail(job, exc, breaker)
+            return await self._fail(job, exc, breaker, model_id=model_id, daily_budget=daily_budget)
 
-    async def _fail(self, job: JobRecord, exc: Exception, breaker: Any) -> bool:
+    async def _fail(
+        self,
+        job: JobRecord,
+        exc: Exception,
+        breaker: Any,
+        model_id: str | None = None,
+        daily_budget: int | None = None,
+    ) -> bool:
         """Fail open (§10.6): the return stays visible as pending or needs_attention; photos are untouched.
 
         `wait` classes (daily quota, kill switch, spend budget) hold the job until the condition can clear,
@@ -338,20 +394,23 @@ class Worker:
             classification.action,
             exc,
         )
+        m_id = model_id or self.settings.rm_judgment_model
+        d_bud = daily_budget or self.settings.rm_daily_request_budget_judgment
         if classification.action == "wait":
             if classification.error_class == "quota_exhausted":
                 async with self.db.transaction(None) as conn:
                     budget = await get_budget_status(
                         conn,
-                        self.settings.rm_judgment_model,
-                        self.settings.rm_daily_request_budget_judgment,
+                        m_id,
+                        d_bud,
                         self.settings.rm_quota_reset_tz,
                     )
                 delay = max((budget.next_reset_utc - datetime.now(UTC)).total_seconds(), 1.0)
             else:
                 delay = 60.0
             await self._hold(job, classification.error_class, classification.detail, delay)
-            await self._return_to(job, ReturnStatus.PENDING)
+            if job.kind == "judgment":
+                await self._return_to(job, ReturnStatus.PENDING)
             return False
         cap = min(job.max_attempts, _CLASS_ATTEMPT_CAP.get(classification.error_class, job.max_attempts))
         retry = classification.retryable and job.attempts < cap
@@ -369,7 +428,8 @@ class Worker:
                 await JobQueue.mark_job_needs_attention(
                     conn, job.org_id, job.job_id, classification.error_class, classification.detail
                 )
-        await self._return_to(job, ReturnStatus.PENDING if retry else ReturnStatus.NEEDS_ATTENTION)
+        if job.kind == "judgment":
+            await self._return_to(job, ReturnStatus.PENDING if retry else ReturnStatus.NEEDS_ATTENTION)
         return True
 
     async def _return_to(self, job: JobRecord, target: ReturnStatus) -> None:

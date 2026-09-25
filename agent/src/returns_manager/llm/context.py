@@ -293,6 +293,7 @@ def assemble(
     policy: EffectivePolicy,
     photos: list[ReturnPhoto],
     refs: list[tuple[str, str, str, bytes]],
+    escalation_focus: list[str] | tuple[str, ...] | None = None,
 ) -> ContextBundle:
     system = get_prompt("judgment")
     task = get_prompt("judgment_task")
@@ -338,13 +339,26 @@ def assemble(
         task_text += "\n\nOUTPUT SCHEMA (return only JSON that validates against it):\n" + json.dumps(
             gemini_response_schema(), separators=(",", ":"), sort_keys=True
         )
-    unit_block: list[dict[str, Any]] = [
+    unit_items: list[dict[str, Any]] = [
         _text("ORDER\n" + _jcs_text({"order_id": return_row["order_id"], "ordered_sku": card.sku})),
         _text("DETERMINISTIC EXTRACTIONS\n" + _jcs_text(extractions)),
-        _text(task_text),
-        _text("RETURN PHOTOS\n" + "\n".join(f"{p.alias} photo_id {p.photo_id}" for p in photos)),
-        *[_image_item(p.analysis_bytes, settings.rm_return_photo_resolution) for p in photos],
     ]
+    if escalation_focus:
+        focus_lines = "\n".join(f"- {f}" for f in escalation_focus)
+        msg = (
+            "ESCALATION FOCUS\n"
+            "Unresolved areas / reason codes to inspect with high precision:\n"
+            f"{focus_lines}"
+        )
+        unit_items.append(_text(msg))
+    unit_items.extend(
+        [
+            _text(task_text),
+            _text("RETURN PHOTOS\n" + "\n".join(f"{p.alias} photo_id {p.photo_id}" for p in photos)),
+            *[_image_item(p.analysis_bytes, settings.rm_return_photo_resolution) for p in photos],
+        ]
+    )
+    unit_block: list[dict[str, Any]] = unit_items
     size = len(json.dumps([*sku_block, *unit_block]))
     if size > MAX_INLINE_BYTES:
         raise MissingReference(["request_too_large"], [f"inline payload {size} bytes > 20 MB"])
@@ -397,6 +411,7 @@ def assemble(
         },
         "output_mode": settings.rm_output_mode,
         "sku_block_sha256": sha256_jcs(sku_block),
+        "escalation_focus": list(escalation_focus) if escalation_focus else None,
     }
     return ContextBundle(
         ctx=ctx,

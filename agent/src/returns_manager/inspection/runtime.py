@@ -26,7 +26,7 @@ class Runtime:
     quota: QuotaGuard
 
 
-def build_runtime(db: Database, settings: Settings) -> Runtime:
+def build_runtime(db: Database, settings: Settings, eval_run_id: str | None = None) -> Runtime:
     if settings.rm_model_provider != "gemini":
         raise ConfigError("RM_MODEL_PROVIDER=replay is for tests (cassettes are passed explicitly)")
     settings.require("gemini_api_key", "supabase_url")
@@ -34,4 +34,9 @@ def build_runtime(db: Database, settings: Settings) -> Runtime:
     client = GeminiModelClient(settings.gemini_api_key.get_secret_value(), settings.rm_model_timeout_s)
     storage = PhotoStorage(settings)
     quota = QuotaGuard(db, settings)
-    return Runtime(JudgmentHandler(db, settings, client, storage, quota), client, storage, quota)
+    return Runtime(
+        JudgmentHandler(db, settings, client, storage, quota, eval_run_id=eval_run_id),
+        client,
+        storage,
+        quota,
+    )

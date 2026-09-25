@@ -70,7 +70,7 @@ def test_every_tenant_table_has_forced_rls_and_the_nullif_policy() -> None:
     for t in tenant_tables:
         assert f"ALTER TABLE rm.{t} ENABLE ROW LEVEL SECURITY;" in sql, t
         assert f"ALTER TABLE rm.{t} FORCE ROW LEVEL SECURITY;" in sql, t
-        policy = re.search(rf"CREATE POLICY tenant_isolation ON rm\.{t}\n(.*?);", sql, re.S)
+        policy = re.search(rf"CREATE POLICY tenant_isolation ON rm\.{t}\s+(.*?);", sql, re.S)
         assert policy, t
         assert policy.group(1).count("NULLIF(current_setting('app.org_id', true), '')") == 2, t
 

@@ -10,6 +10,7 @@ from fastapi import Depends, Header, Request
 from returns_manager.config import Settings
 from returns_manager.db.pool import Database
 from returns_manager.intake.service import IntakeService
+from returns_manager.review.service import HumanReviewService
 from returns_manager.security import api_keys
 from returns_manager.security.auth_jwt import JwtVerifier, user_principal
 from returns_manager.security.roles import Principal, Unauthenticated
@@ -32,6 +33,10 @@ class Services:
             job_max_attempts=self.settings.rm_job_max_attempts,
             high_value_threshold_minor=self.settings.rm_high_value_threshold_minor,
         )
+
+    @property
+    def review(self) -> HumanReviewService:
+        return HumanReviewService(self.db)
 
 
 def services(request: Request) -> Services:

@@ -188,12 +188,24 @@ class JobQueue:
             return None
         return JobRecord.from_row(row)
 
+    enqueue_inspection_job = enqueue_job
+
     @staticmethod
     async def claim_specific(
-        conn: Any, org_id: str, return_id: str, worker_id: str, lease_s: int = 600
+        conn: Any,
+        org_id: str,
+        return_id: str,
+        worker_id: str,
+        lease_s: int = 600,
+        kinds: tuple[str, ...] | str | None = None,
     ) -> JobRecord | None:
-        """Claim this return's due judgment/reinspection job (CLI `inspect`). Runs under the caller's tenant
-        context, so it is not a cross-tenant operation (§6.4 allowlist unchanged)."""
+        """Claim this return's due job (CLI `inspect` or `audit run`). Runs under caller's tenant context."""
+        if kinds is None:
+            kind_list = ["judgment", "reinspection"]
+        elif isinstance(kinds, str):
+            kind_list = [kinds]
+        else:
+            kind_list = list(kinds)
         res = await conn.execute(
             """
             UPDATE rm.inspection_jobs AS t
@@ -201,7 +213,7 @@ class JobQueue:
                 lease_expires_at = now() + make_interval(secs => %s), updated_at = now()
             WHERE t.job_id = (
                 SELECT j.job_id FROM rm.inspection_jobs AS j
-                WHERE j.org_id = %s AND j.return_id = %s AND j.kind IN ('judgment', 'reinspection')
+                WHERE j.org_id = %s AND j.return_id = %s AND j.kind = ANY(%s)
                   AND j.status IN ('pending', 'failed_retryable')
                 ORDER BY j.created_at DESC
                 FOR UPDATE SKIP LOCKED
@@ -209,7 +221,7 @@ class JobQueue:
             )
             RETURNING t.*
             """,
-            (worker_id, lease_s, org_id, return_id),
+            (worker_id, lease_s, org_id, return_id, kind_list),
         )
         row = await res.fetchone()
         return JobRecord.from_row(row) if row else None
