@@ -98,14 +98,21 @@ def find_violations(
 
 
 def _git(repo: Path, *args: str) -> str:
-    return subprocess.run(  # fixed git argv, no shell
-        ["git", *args],
-        cwd=repo,
-        check=True,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    ).stdout
+    for attempt in range(3):
+        try:
+            return subprocess.run(  # fixed git argv, no shell
+                ["git", *args],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            ).stdout
+        except subprocess.CalledProcessError as exc:
+            # Handle transient Windows 0xC0000005 native crash
+            if attempt == 2 or exc.returncode not in (3221225477, -1073741819):
+                raise
+    raise RuntimeError("unreachable")
 
 
 def changed_files(repo: Path, base: str) -> list[str]:
