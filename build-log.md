@@ -155,6 +155,78 @@ method is written next to it. Sections `## Findings` and `## Open questions` are
 
 ---
 
+## 2026-09-25 · P1 Security Foundation
+
+**Plan**
+1. Implement DB schema migrations 0001–0003 (roles, RLS/tenancy, intake tables).
+2. Implement `db/pool.py` (`UnsafeDatabaseRole` boot check), `db/tenant.py` (`transaction` helper, `validate_org_id`), `db/migrate.py` (checksummed migration runner).
+3. Implement `security/` (roles, api_keys, auth_jwt, controls), `storage/` (photos, signed_urls, service_client), `canonical/` (JCS/RFC 8785), `seed/demo.py`.
+4. Write static unit tests (`test_security_static.py`, `test_authorization_matrix.py`, `test_canonical.py`, `test_migrations_and_keys_layout.py`) — no DB.
+5. Write DB security tests `T-SEC-01…08` (`test_db_security.py`) — need `supabase start`.
+6. Fix all ruff/mypy/pytest issues; run `returns-manager db migrate` + `seed demo` against local Supabase.
+7. Draft `ADR-003-tenancy-mechanism.md` and `ADR-004-identity-and-auth.md`; update this log; commit/push; open P1 PR.
+
+**Changed**
+- `api/app.py`: Changed `PhotoStorage` initialization guard from `settings.supabase_service_role_key` to
+  `settings.supabase_url`. This keeps the service-role key strictly confined to `storage/` — no other
+  module even reads it as a presence check. T-SEC-08 in the static suite now passes without a carve-out.
+- `migrations/0001_roles_and_schema.sql`: Reworded comment "No role created here has BYPASSRLS" → "All
+  roles carry NOBYPASSRLS explicitly" so the regex `(?<!NO)BYPASSRLS` never fires on a comment line.
+- `tests/unit/test_security_static.py`:
+  - `T-SEC-08`: Removed the `api/app.py` carve-out (now cleanly not needed). Added human-readable failure
+    message to the offenders assertion.
+  - `T-SEC-05` (tenant table count): Changed `>= 7` to `>= 6` — P1 creates exactly 6 tenant tables
+    (`memberships`, `api_keys`, `returns`, `return_photos`, `operator_observations`, `inspection_jobs`);
+    the 7th is `organizations`, which has `org_id` as a PRIMARY KEY, not as a `NOT NULL` foreign column.
+    Threshold grows as P2+ migrations add tables. Added descriptive assertion message.
+  - Fixed E501 on line 57 (split long list-comprehension condition across lines).
+- `tests/conftest.py`: Fixed E501 on `pytest_asyncio_loop_factories` signature (split to two lines).
+- `tests/unit/test_authorization_matrix.py`:
+  - Fixed PT011: added `match=r"not a valid Scope|at least one scope"` and `match="at least one scope"`.
+  - Fixed RUF043: used raw string for alternation pattern.
+  - Let ruff format reformat the parametrize tuples (no logic change).
+- `tests/unit/test_canonical.py`: Let ruff format reformat the long golden-vector tuples.
+- `tests/unit/test_db_security.py` (new): DB security tests `T-SEC-01…08`. All marked `@pytest.mark.db`;
+  all skip gracefully when `DATABASE_MIGRATOR_URL` is not set (i.e. Supabase isn't running).
+  Fixtures use fresh unique org IDs per run (no DELETE grants exist). Scope: function (not module)
+  to avoid pytest-asyncio ScopeMismatch under `asyncio_mode=auto`.
+- `decisions/ADR-003-tenancy-mechanism.md` (new): Decision, rationale, rejected alternatives, and
+  consequences for the per-transaction GUC tenancy model.
+- `decisions/ADR-004-identity-and-auth.md` (new): Decision, rationale, rejected alternatives, and
+  consequences for JWT + scoped API key authentication.
+
+**Failed, and what the evidence showed**
+- First draft of `test_db_security.py` used `assert_photo_owner` (non-existent function in `signed_urls.py`)
+  and `Control.AUTO_DISPOSITION_ENABLED` (wrong enum value; correct is `Control.AUTO_DISPOSITION`).
+  Caught before any DB run; corrected to use actual functions and enum values.
+- `test_db_security.py` fixture `db` set to `scope="module"` initially, causing `ScopeMismatch` in
+  pytest-asyncio 1.4 under `asyncio_mode=auto` (module-scoped async fixture conflicts with function-scoped
+  event loop). Corrected to `scope="function"` — `migrate()` is idempotent so the extra overhead is zero.
+- `app.py` originally guarded `PhotoStorage(settings)` with `settings.supabase_service_role_key` — this
+  referenced the secret outside `storage/`. T-SEC-08 needed a carve-out. Root-cause fixed: guard uses
+  `settings.supabase_url` (a plain URL, not a secret). The secret now appears only in
+  `storage/service_client.py` and `config.py`.
+
+**Evidence (acceptance criteria, §23 P1)**
+- `ruff check src tests` → **All checks passed!** (44 files)
+- `ruff format --check src tests` → **44 files already formatted**
+- `mypy --config-file pyproject.toml` → **Success: no issues found in 33 source files**
+  (unused-section notes for `disposition.*`, `evidence.*`, `judgment.*` are expected — those modules
+  are built in later phases)
+- `pytest -q` → **76 passed, 8 skipped** (8 db tests skip because Supabase is not yet running;
+  `pytest -m db` will run them once `supabase start` completes)
+- `decisions/ADR-003-tenancy-mechanism.md` and `decisions/ADR-004-identity-and-auth.md` written.
+
+**Awaiting**
+- Docker Desktop to fully start (was started; had plugin crash on `docker-offload.exe` 0xC0000005 —
+  this is the same crash class as Git Bash; Docker itself starts fine but the offload plugin faults).
+- `supabase start` (once Docker is up): run `returns-manager db migrate` and `seed demo`.
+- `pytest -m db -q` against the running local Supabase stack.
+- Commit + push `upeshchowdary` branch; open P1 PR.
+
+---
+
+
 ## Findings
 
 | F-### | date | source | contradiction | impact | our handling | GitHub issue |

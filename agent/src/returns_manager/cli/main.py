@@ -11,7 +11,7 @@ import sys
 import typer
 
 from returns_manager import __version__
-from returns_manager.cli import dev
+from returns_manager.cli import dev, p1_commands
 from returns_manager.errors import ExitCode, NotBuiltYet, ReturnsManagerError
 
 app = typer.Typer(
@@ -36,17 +36,11 @@ def _stub(group: typer.Typer, name: str, phase: str, help_text: str, full_name: 
 
 # (group, command, phase, help). Group None = top-level command.
 _PLANNED: list[tuple[str | None, str, str, str]] = [
-    ("db", "migrate", "P1", "Apply numbered, checksummed migrations (owner role only)."),
-    ("db", "status", "P1", "Show applied migrations and checksum state."),
     ("reference", "validate", "P2", "Validate every reference file against its schema and content hash."),
     ("reference", "hash", "P2", "Compute/refresh content_sha256 of reference files."),
     ("reference", "load", "P2", "Load reference data into the database."),
     ("rubric", "extract", "P2", "Download, hash-verify and extract a condition-guidelines source."),
     ("catalogue", "import", "P2", "Import an organiser-provided catalogue (with provenance)."),
-    ("seed", "demo", "P1", "Seed demo orgs, memberships, users and orders."),
-    ("keys", "create", "P1", "Create a scoped API key (shown once)."),
-    ("keys", "list", "P1", "List API keys (prefixes only)."),
-    ("keys", "revoke", "P1", "Revoke an API key."),
     (None, "capture", "P3", "Headless capture: create a return and upload photos."),
     (None, "inspect", "P5", "Run (or --dry-run) a judgment inspection for a return."),
     ("quota", "status", "P5", "Show today's request budget used/remaining per model."),
@@ -64,8 +58,6 @@ _PLANNED: list[tuple[str | None, str, str, str]] = [
     ("chain", "verify", "P7", "Verify per-unit event chains and the org ledger."),
     ("ledger", "anchor", "P7", "Append the current ledger head to anchors/ledger-anchors.jsonl."),
     ("ledger", "verify-anchors", "P7", "Check every published anchor still matches."),
-    ("controls", "get", "P1", "Show kill-switch controls."),
-    ("controls", "set", "P1", "Set a control on/off (admin, reason required)."),
     ("simulate", "disposition", "P6", "What-if: re-run the disposition engine on changed inputs."),
     ("economics", "report", "P11", "Unit-economics report (paid-equivalent cost)."),
     ("eval", "seal", "P12", "Hash and seal the eval set (quota checks)."),
@@ -76,7 +68,6 @@ _PLANNED: list[tuple[str | None, str, str, str]] = [
     ("contract", "build", "P10", "Build contract schemas and examples."),
     ("contract", "check", "P10", "Check contract compatibility."),
     ("mcp", "serve", "P10", "Serve the read-only MCP server."),
-    ("api", "serve", "P1", "Serve the REST API."),
 ]
 
 _GROUP_HELP = {
@@ -116,8 +107,17 @@ def _group(name: str) -> typer.Typer:
 
 
 def _register() -> None:
-    _groups["dev"] = dev.app
-    app.add_typer(dev.app, name="dev", help=_GROUP_HELP["dev"])
+    built = {
+        "dev": dev.app,
+        "db": p1_commands.db_app,
+        "keys": p1_commands.keys_app,
+        "controls": p1_commands.controls_app,
+        "seed": p1_commands.seed_app,
+        "api": p1_commands.api_app,
+    }
+    for name, sub in built.items():
+        _groups[name] = sub
+        app.add_typer(sub, name=name, help=_GROUP_HELP[name])
     for group, name, phase, help_text in _PLANNED:
         if group is None:
             _stub(app, name, phase, help_text, name)

@@ -34,6 +34,10 @@ class SpendGuardRefused(ReturnsManagerError):
     exit_code = ExitCode.SPEND_GUARD_REFUSED
 
 
+class NotFound(ReturnsManagerError):
+    """The resource does not exist for this caller. Other orgs' resources are reported the same way (404)."""
+
+
 class NotBuiltYet(ReturnsManagerError):
     """A command that exists in the CLI tree but whose phase has not been built yet."""
 
