@@ -15,6 +15,7 @@ from returns_manager.errors import (
     NotBuiltYet,
     QuotaExhaustedError,
 )
+from returns_manager.llm.client import ProviderError
 
 
 @dataclass(frozen=True)
@@ -55,8 +56,35 @@ def compute_next_attempt_at(
     return current_time + timedelta(seconds=final_delay)
 
 
+# Provider failures already classified by the model client (llm.client.ProviderError): §10.4 table.
+# error_class → (retryable, counts_toward_circuit, action)
+_PROVIDER_CLASSES: dict[str, tuple[bool, bool, str]] = {
+    "quota_exhausted": (False, False, "wait"),
+    "rate_limit": (True, True, "retry"),
+    "server_error": (True, True, "retry"),
+    "timeout": (True, True, "retry"),
+    "network": (True, True, "retry"),
+    "truncated": (True, False, "retry"),
+    "schema_error": (True, False, "retry"),
+    "safety_blocked": (False, False, "needs_attention"),
+    "invalid_request": (False, False, "needs_attention"),
+    "auth": (False, False, "needs_attention"),
+    "not_found": (False, False, "needs_attention"),
+}
+
+
 def _classify_type(exc: Exception | str) -> ErrorClassification | None:
     """Our own exception types and Python's network/timeout errors are classified by type, not by text."""
+    if isinstance(exc, ProviderError) and exc.error_class in _PROVIDER_CLASSES:
+        retryable, counts, action = _PROVIDER_CLASSES[exc.error_class]
+        return ErrorClassification(
+            error_class=exc.error_class,
+            retryable=retryable,
+            counts_toward_circuit=counts,
+            action=action,
+            detail=str(exc),
+            suggested_wait_s=exc.retry_after_s,
+        )
     if isinstance(exc, HandlerNotConfigured | ConfigError | NotBuiltYet):
         return ErrorClassification(
             error_class="configuration",

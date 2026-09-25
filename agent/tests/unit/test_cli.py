@@ -38,10 +38,10 @@ def test_entry_point_is_installed_as_returns_manager() -> None:
 
 
 def test_unbuilt_command_fails_and_names_its_phase(capsys: pytest.CaptureFixture[str]) -> None:
-    assert run(["inspect", "--unit", "UNIT-0001"]) == ExitCode.FAILURE
+    assert run(["review", "list"]) == ExitCode.FAILURE
     err = capsys.readouterr().err
     assert "not built yet" in err
-    assert "P5" in err
+    assert "P8" in err
 
 
 def test_unknown_command_is_a_usage_error() -> None:

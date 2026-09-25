@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
+from psycopg import AsyncConnection
 
 from returns_manager.config import get_settings
 from returns_manager.db.migrate import migrate
@@ -59,3 +60,32 @@ async def db() -> AsyncIterator[Database]:
     await database.open(check_role=True)
     yield database
     await database.close()
+
+
+@pytest_asyncio.fixture()
+async def quiet_queue(db: Database) -> AsyncIterator[set[str]]:
+    """Park every job that exists before the test; yield; restore their schedule and leases exactly."""
+    async with await AsyncConnection.connect(migrator_dsn(), autocommit=True) as admin:
+        cur = await admin.execute(
+            """SELECT job_id, next_attempt_at, lease_expires_at FROM rm.inspection_jobs
+               WHERE status IN ('pending', 'failed_retryable', 'in_progress')"""
+        )
+        parked = await cur.fetchall()
+        for job_id, _, _ in parked:
+            await admin.execute(
+                """UPDATE rm.inspection_jobs
+                   SET next_attempt_at = now() + interval '1 day',
+                       lease_expires_at = CASE WHEN lease_expires_at IS NULL THEN NULL
+                                               ELSE now() + interval '1 day' END
+                   WHERE job_id = %s""",
+                (job_id,),
+            )
+        try:
+            yield {r[0] for r in parked}
+        finally:
+            for job_id, next_at, lease_at in parked:
+                await admin.execute(
+                    "UPDATE rm.inspection_jobs SET next_attempt_at = %s, lease_expires_at = %s "
+                    "WHERE job_id = %s",
+                    (next_at, lease_at, job_id),
+                )

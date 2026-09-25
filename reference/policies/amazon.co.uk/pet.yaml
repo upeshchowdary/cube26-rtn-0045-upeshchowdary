@@ -1,5 +1,5 @@
 schema: category-policy/v1
-version: 1.0.0
+version: 1.1.0
 policy_id: amazon-uk-2020-12-pet
 category_key: pet
 source_marketplace: amazon.co.uk
@@ -20,11 +20,12 @@ fields:
     source_type: assumption
     source_ref: Used listing not allowed
   opened_item_route:
-    value: dispose
+    value: liquidate
     source_type: business_policy
-    source_ref: 'Seller policy: opened pet items cannot be relisted as new'
+    source_ref: 'Seller policy (build prompt §12.2 R07 example "pet -> liquidate"): opened pet items cannot
+      be relisted as new; the unit is liquidated when its salvage value justifies it, else disposed'
   damaged_item_route:
     value: dispose
     source_type: business_policy
     source_ref: 'Seller policy: dispose damaged pet items'
-content_sha256: 19308cba1015b3afbcdbc9661a3ba5310d171f322a497efdc1ed08093d6be2bb
+content_sha256: baebf33d13387847bd5dc37a4afbbe06f8613a6cd12e039e5fe528f8169a4cd9

@@ -1,5 +1,5 @@
 schema: product-card/v1
-version: 1.1.0
+version: 1.2.0
 org_id: org_demo_bravo
 sku: SKU-SERUM-30
 identifiers:
@@ -52,6 +52,7 @@ components:
     ref: cat row 50
     retrieved_at: null
 reference_images: []
+consumable: false
 value:
   synthetic: true
   list_price:
@@ -71,4 +72,4 @@ provenance_notes: 'SYNTHETIC placeholder card for SKU-SERUM-30 under org_demo_br
   features, component flags and catalogue refs are invented placeholders. No reference
   images (no real photos yet). Replace with a hand-authored card from the physical
   fixture.'
-content_sha256: d265ee5219e17e4737826afc8ef90c5ab04c7dc7f6b5dbd31f1c49b725df50f0
+content_sha256: a2b542aa4eac37d392aa346053b75a50113213d4d17f759dbd66140ea4613180

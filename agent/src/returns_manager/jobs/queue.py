@@ -189,6 +189,32 @@ class JobQueue:
         return JobRecord.from_row(row)
 
     @staticmethod
+    async def claim_specific(
+        conn: Any, org_id: str, return_id: str, worker_id: str, lease_s: int = 600
+    ) -> JobRecord | None:
+        """Claim this return's due judgment/reinspection job (CLI `inspect`). Runs under the caller's tenant
+        context, so it is not a cross-tenant operation (§6.4 allowlist unchanged)."""
+        res = await conn.execute(
+            """
+            UPDATE rm.inspection_jobs AS t
+            SET status = 'in_progress', attempts = t.attempts + 1, lease_owner = %s,
+                lease_expires_at = now() + make_interval(secs => %s), updated_at = now()
+            WHERE t.job_id = (
+                SELECT j.job_id FROM rm.inspection_jobs AS j
+                WHERE j.org_id = %s AND j.return_id = %s AND j.kind IN ('judgment', 'reinspection')
+                  AND j.status IN ('pending', 'failed_retryable')
+                ORDER BY j.created_at DESC
+                FOR UPDATE SKIP LOCKED
+                LIMIT 1
+            )
+            RETURNING t.*
+            """,
+            (worker_id, lease_s, org_id, return_id),
+        )
+        row = await res.fetchone()
+        return JobRecord.from_row(row) if row else None
+
+    @staticmethod
     async def renew_lease(
         conn: Any,
         org_id: str,

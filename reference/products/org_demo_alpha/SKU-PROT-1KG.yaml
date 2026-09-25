@@ -1,5 +1,5 @@
 schema: product-card/v1
-version: 1.1.0
+version: 1.2.0
 org_id: org_demo_alpha
 sku: SKU-PROT-1KG
 identifiers:
@@ -41,6 +41,7 @@ components:
     ref: cat row 60
     retrieved_at: null
 reference_images: []
+consumable: false
 value:
   synthetic: true
   list_price:
@@ -60,4 +61,4 @@ provenance_notes: 'SYNTHETIC placeholder card for SKU-PROT-1KG under org_demo_al
   features, component flags and catalogue refs are invented placeholders. No reference
   images (no real photos yet). Replace with a hand-authored card from the physical
   fixture.'
-content_sha256: 5ffc6dd27500c34505ec9ee1be7b7e71fe2e34f535107fb8328e806e799fdaba
+content_sha256: 2ff22c9ad2c80a069a15a29dc438a997a9379c4d0b0f728815c97606b19c3718

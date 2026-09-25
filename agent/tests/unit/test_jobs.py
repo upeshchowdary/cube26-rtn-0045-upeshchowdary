@@ -12,15 +12,12 @@ import asyncio
 import io
 import uuid
 from collections import Counter
-from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import numpy as np
 import pytest
-import pytest_asyncio
 from PIL import Image
-from psycopg import AsyncConnection
 
 from returns_manager.config import Settings, get_settings
 from returns_manager.db.pool import Database
@@ -58,7 +55,6 @@ from returns_manager.jobs.statemachine import (
 from returns_manager.jobs.worker import HandlerResult, Worker, assert_lease_sizing
 from returns_manager.security import controls
 from returns_manager.security.roles import Principal, Role
-from tests.conftest import migrator_dsn
 
 # ── pure: state machines ───────────────────────────────────────────────────
 
@@ -236,37 +232,8 @@ async def _photo_count(db: Database, org: str, return_id: str) -> int:
     return int(row["n"])
 
 
-@pytest_asyncio.fixture()
-async def quiet_queue(db: Database) -> AsyncIterator[set[str]]:
-    """Park every job that exists before the test; yield; restore their schedule and leases exactly."""
-    async with await AsyncConnection.connect(migrator_dsn(), autocommit=True) as admin:
-        cur = await admin.execute(
-            """SELECT job_id, next_attempt_at, lease_expires_at FROM rm.inspection_jobs
-               WHERE status IN ('pending', 'failed_retryable', 'in_progress')"""
-        )
-        parked = await cur.fetchall()
-        for job_id, _, _ in parked:
-            await admin.execute(
-                """UPDATE rm.inspection_jobs
-                   SET next_attempt_at = now() + interval '1 day',
-                       lease_expires_at = CASE WHEN lease_expires_at IS NULL THEN NULL
-                                               ELSE now() + interval '1 day' END
-                   WHERE job_id = %s""",
-                (job_id,),
-            )
-        try:
-            yield {r[0] for r in parked}
-        finally:
-            for job_id, next_at, lease_at in parked:
-                await admin.execute(
-                    "UPDATE rm.inspection_jobs SET next_attempt_at = %s, lease_expires_at = %s "
-                    "WHERE job_id = %s",
-                    (next_at, lease_at, job_id),
-                )
-
-
 def _ok_handler(calls: list[str], delay_s: float = 0.0) -> Any:
-    async def handler(job: JobRecord, conn: Any) -> HandlerResult:
+    async def handler(job: JobRecord) -> HandlerResult:
         calls.append(job.job_id)
         if delay_s:
             await asyncio.sleep(delay_s)
@@ -573,7 +540,7 @@ async def test_t_fo_01_timeout_leaves_return_pending_with_photos(db: Database, q
     org = await _new_org(db)
     return_id, job = await _queued_return(db, org)
 
-    async def times_out(job: JobRecord, conn: Any) -> HandlerResult:
+    async def times_out(job: JobRecord) -> HandlerResult:
         raise TimeoutError("model request timed out after 180 s")
 
     worker = Worker(db, _settings(), concurrency=1, handler=times_out)
@@ -593,7 +560,7 @@ async def test_t_fo_02_retries_exhausted_needs_attention(db: Database, quiet_que
     async with db.transaction(org) as conn:
         await conn.execute("UPDATE rm.inspection_jobs SET max_attempts = 1 WHERE job_id = %s", (job.job_id,))
 
-    async def overloaded(job: JobRecord, conn: Any) -> HandlerResult:
+    async def overloaded(job: JobRecord) -> HandlerResult:
         raise RuntimeError("503 model overloaded")
 
     worker = Worker(db, _settings(), concurrency=1, handler=overloaded)
@@ -620,13 +587,17 @@ async def test_t_fo_04_handler_failure_rolls_back_its_writes(db: Database, quiet
     org = await _new_org(db)
     return_id, _ = await _queued_return(db, org)
 
-    async def writes_then_fails(job: JobRecord, conn: Any) -> HandlerResult:
-        await conn.execute(
-            "INSERT INTO rm.operator_observations (obs_id, org_id, return_id, observed_state, operator_id) "
-            "VALUES (%s, %s, %s, 'damaged', 'handler')",
-            (new_id(), job.org_id, job.return_id),
-        )
-        raise RuntimeError("output failed schema validation")
+    async def writes_then_fails(job: JobRecord) -> HandlerResult:
+        async def persist(conn: Any) -> None:
+            await conn.execute(
+                "INSERT INTO rm.operator_observations (obs_id, org_id, return_id, observed_state, "
+                "operator_id) "
+                "VALUES (%s, %s, %s, 'damaged', 'handler')",
+                (new_id(), job.org_id, job.return_id),
+            )
+            raise RuntimeError("output failed schema validation")
+
+        return HandlerResult(target_return_status=ReturnStatus.AWAITING_OPERATOR, persist=persist)
 
     worker = Worker(db, _settings(), concurrency=1, handler=writes_then_fails)
     await asyncio.wait_for(worker.run(max_jobs=1), timeout=20)

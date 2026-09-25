@@ -17,9 +17,11 @@ from pydantic import BaseModel
 from returns_manager import __version__
 from returns_manager.api import problems
 from returns_manager.api.deps import Services, ServicesDep
+from returns_manager.api.routes import chain as chain_routes
 from returns_manager.api.routes import intake as intake_routes
 from returns_manager.api.routes import jobs as jobs_routes
 from returns_manager.api.routes import security as security_routes
+from returns_manager.api.routes import simulate as simulate_routes
 from returns_manager.config import Settings, get_settings
 from returns_manager.db.pool import Database
 from returns_manager.ids import new_id
@@ -95,4 +97,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(security_routes.router)
     app.include_router(intake_routes.router)
     app.include_router(jobs_routes.router)
+    app.include_router(simulate_routes.router)
+    app.include_router(chain_routes.router)
     return app

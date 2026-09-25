@@ -88,6 +88,11 @@ class PhotoStorage:
         )
         return StoredObject(bucket, key)
 
+    async def get(self, bucket: str, key: str) -> bytes:
+        """Download an object (backend-internal use only; callers resolve `key` from an RLS-scoped row)."""
+        data = await self._creds.storage_client().from_(bucket).download(key)
+        return bytes(data)
+
     async def signed_url(self, bucket: str, key: str, ttl_s: int) -> str:
         """A short-TTL signed download URL. Callers must have checked ownership first (signed_urls.py)."""
         res = await self._creds.storage_client().from_(bucket).create_signed_url(key, ttl_s)

@@ -303,6 +303,7 @@ SKU_SPECS: dict[str, dict[str, Any]] = {
         "refurbish_cost": 0,
     },
     "SKU-CANDLE-3": {
+        "consumable": True,
         "asin": "B0DUMMY964",
         "title": "Aromatherapy Scented Candle Gift Set of 3",
         "brand": "AromaHaven",
@@ -436,7 +437,7 @@ def generate_all_cards() -> list[Path]:
 
             card_data: dict[str, Any] = {
                 "schema": "product-card/v1",
-                "version": "1.1.0",
+                "version": "1.2.0",
                 "org_id": org_id,
                 "sku": sku,
                 "identifiers": {
@@ -453,6 +454,7 @@ def generate_all_cards() -> list[Path]:
                 "similar_skus": spec["similar"],
                 "components": spec["components"],
                 "reference_images": [],
+                "consumable": bool(spec.get("consumable", False)),
                 "value": {
                     "synthetic": True,
                     "list_price": {"amount_minor": spec["list_price"], "currency": "INR"},

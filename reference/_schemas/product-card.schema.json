@@ -424,6 +424,12 @@
       "title": "Reference Images",
       "type": "array"
     },
+    "consumable": {
+      "default": false,
+      "description": "The item itself is consumed in use (e.g. candles). Drives the 'consumable_used' listing blocker for categories whose policy prohibits used consumables (Home: 'Consumable items where any part has been used').",
+      "title": "Consumable",
+      "type": "boolean"
+    },
     "value": {
       "$ref": "#/$defs/ProductValue"
     },

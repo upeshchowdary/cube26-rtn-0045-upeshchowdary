@@ -1,5 +1,5 @@
 schema: product-card/v1
-version: 1.1.0
+version: 1.2.0
 org_id: org_demo_bravo
 sku: SKU-PROT-1KG
 identifiers:
@@ -41,6 +41,7 @@ components:
     ref: cat row 60
     retrieved_at: null
 reference_images: []
+consumable: false
 value:
   synthetic: true
   list_price:
@@ -60,4 +61,4 @@ provenance_notes: 'SYNTHETIC placeholder card for SKU-PROT-1KG under org_demo_br
   features, component flags and catalogue refs are invented placeholders. No reference
   images (no real photos yet). Replace with a hand-authored card from the physical
   fixture.'
-content_sha256: 6f65dc96b62e96201140155fc227e25b5ba2c494026d00c2ba777cec4db057aa
+content_sha256: 5dac93631058316e301229dc48e3f101d39c4474923e0bf7e6ff02386daccb62

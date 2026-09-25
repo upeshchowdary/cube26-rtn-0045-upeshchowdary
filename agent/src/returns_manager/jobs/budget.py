@@ -176,7 +176,8 @@ async def mark_model_exhausted_for_day(
         INSERT INTO rm.model_request_ledger (model_id, quota_day, requests_used, updated_at)
         VALUES (%s, %s, %s, now())
         ON CONFLICT (model_id, quota_day) DO UPDATE
-        SET requests_used = GREATEST(requests_used, EXCLUDED.requests_used), updated_at = now()
+        SET requests_used = GREATEST(rm.model_request_ledger.requests_used, EXCLUDED.requests_used),
+            updated_at = now()
         """,
         (model_id, quota_day, daily_budget),
     )

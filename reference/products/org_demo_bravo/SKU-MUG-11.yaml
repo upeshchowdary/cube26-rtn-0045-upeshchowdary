@@ -1,5 +1,5 @@
 schema: product-card/v1
-version: 1.1.0
+version: 1.2.0
 org_id: org_demo_bravo
 sku: SKU-MUG-11
 identifiers:
@@ -30,6 +30,7 @@ components:
     ref: cat row 90
     retrieved_at: null
 reference_images: []
+consumable: false
 value:
   synthetic: true
   list_price:
@@ -49,4 +50,4 @@ provenance_notes: 'SYNTHETIC placeholder card for SKU-MUG-11 under org_demo_brav
   features, component flags and catalogue refs are invented placeholders. No reference
   images (no real photos yet). Replace with a hand-authored card from the physical
   fixture.'
-content_sha256: 16195a24f29bcd95e2a543f21fc41f910f7b8067c642c348726369ab12934e87
+content_sha256: 52bdd7ee92188fdb3a689da2ac4dae7ae37a5f00169982dd7561d63c4b6f22b6

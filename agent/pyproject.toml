@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastapi==0.141.1",
+    "google-genai==2.25.0",
     "httpx==0.28.1",
     "imagehash==4.3.2",
     "opencv-python-headless==5.0.0.93",
@@ -80,12 +81,12 @@ warn_unused_ignores = true
 check_untyped_defs = true
 plugins = ["pydantic.mypy"]
 
-# Strict where correctness is load-bearing (build prompt §4.1).
+# Strict where correctness is load-bearing (build prompt ??4.1).
 [[tool.mypy.overrides]]
 module = [
   "returns_manager.judgment.*",
   "returns_manager.disposition.*",
-  "returns_manager.evidence.*",
+  "returns_manager.chain.*",
   "returns_manager.canonical.*",
 ]
 strict = true

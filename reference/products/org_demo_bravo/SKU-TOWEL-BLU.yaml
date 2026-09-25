@@ -1,5 +1,5 @@
 schema: product-card/v1
-version: 1.1.0
+version: 1.2.0
 org_id: org_demo_bravo
 sku: SKU-TOWEL-BLU
 identifiers:
@@ -30,6 +30,7 @@ components:
     ref: cat row 30
     retrieved_at: null
 reference_images: []
+consumable: false
 value:
   synthetic: true
   list_price:
@@ -49,4 +50,4 @@ provenance_notes: 'SYNTHETIC placeholder card for SKU-TOWEL-BLU under org_demo_b
   features, component flags and catalogue refs are invented placeholders. No reference
   images (no real photos yet). Replace with a hand-authored card from the physical
   fixture.'
-content_sha256: a85e3f98ed234c591f861858807c2e5bb2aadf5796bc4cca74ef7cbb64b430c5
+content_sha256: ff9d5fa4964c1213b1b7d7281689511741e6f3f58a562d34f89b39ac36841d76

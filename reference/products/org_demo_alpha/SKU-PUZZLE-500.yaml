@@ -1,5 +1,5 @@
 schema: product-card/v1
-version: 1.1.0
+version: 1.2.0
 org_id: org_demo_alpha
 sku: SKU-PUZZLE-500
 identifiers:
@@ -41,6 +41,7 @@ components:
     ref: cat row 22
     retrieved_at: null
 reference_images: []
+consumable: false
 value:
   synthetic: true
   list_price:
@@ -60,4 +61,4 @@ provenance_notes: 'SYNTHETIC placeholder card for SKU-PUZZLE-500 under org_demo_
   features, component flags and catalogue refs are invented placeholders. No reference
   images (no real photos yet). Replace with a hand-authored card from the physical
   fixture.'
-content_sha256: 7d705edae5e2763227d2569ce4d7c1a9ebcdcb21c2bfb93e5d2a15dc5f197e1b
+content_sha256: 1ea34df255324139a7a7aee920ea6f9039687a211417efa10bf722d02eee0f14

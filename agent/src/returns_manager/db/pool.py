@@ -92,6 +92,10 @@ class Database:
         )
         self.role_name: str | None = None
 
+    @property
+    def pool(self) -> AsyncConnectionPool[AsyncConnection[Any]]:
+        return self._pool
+
     async def open(self, *, check_role: bool = True) -> None:
         await self._pool.open(wait=True, timeout=15)
         if check_role:

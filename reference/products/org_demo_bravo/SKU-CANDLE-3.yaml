@@ -1,5 +1,5 @@
 schema: product-card/v1
-version: 1.1.0
+version: 1.2.0
 org_id: org_demo_bravo
 sku: SKU-CANDLE-3
 identifiers:
@@ -41,6 +41,7 @@ components:
     ref: cat row 80
     retrieved_at: null
 reference_images: []
+consumable: true
 value:
   synthetic: true
   list_price:
@@ -60,4 +61,4 @@ provenance_notes: 'SYNTHETIC placeholder card for SKU-CANDLE-3 under org_demo_br
   features, component flags and catalogue refs are invented placeholders. No reference
   images (no real photos yet). Replace with a hand-authored card from the physical
   fixture.'
-content_sha256: 224fe13ee22e3533815f5691ae317dac3a0ead06f95da0353e22dd685d2ccd48
+content_sha256: 8f7632708c53eddc288fa90316460e9ac1544b797a6d4738fb45e2484a97b6ab

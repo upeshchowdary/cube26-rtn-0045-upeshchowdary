@@ -6,6 +6,7 @@ import typer
 
 from returns_manager.config import get_settings
 from returns_manager.db.pool import Database, run_async
+from returns_manager.inspection.runtime import build_runtime
 from returns_manager.jobs import service as jobs_svc
 from returns_manager.jobs.queue import JobRecord
 from returns_manager.jobs.statemachine import JobStatus
@@ -38,19 +39,16 @@ def worker_command(
 ) -> None:
     """Run the job worker (Ctrl+C stops it gracefully)."""
     settings = get_settings()
-    typer.echo(
-        "note: no inspection handler is wired in until phase P5; every claimed job ends in "
-        "needs_attention (photos intact, no decision).",
-        err=True,
-    )
 
     async def go() -> int:
         async with _app_db() as db:
+            runtime = build_runtime(db, settings)
             worker = Worker(
                 db,
                 settings,
                 concurrency=concurrency,
                 kinds=[k.strip() for k in kinds.split(",") if k.strip()],
+                handler=runtime.handler,
             )
             return await worker.run(max_jobs=max_jobs)
 

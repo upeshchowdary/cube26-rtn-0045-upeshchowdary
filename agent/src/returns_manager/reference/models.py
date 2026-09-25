@@ -106,6 +106,12 @@ class ProductCardV1(ReferenceBaseModel):
     similar_skus: list[SimilarSku] = Field(default_factory=list)
     components: list[ProductComponent] = Field(..., min_length=1)
     reference_images: list[ReferenceImage] = Field(default_factory=list)
+    consumable: bool = Field(
+        False,
+        description="The item itself is consumed in use (e.g. candles). Drives the 'consumable_used' listing "
+        "blocker for categories whose policy prohibits used consumables (Home: 'Consumable items where any "
+        "part has been used').",
+    )
     value: ProductValue
     provenance_notes: str | None = None
     content_sha256: str | None = None
@@ -240,3 +246,21 @@ class SourcesV1(ReferenceBaseModel):
     version: str = Field(..., pattern=r"^\d+\.\d+\.\d+$")
     sources: list[SourceDocument]
     content_sha256: str | None = None
+
+
+# reference/_schemas/<name>.schema.json is generated from these models (§8.1: JSON Schema AND Pydantic model).
+SCHEMA_FILES: dict[str, type[BaseModel]] = {
+    "category-policy": CategoryPolicyV1,
+    "condition-rubric": ConditionRubricV1,
+    "disposition-params": DispositionParamsV1,
+    "fx": FxV1,
+    "model-pricing": ModelPricingV1,
+    "product-card": ProductCardV1,
+    "quality-gate": QualityGateV1,
+    "sku-category-map": SkuCategoryMapV1,
+    "sources": SourcesV1,
+}
+
+
+def reference_json_schema(name: str) -> dict[str, Any]:
+    return SCHEMA_FILES[name].model_json_schema(by_alias=True, mode="validation")

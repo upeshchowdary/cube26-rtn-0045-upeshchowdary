@@ -1,5 +1,5 @@
 schema: product-card/v1
-version: 1.1.0
+version: 1.2.0
 org_id: org_demo_alpha
 sku: SKU-LAMP-LED
 identifiers:
@@ -60,6 +60,7 @@ components:
     ref: cat row 14
     retrieved_at: null
 reference_images: []
+consumable: false
 value:
   synthetic: true
   list_price:
@@ -79,4 +80,4 @@ provenance_notes: 'SYNTHETIC placeholder card for SKU-LAMP-LED under org_demo_al
   features, component flags and catalogue refs are invented placeholders. No reference
   images (no real photos yet). Replace with a hand-authored card from the physical
   fixture.'
-content_sha256: 64f3c69d462ffd7c5595539daa3d0e644211dc782951f098441b601aba1ef7c8
+content_sha256: 576bba9b0b24022e650a9cb5b7b83cac9e5aede461b206e0a9494cd5bb3c2c6b

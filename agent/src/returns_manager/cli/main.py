@@ -11,7 +11,15 @@ import sys
 import typer
 
 from returns_manager import __version__
-from returns_manager.cli import dev, intake_commands, job_commands, p1_commands, reference_commands
+from returns_manager.cli import (
+    chain_commands,
+    dev,
+    inspect_commands,
+    intake_commands,
+    job_commands,
+    p1_commands,
+    reference_commands,
+)
 from returns_manager.errors import ExitCode, NotBuiltYet, ReturnsManagerError
 
 app = typer.Typer(
@@ -36,19 +44,12 @@ def _stub(group: typer.Typer, name: str, phase: str, help_text: str, full_name: 
 
 # (group, command, phase, help). Group None = top-level command.
 _PLANNED: list[tuple[str | None, str, str, str]] = [
-    (None, "inspect", "P5", "Run (or --dry-run) a judgment inspection for a return."),
-    ("quota", "status", "P5", "Show today's request budget used/remaining per model."),
-    ("quota", "set-budget", "P5", "Set a model's daily request budget from AI Studio numbers."),
     ("audit", "run", "P9", "Blind audit re-judgment on the audit model (eval runs)."),
     ("review", "list", "P8", "List returns awaiting review or sign-off."),
     ("review", "resolve", "P8", "Resolve a review from a resolution file."),
     ("review", "signoff", "P8", "Approve or reject a sign-off (four-eyes)."),
     ("evidence", "show", "P10", "Show a unit's evidence record."),
     ("evidence", "export", "P10", "Export evidence records (JSONL or flat CSV)."),
-    ("chain", "verify", "P7", "Verify per-unit event chains and the org ledger."),
-    ("ledger", "anchor", "P7", "Append the current ledger head to anchors/ledger-anchors.jsonl."),
-    ("ledger", "verify-anchors", "P7", "Check every published anchor still matches."),
-    ("simulate", "disposition", "P6", "What-if: re-run the disposition engine on changed inputs."),
     ("economics", "report", "P11", "Unit-economics report (paid-equivalent cost)."),
     ("eval", "seal", "P12", "Hash and seal the eval set (quota checks)."),
     ("eval", "run", "P12", "Run the sealed eval (quota- and spend-guarded)."),
@@ -108,13 +109,22 @@ def _register() -> None:
         "rubric": reference_commands.rubric_app,
         "catalogue": reference_commands.catalogue_app,
         "jobs": job_commands.jobs_app,
+        "quota": inspect_commands.quota_app,
+        "simulate": inspect_commands.simulate_app,
+        "chain": chain_commands.chain_app,
+        "ledger": chain_commands.ledger_app,
     }
     for name, sub in built.items():
         _groups[name] = sub
         app.add_typer(sub, name=name, help=_GROUP_HELP[name])
     app.command("capture")(intake_commands.capture_command)
     app.command("worker")(job_commands.worker_command)
+    app.command("inspect")(inspect_commands.inspect_command)
     for group, name, phase, help_text in _PLANNED:
+        if group in _groups:
+            cmds = getattr(_groups[group], "registered_commands", [])
+            if any(c.name == name for c in cmds):
+                continue
         if group is None:
             _stub(app, name, phase, help_text, name)
         else:

@@ -46,16 +46,27 @@ def assert_lease_sizing(settings: Settings) -> None:
         )
 
 
+Persist = Callable[[Any], Awaitable[None]]
+
+
 @dataclass
 class HandlerResult:
+    """What a handler produced. `persist(conn)` runs in the SAME transaction as the return's state
+    transition and the job's success mark (§11.7 step 12), so results and state can never diverge. The
+    handler itself runs outside any transaction: a model call must not pin a pooled connection."""
+
     target_return_status: ReturnStatus
+    persist: Persist | None = None
     details: dict[str, Any] | None = None
 
 
-JobHandler = Callable[[JobRecord, Any], Awaitable[HandlerResult]]
+JobHandler = Callable[[JobRecord], Awaitable[HandlerResult]]
+
+# Per-class attempt caps (§10.4): truncation is retried once, schema errors up to twice.
+_CLASS_ATTEMPT_CAP = {"truncated": 2, "schema_error": 3}
 
 
-async def _no_handler(job: JobRecord, conn: Any) -> HandlerResult:
+async def _no_handler(job: JobRecord) -> HandlerResult:
     raise HandlerNotConfigured(
         f"no job handler is configured for kind '{job.kind}' (the Judgment Agent is built in P5)"
     )
@@ -296,10 +307,13 @@ class Worker:
                 await JobQueue.mark_job_cancelled(conn, job.org_id, job.job_id)
             return True
 
-        # 5. The handler and its results are one transaction: a failure rolls back everything it wrote.
+        # 5. The handler runs outside any transaction (a model call must not pin a pooled connection). Its
+        #    results, the return's state transition and the job's success mark are then one transaction.
         try:
+            result = await self.handler(job)
             async with self.db.transaction(job.org_id) as conn:
-                result = await self.handler(job, conn)
+                if result.persist is not None:
+                    await result.persist(conn)
                 await _set_return_status(
                     conn, job.org_id, job.return_id, result.target_return_status, "inspection_complete"
                 )
@@ -307,11 +321,14 @@ class Worker:
             breaker.record_success()
             return True
         except Exception as exc:
-            await self._fail(job, exc, breaker)
-            return True
+            return await self._fail(job, exc, breaker)
 
-    async def _fail(self, job: JobRecord, exc: Exception, breaker: Any) -> None:
-        """Fail open (§10.6): the return stays visible as pending or needs_attention; photos are untouched."""
+    async def _fail(self, job: JobRecord, exc: Exception, breaker: Any) -> bool:
+        """Fail open (§10.6): the return stays visible as pending or needs_attention; photos are untouched.
+
+        `wait` classes (daily quota, kill switch, spend budget) hold the job until the condition can clear,
+        without spending an attempt. Returns True when the job finished (failed for good or scheduled
+        retry)."""
         classification = classify_error(exc)
         breaker.record_failure(counts_toward_circuit=classification.counts_toward_circuit)
         logger.warning(
@@ -321,22 +338,41 @@ class Worker:
             classification.action,
             exc,
         )
-        retry = classification.retryable and job.attempts < job.max_attempts
+        if classification.action == "wait":
+            if classification.error_class == "quota_exhausted":
+                async with self.db.transaction(None) as conn:
+                    budget = await get_budget_status(
+                        conn,
+                        self.settings.rm_judgment_model,
+                        self.settings.rm_daily_request_budget_judgment,
+                        self.settings.rm_quota_reset_tz,
+                    )
+                delay = max((budget.next_reset_utc - datetime.now(UTC)).total_seconds(), 1.0)
+            else:
+                delay = 60.0
+            await self._hold(job, classification.error_class, classification.detail, delay)
+            await self._return_to(job, ReturnStatus.PENDING)
+            return False
+        cap = min(job.max_attempts, _CLASS_ATTEMPT_CAP.get(classification.error_class, job.max_attempts))
+        retry = classification.retryable and job.attempts < cap
         async with self.db.transaction(job.org_id) as conn:
             if retry:
+                next_at = compute_next_attempt_at(job.attempts)
+                if classification.suggested_wait_s:  # e.g. a per-minute 429 carrying a retry delay
+                    next_at = max(
+                        next_at, datetime.now(UTC) + timedelta(seconds=classification.suggested_wait_s)
+                    )
                 await JobQueue.mark_job_failed_retryable(
-                    conn,
-                    job.org_id,
-                    job.job_id,
-                    classification.error_class,
-                    classification.detail,
-                    compute_next_attempt_at(job.attempts),
+                    conn, job.org_id, job.job_id, classification.error_class, classification.detail, next_at
                 )
             else:
                 await JobQueue.mark_job_needs_attention(
                     conn, job.org_id, job.job_id, classification.error_class, classification.detail
                 )
-        target = ReturnStatus.PENDING if retry else ReturnStatus.NEEDS_ATTENTION
+        await self._return_to(job, ReturnStatus.PENDING if retry else ReturnStatus.NEEDS_ATTENTION)
+        return True
+
+    async def _return_to(self, job: JobRecord, target: ReturnStatus) -> None:
         try:
             async with self.db.transaction(job.org_id) as conn:
                 await _set_return_status(conn, job.org_id, job.return_id, target, "job_failed")

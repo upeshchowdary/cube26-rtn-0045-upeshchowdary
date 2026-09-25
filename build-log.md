@@ -467,7 +467,124 @@ Not yet built: system-chain events for circuit open/close and control changes (P
 **Next.** Commit P4 + fixes; then P5. **Blocker for P5:** real photos of physical products for the
 reference cards (and the eval set).
 
+P4 committed as `2f26e2b` and pushed (all pre-commit hooks green). Two more P4 tests added before the
+commit: T-Q-20 heartbeat row + owner-only lease renewal, T-Q-21 `GET /jobs/{id}` (200 own org, 404 other
+org with no detail, 403 without scope, 401 anonymous); the jobs route now returns a typed model (§15).
+
 ---
+
+## 2026-09-25 · P5 Judgment Agent — verify-first spike (§0.7)
+
+Source read: installed `google-genai==2.25.0` (pinned exactly), `google/genai/_gaos/…`.
+
+| §0.7 item | Verified | Consequence |
+|---|---|---|
+| Interactions API call shape | `client.interactions.create(model, input, system_instruction, tools, generation_config, response_format, previous_interaction_id, store, …)`; async: `client.aio.interactions.create` | as the prompt says |
+| Response fields | `Interaction.id`, `.status` (`completed`, `requires_action`, `incomplete`, `failed`, `budget_exceeded`, …), `.steps[]` (`function_call`: `id`, `name`, `arguments`; `model_output`: `content[]`, `error`), `.output_text` (SDK-computed), `.errors[]` | no `finish_reason` field exists: truncation/safety are read from `status`, `errors` and `model_output.error` (live-verified below) |
+| Usage field names | `usage.total_input_tokens`, `total_output_tokens`, `total_thought_tokens`, `total_cached_tokens`, `total_tokens` | stored as returned |
+| Structured output | `response_format={"type": "text", "mime_type": "application/json", "schema": {...}}` | as the prompt says |
+| Tool choice | `generation_config.tool_choice = {"allowed_tools": {"mode": "auto"}}` (`ToolChoiceConfig.allowed_tools`) | `auto` only |
+| Thinking | `generation_config.thinking_level ∈ {minimal, low, medium, high}` | prompt lists 3 levels; `minimal` also exists (not used) |
+| Function results | step `{"type": "function_result", "call_id", "name", "result": str | [text | image sub-contents], "is_error"}` | **contradicts the prompt**: images CAN be returned inside a function result; and `input` is either a list of contents or a list of steps, never mixed → crops go inside the `function_result` (finding F-010) |
+| Image input | `{"type": "image", "data": b64 | "uri", "mime_type", "resolution": low|medium|high|ultra_high}` | as the prompt says |
+| HTTP errors | `GenAiError` subclasses with `.status_code`, `.message` (`CreateInteractionClientError` 4xx, `…ServerError` 5xx) | classified by type + status code |
+| **SDK auto-retry** | default: 2–4 automatic retries on 408/409/429/5xx with backoff up to 30 s; per-call override does not exist; set via `HttpOptions(retry_options=HttpRetryOptions(attempts=0))` — in this code path `attempts` is the *retry* count although its docstring says "including the original request" | **must be off**: a silent 429 retry burns daily quota and stretches the lease; retries belong to the job layer (§10.4). Unit-tested (finding F-011) |
+
+**Plan (P5).** 1) `judgment/v1` Pydantic schema + a Gemini-safe schema exporter (inline `$defs`, strip
+keywords Gemini does not list). 2) Versioned, hash-locked system prompt. 3) `ModelClient` protocol,
+`GeminiModelClient` (async, retries off, timeout), `ReplayModelClient` (cassettes, fingerprint mismatch
+fails loudly). 4) Quota guard: reserve `RM_MAX_ROUND_TRIPS`, release unused; RPM limiter. 5) Deterministic
+context assembly (stable SKU block first; aliases; operator observation withheld); §11.2a missing-reference
+gate. 6) Three exception tools with budgets. 7) Stateful session loop. 8) Usage + paid-equivalent cost.
+9) Migration for `inspection_runs`, `model_tool_calls`, `inspection_results`. 10) Worker handler wiring,
+`inspect --dry-run`, `quota status|set-budget`. 11) Live smoke within quota. 12) Tests T-RPL-*.
+
+---
+
+## 2026-09-25 · P5 + P6 — HANDOVER STATE (work in progress, NOT committed)
+
+**Correction to the P5 spike above:** `HttpRetryOptions(attempts=0)` does NOT disable SDK retries (the legacy
+client rewrites 0→1 in place; the Interactions path then does 1 silent retry). Fixed by clearing
+`sdk_configuration.retry_config` on both interactions resources (`llm/gemini_client.py`), pinned by
+`test_sdk_automatic_retries_are_off`.
+
+**Built (uncommitted):** migrations 0006 (reference_images key) and **0007 (inspection_runs, model_tool_calls,
+inspection_results — already APPLIED locally, do not edit; add 0008 for changes)**; `llm/` (schemas, prompts +
+lock, client seam, gemini_client, replay_client, quota, pricing, context, tools, loop); `judgment/` (types,
+referential, consistency C01–C14, fusion, completeness, grading, claims, escalation triggers, pipeline);
+`disposition/` (engine, params, simulate); `inspection/` (service = worker handler, runtime, dryrun); CLI
+`inspect [--dry-run]`, `quota status|set-budget`, `simulate disposition`, `worker` wired to the real handler;
+`POST /api/v1/simulate/disposition`. Worker handler contract changed: handler(job) runs outside a transaction and
+returns `HandlerResult(target, persist)`; `persist` runs in the same transaction as the state change. Quota 429 /
+kill switch now hold the job (no attempt spent); per-class attempt caps (truncated 2, schema_error 3).
+Reference: cards v1.2.0 with `consumable` field (candle true); pet policy v1.1.0 opened→liquidate (§12.2 R07).
+
+**Test status (method: pytest on local Supabase):** test_disposition 48/48 (incl. 1,200 Hypothesis cases),
+test_judgment_pipeline 60/60, test_llm 29/29, test_jobs 35/35 pass. test_inspection: 2/5 pass; the 3 failures
+are known, with fixes:
+1. `inspection/service.py` `_insert_run`: `sha256_jcs(output)` rejects floats (confidence) → hash
+   `canonical_bytes` of the output with floats converted to basis points, or sha256 of sorted-key JSON; document.
+2. Failed runs record `api_requests=0` because `SessionTrace` only counts responses → add a `requests_sent`
+   counter incremented in `llm/loop.py` before each `client.create`, and store that.
+3. `test_daily_quota_429_holds_until_reset` times out: a held job does not count toward `run(max_jobs=1)` →
+   run the worker as a task for ~1.5 s then `stop()` (as in test_jobs T-Q-12).
+Also found and fixed: P4 `jobs/budget.py mark_model_exhausted_for_day` had an ambiguous-column SQL error (it
+had never run). Remaining lint: long lines in the new test files (`ruff check .` in agent/).
+
+**Findings to file (findings/*.md + table below):** F-008 fake reference images; F-009 reference_images key;
+F-010 function results may carry images / input is contents XOR steps (prompt said otherwise); F-011 SDK
+auto-retry cannot be turned off via HttpRetryOptions; F-012 R09 vs §12.3 monotonicity (engine resolution
+documented in `disposition/engine.py`); F-013 placeholder cards: puzzle/protein/bottle have only packaging or
+accessory critical features and no barcodes → identity can never be `yes` (C06 box-swap defence, §11.9 row 7);
+real cards need ≥2 critical product-body features or barcode values.
+
+**Still open for P5 acceptance (need the human):** real product photos + hand-authored cards (images are
+removed); real AI Studio quotas → `quota set-budget`; ADR-002; `@pytest.mark.live` smoke on 3 dev fixtures
+(record cassettes via `RecordingModelClient`); confirm schema acceptance (`type: [X, "null"]`) or switch to
+`json_prompted`; crop round trip; cached tokens on a repeated SKU; safety/truncation status names; §18.5
+measurement on 5–8 fixtures.
+
+---
+
+## 2026-09-25 · P7 — Evidence Integrity (Chain of Custody, Ledger, Evidence Records, Verification & Anchoring)
+
+**Plan:** Implement the cryptographic evidence integrity subsystem per §13:
+1. Migration `0008_event_chain.sql`: per-unit event chain (`rm.unit_events`, `rm.unit_chain_heads`), per-org ledger (`rm.org_ledger`, `rm.org_ledger_heads`), evidence records (`rm.evidence_records`) with forced tenant RLS.
+2. Canonicalization & hashing (`chain/crypto.py`): RFC 8785 JCS + SHA-256 canonical hashing; genesis hashes, payload hashing, and ledger core hashing.
+3. Event append (`chain/append.py`): atomic event append with `FOR UPDATE` head lock preventing forks; seq continuity; org ledger append.
+4. Evidence records (`chain/records.py`): `finalize_record` (v1) and `supersede_record` (vN+1) creating versioned records linked to the ledger.
+5. Verification engine (`chain/verify.py`, `chain/service.py`): independent verification recomputing all hashes, checking sequence gaps, prev_hash linkages, and anchor integrity.
+6. Public git anchoring (`chain/anchor.py`): export ledger heads to `anchors/ledger-anchors.jsonl`.
+7. API & CLI (`api/routes/chain.py`, `cli/chain_commands.py`): `GET /api/v1/units/{unit_id}/chain/verification`, `returns-manager chain verify`, `returns-manager ledger anchor`.
+8. ADR-007: `decisions/ADR-007-hash-chain-scope-and-honest-claim-wording.md` documenting hash-chain scope and the required honest claim wording.
+
+**Changed:**
+- Created `agent/migrations/0008_event_chain.sql` and applied it to the database.
+- Implemented `agent/src/returns_manager/chain/` package (`crypto.py`, `event_types.py`, `append.py`, `records.py`, `verify.py`, `anchor.py`, `service.py`).
+- Added endpoint `GET /api/v1/units/{unit_id}/chain/verification` and registered router in `api/app.py`.
+- Implemented CLI commands in `cli/chain_commands.py` and registered them under `chain` and `ledger` in `cli/main.py`.
+- Fixed psycopg3 async execute/fetchall patterns across `chain` and `inspection/service.py`.
+- Added property `pool` to `Database` for clean connection pool access.
+- Authored `decisions/ADR-007-hash-chain-scope-and-honest-claim-wording.md`.
+
+**Failed & Fixed:**
+- `psycopg.errors.CheckViolation: returns_record_id_check`: fixture in `test_chain.py` used hex characters; changed to 4-digit decimal format matching regex `^RTN-[0-9]{4}(-[0-9]+)?$`.
+- Integer domain limit in RFC 8785 JCS: `test_golden_unicode_payload` used 2^53 (9007199254740992) which exceeds IEEE 754 float safe range; updated to max safe integer (9007199254740991).
+- `TypeError: AsyncConnection.execute() takes from 2 to 3 positional arguments`: parameters in psycopg3 must be passed as a single sequence/tuple; wrapped all execute parameters into tuples.
+- `psycopg.errors.InsufficientPrivilege`: table grants for `unit_chain_heads` and `org_ledger_heads` required `UPDATE` for upsert / head advances; granted to `rm_app`.
+- Static security rule enforcement: removed `DELETE` grants from `rm_app` in `0008_event_chain.sql` and revoked `DELETE` from `rm_app` on `unit_events`, `unit_chain_heads`, `org_ledger`, `org_ledger_heads`, `evidence_records` in PostgreSQL database; updated `test_tamper_record_deletion` to simulate out-of-band DBA tamper via admin migrator connection.
+- Ruff lint cleanup (20 issues): fixed long lines (> 110 chars) in `verify.py` and `test_chain.py`, replaced blocking Path operations with `asyncio.to_thread` (`ASYNC230`/`ASYNC240`), updated list unpacking (`RUF005`), and cleaned import ordering.
+- Mypy typing fixes: fixed 7 mypy errors in `chain_commands.py` (`ExitCode.USAGE`, `_db()` helper with `database_url` verification), enabled strict mypy checking on `returns_manager.chain.*` (0 errors across 102 source files).
+- CLI integration test: added `test_chain_verify_cli` covering unit and org verification, verifying exit codes and thread-isolated event loop execution (19/19 passed in `test_chain.py`).
+
+**Evidence:**
+- `pytest tests/unit/test_chain.py`: 19/19 passed (100%).
+- Full unit test suite `pytest tests/unit`: **299 passed, 0 failed**.
+- `returns-manager dev check`: passes all 6 gates (ruff check, ruff format, mypy, pytest, reference validate, check_boundary).
+- Boundary check: `python scripts/check_boundary.py` confirms 0 organiser files touched.
+- Migration status: `0001` through `0008` applied and verified.
+
+**Next:** Phase 8 (Human loop: review queue, decision accept/override, sign-off with four-eyes, post-finalization supersession).
 
 ## Findings
 
@@ -478,6 +595,10 @@ reference cards (and the eval set).
 
 | F-008 | 2026-09-25 | own repo: `seed_cards.py`, `reference/products/*/images` | P2 log says product cards have "downscaled reference images"; the files were generated, truncated, non-decodable and shared across unrelated SKUs, and card provenance ("cat row N", brands) was invented | model would compare returns against noise; eval credibility | images removed, cards marked synthetic placeholders, validator decodes and de-duplicates images | pending |
 | F-009 | 2026-09-25 | own repo: migration 0004 | `reference_images` PK `(org_id, ref_image_id)` vs card-local image ids | only one reference image per org survived loading | migration 0006 re-keys by card; loader deactivates old card versions | pending |
+| F-010 | 2026-09-25 | installed Gemini SDK | prompt says function results cannot carry images / inputs can mix | invalid crop continuation shape | use image-containing function results and contents XOR steps | pending |
+| F-011 | 2026-09-25 | installed Gemini SDK | `HttpRetryOptions(attempts=0)` leaves one Interactions retry | quota and lease controls could be bypassed | clear SDK retry configuration; worker owns retries | pending |
+| F-012 | 2026-09-25 | prompt §12.2 R09 vs §12.3 | literal R09 can improve a route when an essential part is missing | violates monotonic disposition | require the complete-item route to be refurbish or better | pending |
+| F-013 | 2026-09-25 | synthetic product cards / §11.9 C06 | packaging-only critical features without barcodes cannot prove identity | positive identity verdict is unsupported | retain unverified result until real cards/photos exist | pending |
 
 F-001…F-006 (§26) are verified and filed in the phases that act on them (P2, P6).
 

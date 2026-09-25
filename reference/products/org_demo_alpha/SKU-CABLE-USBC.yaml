@@ -1,5 +1,5 @@
 schema: product-card/v1
-version: 1.1.0
+version: 1.2.0
 org_id: org_demo_alpha
 sku: SKU-CABLE-USBC
 identifiers:
@@ -30,6 +30,7 @@ components:
     ref: cat row 100
     retrieved_at: null
 reference_images: []
+consumable: false
 value:
   synthetic: true
   list_price:
@@ -49,4 +50,4 @@ provenance_notes: 'SYNTHETIC placeholder card for SKU-CABLE-USBC under org_demo_
   features, component flags and catalogue refs are invented placeholders. No reference
   images (no real photos yet). Replace with a hand-authored card from the physical
   fixture.'
-content_sha256: 3c04f9a4268c30a0cfe00025177431fa5921a4e54c3bbbc7fca73a76ad43c4d4
+content_sha256: dc484d2204c3c925cd6d3f06fa941dc93d03d8083d9b03e689d48c0de78b69f0

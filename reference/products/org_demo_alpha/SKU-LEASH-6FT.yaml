@@ -1,5 +1,5 @@
 schema: product-card/v1
-version: 1.1.0
+version: 1.2.0
 org_id: org_demo_alpha
 sku: SKU-LEASH-6FT
 identifiers:
@@ -30,6 +30,7 @@ components:
     ref: cat row 70
     retrieved_at: null
 reference_images: []
+consumable: false
 value:
   synthetic: true
   list_price:
@@ -49,4 +50,4 @@ provenance_notes: 'SYNTHETIC placeholder card for SKU-LEASH-6FT under org_demo_a
   features, component flags and catalogue refs are invented placeholders. No reference
   images (no real photos yet). Replace with a hand-authored card from the physical
   fixture.'
-content_sha256: 62f44c1635093d1040035bdf9dc61910877cc5f6114910e8ff95de57eb7a371c
+content_sha256: e1b455fd4422f668b7234795db9e256c39ba0c10c514d1d3535d816993250ca2
