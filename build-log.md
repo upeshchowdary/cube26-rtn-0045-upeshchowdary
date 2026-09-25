@@ -659,6 +659,38 @@ only after the human enables it within the audit-model daily budget.
 
 **Next:** Phase 10 (Evidence records, evidence export, OpenAPI export, cross-pod contract schemas, and read-only MCP server).
 
+---
+
+## 2026-09-25 · P8/P9 re-verification after an interrupted session (handover to a new agent)
+
+**Context.** The P8-P9 commit (`2157795`) was made locally but never pushed because the prior agent
+session was stopped mid-run. On resuming, several stale `pytest tests/unit/test_escalation_audit.py`
+processes from that interrupted session were found still running (some over 20 minutes old, one launched
+by an even earlier session with `--tb=long` on `test_worker_audit_execution_and_disagreement_routing`).
+Running the suite again while those were alive produced a real-looking but false failure
+(`test_worker_escalation_resolves_uncertainty_and_reruns_pipeline` failed with the reference-image file
+"not found" despite the write happening moments earlier) followed by an indefinite hang on the next test.
+
+**Root cause.** Not a code defect. Concurrent stale worker/test processes against the same local Supabase
+instance raced on shared global state (`rm.system_controls`, `Control.AUDIT` / `Control.ESCALATION`, which
+are process-wide, not per-test) and on the filesystem under `tmp_path`. Once every stray `python.exe`
+process bound to `test_escalation_audit.py` was killed (verified via `Get-CimInstance Win32_Process`, not
+just `Stop-Process` by name), the suite ran clean and fast on the very next attempt.
+
+**Verification (clean environment, no other test processes running).**
+- `pytest tests/unit/test_escalation_audit.py -q`: **10 passed, 0 failed** in 2.30 s.
+- `returns-manager dev check`: ruff lint ok, ruff format ok (135 files), mypy ok (109 source files),
+  pytest **313 passed, 0 failed** in 97 s, reference validate ok (34 files), boundary check ok
+  (branch `upeshchowdary`, 217 changed files, none organiser-owned).
+- No source change was needed; `git status`/`git diff` confirm the working tree matches `2157795` exactly.
+
+**Lesson.** When re-running this suite after killing a stuck process, kill by matched command line
+(`Where-Object CommandLine -like '*test_escalation_audit*'`), not by process name alone — `python.exe`
+also covers unrelated long-running MCP tooling in this environment, and a name-only kill either misses the
+stale test workers or risks taking down something unrelated.
+
+**Next:** push `2157795` (was local-only, 1 commit ahead of `origin/upeshchowdary`); then Phase 10.
+
 ## Findings
 
 | F-### | date | source | contradiction | impact | our handling | GitHub issue |
