@@ -15,6 +15,7 @@ from returns_manager.cli import (
     audit_commands,
     chain_commands,
     dev,
+    evidence_commands,
     inspect_commands,
     intake_commands,
     job_commands,
@@ -46,17 +47,12 @@ def _stub(group: typer.Typer, name: str, phase: str, help_text: str, full_name: 
 
 # (group, command, phase, help). Group None = top-level command.
 _PLANNED: list[tuple[str | None, str, str, str]] = [
-    ("evidence", "show", "P10", "Show a unit's evidence record."),
-    ("evidence", "export", "P10", "Export evidence records (JSONL or flat CSV)."),
+    # P10 commands are now built; stubs removed.
     ("economics", "report", "P11", "Unit-economics report (paid-equivalent cost)."),
     ("eval", "seal", "P12", "Hash and seal the eval set (quota checks)."),
     ("eval", "run", "P12", "Run the sealed eval (quota- and spend-guarded)."),
     ("eval", "report", "P12", "Generate the eval report for a run."),
     (None, "load-test", "P13", "Load test in replay or live mode."),
-    ("openapi", "export", "P10", "Export OpenAPI JSON."),
-    ("contract", "build", "P10", "Build contract schemas and examples."),
-    ("contract", "check", "P10", "Check contract compatibility."),
-    ("mcp", "serve", "P10", "Serve the read-only MCP server."),
 ]
 
 _GROUP_HELP = {
@@ -113,6 +109,10 @@ def _register() -> None:
         "ledger": chain_commands.ledger_app,
         "review": review_commands.review_app,
         "audit": audit_commands.audit_app,
+        "evidence": evidence_commands.evidence_app,
+        "openapi": evidence_commands.openapi_app,
+        "contract": evidence_commands.contract_app,
+        "mcp": evidence_commands.mcp_app,
     }
     for name, sub in built.items():
         _groups[name] = sub

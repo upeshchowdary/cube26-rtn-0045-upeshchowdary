@@ -38,10 +38,11 @@ def test_entry_point_is_installed_as_returns_manager() -> None:
 
 
 def test_unbuilt_command_fails_and_names_its_phase(capsys: pytest.CaptureFixture[str]) -> None:
-    assert run(["evidence", "show"]) == ExitCode.FAILURE
+    # 'evidence show' was the P10 stub; now that P10 is built, use a P11 stub.
+    assert run(["economics", "report"]) == ExitCode.FAILURE
     err = capsys.readouterr().err
     assert "not built yet" in err
-    assert "P10" in err
+    assert "P11" in err
 
 
 def test_unknown_command_is_a_usage_error() -> None:

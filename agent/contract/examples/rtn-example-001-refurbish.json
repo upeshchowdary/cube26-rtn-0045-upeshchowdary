@@ -1,0 +1,180 @@
+{
+  "record_id": "RTN-EXAMPLE-001",
+  "schema_version": "1.0.0",
+  "organization_id": "org_demo_alpha",
+  "client_id": "org_demo_alpha",
+  "agent": "returns_manager",
+  "subject": {
+    "unit_id": "UNIT-EXAMPLE-001",
+    "return_id": "01JRETURN_EXAMPLE",
+    "order_id": "ORD-DEMO-50001",
+    "sku": "SKU-BT-HEADPHONES",
+    "asin": "B0DEMO1234"
+  },
+  "captured_at": "2026-07-18T07:36:00Z",
+  "operator_label": "op_demo_1",
+  "images": [
+    {
+      "image_id": "01JPHOTOEX01",
+      "slot": 1,
+      "role": "front",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "quality": "pass",
+      "url": null
+    },
+    {
+      "image_id": "01JPHOTOEX02",
+      "slot": 2,
+      "role": "contents",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quality": "pass",
+      "url": null
+    }
+  ],
+  "checks": [
+    {
+      "check_key": "photo_quality",
+      "verdict": "PASS",
+      "confidence_bp": 10000,
+      "detail": "2 usable photos received.",
+      "model_version": "deterministic@quality-gate-1.0.0",
+      "latency_ms": 3
+    },
+    {
+      "check_key": "unit_presence",
+      "verdict": "PASS",
+      "confidence_bp": 9800,
+      "detail": "The model reported the product is present in the packaging.",
+      "model_version": "gemini-3.8-flash@judgment-v1.0.0",
+      "latency_ms": 11200
+    },
+    {
+      "check_key": "identity",
+      "verdict": "PASS",
+      "confidence_bp": 9200,
+      "detail": "Product body features match the catalogue card; barcode visible and matches ordered ASIN.",
+      "model_version": "gemini-3.8-flash@judgment-v1.0.0",
+      "latency_ms": 11200
+    },
+    {
+      "check_key": "completeness",
+      "verdict": "FAIL",
+      "confidence_bp": 10000,
+      "detail": "USB charging cable missing (1 of 1 expected); no damage observed in the provided photos.",
+      "model_version": "gemini-3.8-flash@judgment-v1.0.0",
+      "latency_ms": 11200
+    },
+    {
+      "check_key": "condition_grade",
+      "verdict": "PASS",
+      "confidence_bp": 8500,
+      "detail": "Graded against Amazon's published condition guidelines (snapshot 2024-Q4, unverified_substitute). The model reported light signs of use; no cracks or damage observed in the provided photos. Functional test not performed.",
+      "model_version": "gemini-3.8-flash@judgment-v1.0.0",
+      "latency_ms": 11200
+    },
+    {
+      "check_key": "relistable_as_is",
+      "verdict": "FAIL",
+      "confidence_bp": 10000,
+      "detail": "Listing blockers: essential_component_missing. Relist only after component replacement.",
+      "model_version": "deterministic@disposition-3f9a1c2b",
+      "latency_ms": 1
+    },
+    {
+      "check_key": "category_policy",
+      "verdict": "PASS",
+      "confidence_bp": 10000,
+      "detail": "Category policy allows refurbish route for this SKU.",
+      "model_version": "deterministic@disposition-3f9a1c2b",
+      "latency_ms": 1
+    }
+  ],
+  "outcome": {
+    "decision": "REFURBISH",
+    "decided_by": "rules_engine@disposition-3f9a1c2b",
+    "decided_at": "2026-07-18T07:37:45Z"
+  },
+  "overrides": [],
+  "status": "finalized",
+  "content_hash": "sha256:example-not-for-verification",
+  "extensions": {
+    "returns": {
+      "contract_version": "1.0.0",
+      "record_id": "RTN-EXAMPLE-001",
+      "record_version": 1,
+      "org_id": "org_demo_alpha",
+      "unit_id": "UNIT-EXAMPLE-001",
+      "return_id": "01JRETURN_EXAMPLE",
+      "order_id": "ORD-DEMO-50001",
+      "ordered_sku": "SKU-BT-HEADPHONES",
+      "ordered_asin": "B0DEMO1234",
+      "captured_at": "2026-07-18T07:36:00Z",
+      "finalized_at": "2026-07-18T07:37:45Z",
+      "comparison_mode": "catalogue_return",
+      "identity": {
+        "identity_match": "yes",
+        "evidence_strength": "strong",
+        "risk_flags": [],
+        "reasons": ["barcode_match", "feature_match"],
+        "observed_identifiers": ["B0DEMO1234"],
+        "feature_checks": [],
+        "evidence": []
+      },
+      "completeness": {
+        "status": "incomplete",
+        "parts_list": "usb charging cable",
+        "parts_missing": "usb charging cable",
+        "parts_uncertain": "",
+        "components": []
+      },
+      "condition": {
+        "amazon_condition": "Used - Good",
+        "cosmetic_grade": "used_good",
+        "listing_blockers": ["essential_component_missing"],
+        "functional_check": "not_performed",
+        "packaging_state": "opened",
+        "signs_of_use": "light",
+        "observations": [],
+        "rubric": null
+      },
+      "disposition": {
+        "recommended_disposition": "refurbish",
+        "no_recommendation_reason": null,
+        "provisional": false,
+        "assumptions": [],
+        "requires_review": false,
+        "review_reasons": [],
+        "final_disposition": "refurbish",
+        "listing_condition": "Used - Good",
+        "relistable_as_is": false,
+        "rule_id": "R09",
+        "rules_version": "disposition-3f9a1c2b",
+        "decided_by": "deterministic_engine",
+        "requires_signoff": false,
+        "signoff": null,
+        "expected_recovery": null
+      },
+      "claim_signals": {
+        "item_not_returned": false,
+        "wrong_item_returned": false,
+        "returned_damaged": {"value": false},
+        "parts_missing": ["usb charging cable"],
+        "parts_uncertain": []
+      },
+      "integrity": {
+        "document_sha256": "example-not-for-verification",
+        "head_event_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "event_count": 4,
+        "ledger_seq": 1,
+        "ledger_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "claim": "Tamper-evident within this database: modification, reordering, insertion or deletion of events or records is detected unless an attacker rewrites the entire chain consistently. Not immutable. Weakly anchored: ledger heads are published in public git commits; history before an anchor cannot be silently rewritten without breaking the anchor."
+      },
+      "links": {
+        "self": "/api/v1/units/UNIT-EXAMPLE-001/return-evidence",
+        "chain": "/api/v1/units/UNIT-EXAMPLE-001/chain",
+        "verification": "/api/v1/units/UNIT-EXAMPLE-001/chain/verification",
+        "explain": "/api/v1/units/UNIT-EXAMPLE-001/explain"
+      }
+    }
+  }
+}

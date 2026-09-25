@@ -18,6 +18,7 @@ from returns_manager import __version__
 from returns_manager.api import problems
 from returns_manager.api.deps import Services, ServicesDep
 from returns_manager.api.routes import chain as chain_routes
+from returns_manager.api.routes import evidence as evidence_routes
 from returns_manager.api.routes import intake as intake_routes
 from returns_manager.api.routes import jobs as jobs_routes
 from returns_manager.api.routes import review as review_routes
@@ -101,4 +102,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(simulate_routes.router)
     app.include_router(review_routes.router)
     app.include_router(chain_routes.router)
+    app.include_router(evidence_routes.router)
     return app
