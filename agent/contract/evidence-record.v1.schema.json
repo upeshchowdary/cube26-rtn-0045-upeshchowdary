@@ -1,0 +1,295 @@
+{
+  "$defs": {
+    "CheckEntry": {
+      "description": "One entry in the fixed `checks` list of an evidence record.\n\n`confidence_bp` is 0-10000 (basis points) stored in the document.\nDivide by 10000 for the 0.00-1.00 display value.\nThe document stores integers only; no floats in hashed payloads (ss13.1).",
+      "properties": {
+        "check_key": {
+          "description": "Canonical check identifier, e.g. 'identity'.",
+          "title": "Check Key",
+          "type": "string"
+        },
+        "verdict": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "UNCERTAIN"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        },
+        "confidence_bp": {
+          "description": "Confidence in basis points (0-10000). Divide by 10000 for display.",
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Confidence Bp",
+          "type": "integer"
+        },
+        "detail": {
+          "description": "Plain-English sentence a customer can read; never contains secrets or URLs.",
+          "title": "Detail",
+          "type": "string"
+        },
+        "model_version": {
+          "description": "<model_id>@<prompt_id>-<prompt_version> for model-derived checks; deterministic@<component>-<version> for deterministic checks.",
+          "title": "Model Version",
+          "type": "string"
+        },
+        "latency_ms": {
+          "description": "Wall-clock ms for this check.",
+          "minimum": 0,
+          "title": "Latency Ms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "check_key",
+        "verdict",
+        "confidence_bp",
+        "detail",
+        "model_version",
+        "latency_ms"
+      ],
+      "title": "CheckEntry",
+      "type": "object"
+    },
+    "ImageEntry": {
+      "properties": {
+        "image_id": {
+          "title": "Image Id",
+          "type": "string"
+        },
+        "slot": {
+          "minimum": 1,
+          "title": "Slot",
+          "type": "integer"
+        },
+        "role": {
+          "description": "front | back | label | contents | other",
+          "title": "Role",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        },
+        "quality": {
+          "enum": [
+            "pass",
+            "fail",
+            "warning",
+            "acknowledged"
+          ],
+          "title": "Quality",
+          "type": "string"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Short-TTL signed URL; null unless requested.",
+          "title": "Url"
+        }
+      },
+      "required": [
+        "image_id",
+        "slot",
+        "role",
+        "sha256",
+        "quality"
+      ],
+      "title": "ImageEntry",
+      "type": "object"
+    },
+    "Outcome": {
+      "properties": {
+        "decision": {
+          "enum": [
+            "RESTOCK",
+            "REFURBISH",
+            "LIQUIDATE",
+            "DISPOSE",
+            "PENDING_REVIEW"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "decided_by": {
+          "description": "rules_engine@<version> for the engine; operator:<label> or reviewer:<label> for a human.  Never the model name.",
+          "title": "Decided By",
+          "type": "string"
+        },
+        "decided_at": {
+          "description": "RFC 3339 UTC, second precision.",
+          "title": "Decided At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "decision",
+        "decided_by",
+        "decided_at"
+      ],
+      "title": "Outcome",
+      "type": "object"
+    },
+    "OverrideEntry": {
+      "properties": {
+        "check_key": {
+          "title": "Check Key",
+          "type": "string"
+        },
+        "original": {
+          "title": "Original"
+        },
+        "new": {
+          "title": "New"
+        },
+        "reason_code": {
+          "title": "Reason Code",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "by": {
+          "description": "operator:<label> or reviewer:<label>",
+          "title": "By",
+          "type": "string"
+        },
+        "at": {
+          "description": "RFC 3339 UTC",
+          "title": "At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "check_key",
+        "original",
+        "new",
+        "reason_code",
+        "reason",
+        "by",
+        "at"
+      ],
+      "title": "OverrideEntry",
+      "type": "object"
+    }
+  },
+  "description": "The fixed evidence contract from the Official Participant Handbook \u00a79, as implemented by Returns Manager (track 04). Schema version 1.0.0.",
+  "properties": {
+    "record_id": {
+      "description": "Stage prefix RTN-; opaque to consumers.",
+      "title": "Record Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": "1.0.0",
+      "description": "Semver of this contract.",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "organization_id": {
+      "description": "Tenant identifier (= internal org_id).",
+      "title": "Organization Id",
+      "type": "string"
+    },
+    "client_id": {
+      "description": "Seller/client; equals organization_id when an org processes its own returns (see OQ-1 / \u00a714.2 note on client_id).",
+      "title": "Client Id",
+      "type": "string"
+    },
+    "agent": {
+      "default": "returns_manager",
+      "description": "Fixed string for this track.",
+      "title": "Agent",
+      "type": "string"
+    },
+    "subject": {
+      "additionalProperties": true,
+      "description": "{unit_id, return_id, order_id, sku, asin}",
+      "title": "Subject",
+      "type": "object"
+    },
+    "captured_at": {
+      "description": "RFC 3339 UTC, second precision.",
+      "title": "Captured At",
+      "type": "string"
+    },
+    "operator_label": {
+      "description": "Human-readable, pseudonymous operator label.",
+      "title": "Operator Label",
+      "type": "string"
+    },
+    "images": {
+      "items": {
+        "$ref": "#/$defs/ImageEntry"
+      },
+      "title": "Images",
+      "type": "array"
+    },
+    "checks": {
+      "description": "All fixed check keys in the canonical order (\u00a714.2).",
+      "items": {
+        "$ref": "#/$defs/CheckEntry"
+      },
+      "title": "Checks",
+      "type": "array"
+    },
+    "outcome": {
+      "$ref": "#/$defs/Outcome"
+    },
+    "overrides": {
+      "items": {
+        "$ref": "#/$defs/OverrideEntry"
+      },
+      "title": "Overrides",
+      "type": "array"
+    },
+    "status": {
+      "enum": [
+        "pending",
+        "awaiting_operator",
+        "awaiting_review",
+        "awaiting_signoff",
+        "finalized",
+        "superseded",
+        "needs_attention"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "content_hash": {
+      "description": "sha256:<hex> of SHA-256(JCS(record without this field)).",
+      "title": "Content Hash",
+      "type": "string"
+    },
+    "extensions": {
+      "additionalProperties": true,
+      "description": "{\"returns\": ReturnsExtension}; no top-level key is repeated here.",
+      "title": "Extensions",
+      "type": "object"
+    }
+  },
+  "required": [
+    "record_id",
+    "organization_id",
+    "client_id",
+    "subject",
+    "captured_at",
+    "operator_label",
+    "outcome",
+    "status",
+    "content_hash"
+  ],
+  "title": "Evidence Record v1",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://returns-manager/contract/evidence-record.v1.schema.json"
+}

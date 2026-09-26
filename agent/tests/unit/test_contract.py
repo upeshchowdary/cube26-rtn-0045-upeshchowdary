@@ -17,6 +17,10 @@ These tests verify:
   T-CON-14  CLI 'contract build' writes all three artifact files.
   T-CON-15  CLI 'evidence --help' exits 0 (command is registered).
   T-CON-16  CLI 'openapi export' produces valid JSON with OpenAPI fields.
+  T-CON-17  get_evidence_document / list_evidence_history round-trip a real finalized
+            row (regression: contract/service.py once selected a nonexistent
+            evidence_records.created_at column; finalize_record writes finalized_at).
+  T-CON-18  export_evidence_stream returns a real finalized record and respects `since`.
 """
 
 from __future__ import annotations
@@ -567,3 +571,124 @@ def test_t_con_18_problem_statement_example() -> None:
     # outcome = REFURBISH
     record = EvidenceRecord.model_validate(doc)
     assert record.outcome.decision == "REFURBISH"
+
+
+# ── T-CON-17/18: real DB round trip (regression for the created_at/finalized_at bug) ──
+#
+# Every test above builds documents in memory. None of them ever inserted a row into
+# rm.evidence_records and read it back through contract/service.py, so a query that
+# selected a column that does not exist on that table (created_at, instead of the
+# finalized_at the writer in chain/records.py actually uses) passed the whole suite
+# and only surfaced live, against a real MCP/REST call. These close that gap.
+
+import uuid  # noqa: E402
+
+import pytest_asyncio  # noqa: E402
+
+from returns_manager.db.pool import Database  # noqa: E402
+
+
+@pytest_asyncio.fixture()
+async def evidence_setup(db: Database):
+    """A fresh org + return + one finalized evidence record, for service-layer round trips."""
+    from returns_manager.chain.append import append_event
+    from returns_manager.chain.event_types import INSPECTION_COMPLETED
+    from returns_manager.chain.records import finalize_record
+
+    org = f"org_con_{uuid.uuid4().hex[:10]}"
+    unit_id = f"UNIT-CON-{uuid.uuid4().hex[:8]}"
+    order_id = f"ORD-CON-{uuid.uuid4().hex[:8]}"
+
+    async with db.transaction(org) as conn:
+        await conn.execute("INSERT INTO rm.organizations (org_id, name) VALUES (%s, 'contract test')", (org,))
+        await conn.execute(
+            "INSERT INTO rm.orders (org_id, order_id, unit_id, ordered_sku, quantity, "
+            "fulfilment_route, ordered_at) "
+            "VALUES (%s, %s, %s, 'SKU-LAMP-LED', 1, 'fba', now())",
+            (org, order_id, unit_id),
+        )
+        return_id = f"ret-con-{uuid.uuid4().hex[:10]}"
+        record_id = f"RTN-{uuid.uuid4().int % 9000 + 1000:04d}"
+        await conn.execute(
+            "INSERT INTO rm.returns (return_id, org_id, record_id, unit_id, order_id, "
+            "return_seq, created_by, status) "
+            "VALUES (%s, %s, %s, %s, %s, 1, 'test', 'queued')",
+            (return_id, org, record_id, unit_id, order_id),
+        )
+
+        ev = await append_event(
+            conn,
+            org_id=org,
+            unit_id=unit_id,
+            return_id=return_id,
+            event_type=INSPECTION_COMPLETED,
+            actor_type="system",
+            actor_id="test",
+            payload={
+                "inspection_id": "ins_con",
+                "output_sha256": "d" * 64,
+                "api_requests": 1,
+                "tool_calls": 0,
+            },
+        )
+        doc = _make_minimal_document()
+        doc["record_id"] = record_id
+        doc["organization_id"] = org
+        doc["client_id"] = org
+        doc["subject"]["unit_id"] = unit_id
+        doc["subject"]["return_id"] = return_id
+        doc["subject"]["order_id"] = order_id
+        await finalize_record(
+            conn,
+            org_id=org,
+            return_id=return_id,
+            unit_id=unit_id,
+            document=doc,
+            unit_head_event_hash=ev.event_hash,
+        )
+
+    return org, unit_id, doc
+
+
+@pytest.mark.db
+@pytest.mark.asyncio
+async def test_t_con_17_get_and_history_round_trip_a_real_record(
+    db: Database, evidence_setup: tuple[str, str, dict]
+) -> None:
+    """T-CON-17: get_evidence_document and list_evidence_history read back a real finalized row."""
+    from returns_manager.contract.service import get_evidence_document, list_evidence_history
+
+    org, unit_id, doc = evidence_setup
+
+    fetched = await get_evidence_document(db.pool, org_id=org, unit_id=unit_id)
+    assert fetched is not None
+    assert fetched["record_id"] == doc["record_id"]
+
+    history = await list_evidence_history(db.pool, org_id=org, unit_id=unit_id)
+    assert len(history) == 1
+    assert history[0]["record_id"] == doc["record_id"]
+
+    # Cross-org: a different org_id must not see this unit.
+    other_org = f"org_con_other_{uuid.uuid4().hex[:8]}"
+    missing = await get_evidence_document(db.pool, org_id=other_org, unit_id=unit_id)
+    assert missing is None
+
+
+@pytest.mark.db
+@pytest.mark.asyncio
+async def test_t_con_18_export_stream_returns_a_real_record(
+    db: Database, evidence_setup: tuple[str, str, dict]
+) -> None:
+    """T-CON-18: export_evidence_stream reads back a real finalized row and respects `since`."""
+    from datetime import UTC, datetime, timedelta
+
+    from returns_manager.contract.service import export_evidence_stream
+
+    org, unit_id, _doc = evidence_setup
+
+    records = await export_evidence_stream(db.pool, org_id=org)
+    assert any(r["subject"]["unit_id"] == unit_id for r in records)
+
+    future = datetime.now(UTC) + timedelta(days=1)
+    none_yet = await export_evidence_stream(db.pool, org_id=org, since=future)
+    assert none_yet == []

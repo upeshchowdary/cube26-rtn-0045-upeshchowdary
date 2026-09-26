@@ -23,12 +23,10 @@ def evidence_show(
     output: Annotated[str, typer.Option("--output", help="json | flat")] = "json",
 ) -> None:
     """Show the evidence record for a unit."""
-    import asyncio
-
     from returns_manager.config import get_settings
     from returns_manager.contract.flat import build_flat_row
     from returns_manager.contract.service import get_evidence_document
-    from returns_manager.db.pool import Database
+    from returns_manager.db.pool import Database, run_async
 
     if not org_id:
         typer.echo("error: --org is required", err=True)
@@ -61,7 +59,7 @@ def evidence_show(
         else:
             typer.echo(json.dumps(doc, indent=2, ensure_ascii=False))
 
-    asyncio.run(_run())
+    run_async(_run)
 
 
 @evidence_app.command("export")
@@ -72,13 +70,12 @@ def evidence_export(
     out: Annotated[str, typer.Option("--out", help="Output file path; stdout if omitted.")] = "-",
 ) -> None:
     """Export finalized evidence records as JSONL or flat CSV."""
-    import asyncio
     from datetime import datetime
 
     from returns_manager.config import get_settings
     from returns_manager.contract.flat import build_flat_row, flat_rows_to_csv
     from returns_manager.contract.service import export_evidence_stream
-    from returns_manager.db.pool import Database
+    from returns_manager.db.pool import Database, run_async
 
     if not org_id:
         typer.echo("error: --org is required", err=True)
@@ -109,7 +106,7 @@ def evidence_export(
         else:
             return "\n".join(json.dumps(doc, ensure_ascii=False) for doc in records) + "\n"
 
-    content = asyncio.run(_run())
+    content = run_async(_run)
     if out == "-":
         sys.stdout.write(content)
     else:
@@ -223,6 +220,9 @@ def mcp_serve(
 
     Authenticated by API key with scope evidence:read.
     """
+    from functools import partial
+
+    from returns_manager.db.pool import run_async
     from returns_manager.mcp_server import run_mcp_server
 
-    run_mcp_server(host=host, port=port)
+    run_async(partial(run_mcp_server, host=host, port=port))

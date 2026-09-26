@@ -641,7 +641,7 @@ async def test_chain_verify_api_endpoint(db: Database, chain_setup) -> None:
         db,
         org_id=demo_org,
         name="chain-test",
-        scopes=["returns:read"],
+        scopes=["evidence:read"],
         created_by="test",
         env="local",
     )
@@ -669,14 +669,21 @@ async def test_chain_verify_api_endpoint(db: Database, chain_setup) -> None:
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.get(
             f"/api/v1/units/{demo_unit_id}/chain/verification",
-            params={"org_id": demo_org},
-            headers={"Authorization": f"Bearer {key.plaintext}"},
+            headers={"X-API-Key": key.plaintext},
         )
     assert resp.status_code == 200, resp.text
     data = resp.json()
+    assert data["org_id"] == demo_org, "org_id must come from the authenticated key, never a query param"
     assert data["valid"] is True
     assert data["events_checked"] == 1
     assert data["failures"] == []
+
+    # Regression: this route used to accept `org_id` as a query parameter with no auth
+    # check at all, so any caller could read any org's chain. A request with no credential
+    # must now be rejected outright.
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        anon_resp = await client.get(f"/api/v1/units/{demo_unit_id}/chain/verification")
+    assert anon_resp.status_code == 401, anon_resp.text
 
 
 # T-CHN-13  CLI chain verify commands

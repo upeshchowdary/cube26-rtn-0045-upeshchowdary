@@ -63,7 +63,7 @@ async def _fetch_document(
         cur = await conn.execute(
             """
             SELECT document, status, record_version, document_sha256,
-                   unit_head_event_hash, created_at
+                   unit_head_event_hash, finalized_at
             FROM rm.evidence_records
             WHERE org_id = %s AND unit_id = %s AND record_version = %s
             """,
@@ -74,7 +74,7 @@ async def _fetch_document(
         cur = await conn.execute(
             """
             SELECT document, status, record_version, document_sha256,
-                   unit_head_event_hash, created_at
+                   unit_head_event_hash, finalized_at
             FROM rm.evidence_records
             WHERE org_id = %s AND unit_id = %s AND status <> 'superseded'
             ORDER BY record_version DESC
@@ -179,7 +179,7 @@ async def list_evidence_history(
     async with transaction(pool, org_id) as conn:
         cur = await conn.execute(
             """
-            SELECT document, status, record_version, document_sha256, created_at
+            SELECT document, status, record_version, document_sha256, finalized_at
             FROM rm.evidence_records
             WHERE org_id = %s AND unit_id = %s
             ORDER BY record_version ASC
@@ -212,13 +212,13 @@ async def export_evidence_stream(
         params: list[Any] = [org_id]
         since_clause = ""
         if since is not None:
-            since_clause = "AND er.created_at >= %s"
+            since_clause = "AND er.finalized_at >= %s"
             params.append(since)
 
         # Build query safely: since_clause is only ever an empty string or a fixed SQL
         # fragment - it is never user-controlled.  We avoid f-strings to suppress S608.
         base_query = (
-            "SELECT DISTINCT ON (er.unit_id) er.document, er.created_at "
+            "SELECT DISTINCT ON (er.unit_id) er.document, er.finalized_at "
             "FROM rm.evidence_records er "
             "WHERE er.org_id = %s AND er.status = 'finalized' "
         )
