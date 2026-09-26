@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://returns-manager/contract/return-evidence-flat.v1.schema.json",
+  "title": "Return Evidence Flat View v1",
+  "type": "object",
+  "required": [
+    "record_id",
+    "unit_id",
+    "org_id",
+    "order_id",
+    "ordered_sku",
+    "ordered_asin",
+    "identity_match",
+    "parts_list",
+    "parts_missing",
+    "observed_state",
+    "amazon_condition",
+    "operator_disposition",
+    "photo_refs",
+    "operator_id",
+    "captured_at"
+  ],
+  "properties": {
+    "record_id": {
+      "type": "string"
+    },
+    "unit_id": {
+      "type": "string"
+    },
+    "org_id": {
+      "type": "string"
+    },
+    "order_id": {
+      "type": "string"
+    },
+    "ordered_sku": {
+      "type": "string"
+    },
+    "ordered_asin": {
+      "type": "string"
+    },
+    "identity_match": {
+      "type": "string"
+    },
+    "parts_list": {
+      "type": "string"
+    },
+    "parts_missing": {
+      "type": "string"
+    },
+    "observed_state": {
+      "type": "string"
+    },
+    "amazon_condition": {
+      "type": "string"
+    },
+    "operator_disposition": {
+      "type": "string"
+    },
+    "photo_refs": {
+      "type": "string"
+    },
+    "operator_id": {
+      "type": "string"
+    },
+    "captured_at": {
+      "type": "string"
+    },
+    "agent_disposition": {
+      "type": "string"
+    },
+    "no_recommendation_reason": {
+      "type": "string"
+    },
+    "provisional": {
+      "type": "string"
+    },
+    "disposition_rule_id": {
+      "type": "string"
+    },
+    "requires_review": {
+      "type": "string"
+    },
+    "review_reasons": {
+      "type": "string"
+    },
+    "relistable_as_is": {
+      "type": "string"
+    },
+    "parts_uncertain": {
+      "type": "string"
+    },
+    "claim_item_not_returned": {
+      "type": "string"
+    },
+    "claim_wrong_item_returned": {
+      "type": "string"
+    },
+    "claim_returned_damaged": {
+      "type": "string"
+    },
+    "record_version": {
+      "type": "string"
+    },
+    "record_status": {
+      "type": "string"
+    },
+    "document_sha256": {
+      "type": "string"
+    },
+    "contract_version": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

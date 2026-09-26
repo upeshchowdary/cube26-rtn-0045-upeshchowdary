@@ -1,0 +1,89 @@
+{
+  "$defs": {
+    "SourceDocument": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "retrieved_at": {
+          "title": "Retrieved At",
+          "type": "string"
+        },
+        "sha256_of_downloaded_bytes": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256 Of Downloaded Bytes",
+          "type": "string"
+        },
+        "pages": {
+          "exclusiveMinimum": 0,
+          "title": "Pages",
+          "type": "integer"
+        },
+        "license_note": {
+          "title": "License Note",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "url",
+        "retrieved_at",
+        "sha256_of_downloaded_bytes",
+        "pages",
+        "license_note"
+      ],
+      "title": "SourceDocument",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "sources/v1",
+      "default": "sources/v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "version": {
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "title": "Version",
+      "type": "string"
+    },
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/SourceDocument"
+      },
+      "title": "Sources",
+      "type": "array"
+    },
+    "content_sha256": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Content Sha256"
+    }
+  },
+  "required": [
+    "version",
+    "sources"
+  ],
+  "title": "SourcesV1",
+  "type": "object"
+}

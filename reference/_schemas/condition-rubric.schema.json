@@ -1,0 +1,143 @@
+{
+  "$defs": {
+    "RubricGrade": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "new",
+            "used_like_new",
+            "used_very_good",
+            "used_good",
+            "used_acceptable"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "label",
+        "text"
+      ],
+      "title": "RubricGrade",
+      "type": "object"
+    },
+    "UnacceptableCondition": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "text"
+      ],
+      "title": "UnacceptableCondition",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "condition-rubric/v1",
+      "default": "condition-rubric/v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "version": {
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "title": "Version",
+      "type": "string"
+    },
+    "snapshot_id": {
+      "title": "Snapshot Id",
+      "type": "string"
+    },
+    "source_id": {
+      "title": "Source Id",
+      "type": "string"
+    },
+    "source_marketplace": {
+      "title": "Source Marketplace",
+      "type": "string"
+    },
+    "applies_to_marketplace": {
+      "title": "Applies To Marketplace",
+      "type": "string"
+    },
+    "verification_status": {
+      "enum": [
+        "verified",
+        "unverified_substitute"
+      ],
+      "title": "Verification Status",
+      "type": "string"
+    },
+    "category_key": {
+      "title": "Category Key",
+      "type": "string"
+    },
+    "source_pages": {
+      "items": {
+        "type": "integer"
+      },
+      "title": "Source Pages",
+      "type": "array"
+    },
+    "grades": {
+      "items": {
+        "$ref": "#/$defs/RubricGrade"
+      },
+      "title": "Grades",
+      "type": "array"
+    },
+    "unacceptable_conditions": {
+      "items": {
+        "$ref": "#/$defs/UnacceptableCondition"
+      },
+      "title": "Unacceptable Conditions",
+      "type": "array"
+    },
+    "content_sha256": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Content Sha256"
+    }
+  },
+  "required": [
+    "version",
+    "snapshot_id",
+    "source_id",
+    "source_marketplace",
+    "applies_to_marketplace",
+    "verification_status",
+    "category_key",
+    "source_pages",
+    "grades",
+    "unacceptable_conditions"
+  ],
+  "title": "ConditionRubricV1",
+  "type": "object"
+}

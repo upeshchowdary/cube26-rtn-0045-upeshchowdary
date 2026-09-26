@@ -1,0 +1,39 @@
+# Installed with (from the repo root): agent/.venv/Scripts/pre-commit install
+# Hooks run on every commit: secrets (gitleaks), large files (5 MB cap), ruff, and the repo boundary check.
+# gitleaks must be on PATH: https://github.com/gitleaks/gitleaks/releases/tag/v8.30.1 (verify the checksum).
+# Organiser-owned files are never touched by fixers (scripts/check_boundary.py enforces the same list).
+exclude: '^(data/|\.github/|submissions/)|^(README|RULES|GITHUB-GUIDE)\.md$|^\.gitignore$'
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=5120"]
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+      - id: check-toml
+      - id: check-yaml
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.9 # keep equal to the ruff pin in agent/pyproject.toml
+    hooks:
+      - id: ruff-check
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      # gitleaks v8.30.1 prebuilt binary on PATH (checksum-verified release asset). The upstream `gitleaks`
+      # hook compiles from Go source, and the Go assembler crashed on this machine (build log, P0).
+      - id: gitleaks
+        name: gitleaks (secrets in staged changes)
+        entry: gitleaks git --pre-commit --redact --staged --verbose --config .gitleaks.toml
+        language: system
+        pass_filenames: false
+      - id: boundary-check
+        name: repository boundary check (scripts/check_boundary.py)
+        entry: python scripts/check_boundary.py
+        language: python
+        pass_filenames: false
+        always_run: true

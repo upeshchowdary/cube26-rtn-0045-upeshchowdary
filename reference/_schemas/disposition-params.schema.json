@@ -1,0 +1,78 @@
+{
+  "$defs": {
+    "MoneyMinor": {
+      "additionalProperties": false,
+      "properties": {
+        "amount_minor": {
+          "description": "Amount in minor units (e.g. paise, cents)",
+          "minimum": 0,
+          "title": "Amount Minor",
+          "type": "integer"
+        },
+        "currency": {
+          "default": "INR",
+          "maxLength": 3,
+          "minLength": 3,
+          "title": "Currency",
+          "type": "string"
+        }
+      },
+      "required": [
+        "amount_minor"
+      ],
+      "title": "MoneyMinor",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "disposition-params/v1",
+      "default": "disposition-params/v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "version": {
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "title": "Version",
+      "type": "string"
+    },
+    "restock_used_grades": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Restock Used Grades",
+      "type": "array"
+    },
+    "refurbish_min_net_gain": {
+      "$ref": "#/$defs/MoneyMinor"
+    },
+    "dispose_max_salvage": {
+      "$ref": "#/$defs/MoneyMinor"
+    },
+    "high_value_threshold": {
+      "$ref": "#/$defs/MoneyMinor"
+    },
+    "content_sha256": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Content Sha256"
+    }
+  },
+  "required": [
+    "version",
+    "restock_used_grades",
+    "refurbish_min_net_gain",
+    "dispose_max_salvage",
+    "high_value_threshold"
+  ],
+  "title": "DispositionParamsV1",
+  "type": "object"
+}

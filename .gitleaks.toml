@@ -1,0 +1,11 @@
+# gitleaks configuration: the default rule set, plus a rule for the newer "AQ."-prefixed Google API keys
+# (the Gemini key used by this project has that shape and is otherwise caught only by the generic rule
+# when it sits next to a word like API_KEY).
+[extend]
+useDefault = true
+
+[[rules]]
+id = "google-api-key-aq"
+description = "Google API key (AQ. prefix)"
+regex = '''\bAQ\.[A-Za-z0-9_\-]{30,}'''
+keywords = ["aq."]

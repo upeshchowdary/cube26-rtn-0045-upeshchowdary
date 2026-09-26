@@ -1,0 +1,7 @@
+schema: fx/v1
+version: 1.0.0
+usd_inr: '83.50'
+as_of: '2026-09-25T00:00:00Z'
+source: Indicative exchange rate benchmark for reporting
+note: assumption for reporting only
+content_sha256: 6df52c1f0e7d2d36e3b2a41b657c73140fd8ce0ff086d0394d1915bb857660c3

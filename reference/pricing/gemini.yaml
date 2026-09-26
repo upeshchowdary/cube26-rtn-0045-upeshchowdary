@@ -1,0 +1,34 @@
+schema: model-pricing/v1
+version: 1.0.0
+retrieved_at: '2026-09-25T00:00:00Z'
+source: https://ai.google.dev/gemini-api/docs/pricing — re-verify at build time
+currency: USD
+account_tier: free
+per_million_tokens:
+  gemini-3.8-flash:
+    input: '0.75'
+    output: '3.75'
+    cached_input: '0.075'
+    batch_input: '0.375'
+    batch_output: '1.875'
+    valid_until: '2026-12-31'
+    note: rises to 1.50/7.50 from 2027-01-01
+  gemini-3.6-flash:
+    input: '0.75'
+    output: '3.75'
+    cached_input: '0.075'
+    valid_until: '2026-12-31'
+  gemini-3-flash-preview:
+    input: '0.50'
+    output: '3.00'
+  gemini-3.1-flash-lite:
+    input: '0.25'
+    output: '1.50'
+free_tier:
+  data_used_to_improve_products: true
+  models_free:
+  - gemini-3.8-flash
+  - gemini-3.6-flash
+  - gemini-3-flash-preview
+  - gemini-3.1-flash-lite
+content_sha256: 14839e1e6b271b6ced9025fbc58095ab5bba6979d6d6a1e136242872e1863a62

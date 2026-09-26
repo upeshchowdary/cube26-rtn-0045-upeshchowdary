@@ -1,0 +1,54 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "quality-gate/v1",
+      "default": "quality-gate/v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "version": {
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "title": "Version",
+      "type": "string"
+    },
+    "calibration_notes": {
+      "title": "Calibration Notes",
+      "type": "string"
+    },
+    "calibrated_at": {
+      "title": "Calibrated At",
+      "type": "string"
+    },
+    "calibrated_by": {
+      "title": "Calibrated By",
+      "type": "string"
+    },
+    "thresholds": {
+      "additionalProperties": true,
+      "title": "Thresholds",
+      "type": "object"
+    },
+    "content_sha256": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Content Sha256"
+    }
+  },
+  "required": [
+    "version",
+    "calibration_notes",
+    "calibrated_at",
+    "calibrated_by",
+    "thresholds"
+  ],
+  "title": "QualityGateV1",
+  "type": "object"
+}

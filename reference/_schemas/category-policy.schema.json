@@ -1,0 +1,100 @@
+{
+  "$defs": {
+    "PolicyField": {
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "title": "Value"
+        },
+        "source_type": {
+          "enum": [
+            "amazon_guideline",
+            "business_policy",
+            "assumption"
+          ],
+          "title": "Source Type",
+          "type": "string"
+        },
+        "source_ref": {
+          "title": "Source Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value",
+        "source_type",
+        "source_ref"
+      ],
+      "title": "PolicyField",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "category-policy/v1",
+      "default": "category-policy/v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "version": {
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "title": "Version",
+      "type": "string"
+    },
+    "policy_id": {
+      "title": "Policy Id",
+      "type": "string"
+    },
+    "category_key": {
+      "title": "Category Key",
+      "type": "string"
+    },
+    "source_marketplace": {
+      "title": "Source Marketplace",
+      "type": "string"
+    },
+    "applies_to_marketplace": {
+      "title": "Applies To Marketplace",
+      "type": "string"
+    },
+    "verification_status": {
+      "enum": [
+        "verified",
+        "unverified_substitute"
+      ],
+      "title": "Verification Status",
+      "type": "string"
+    },
+    "fields": {
+      "additionalProperties": {
+        "$ref": "#/$defs/PolicyField"
+      },
+      "title": "Fields",
+      "type": "object"
+    },
+    "content_sha256": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Content Sha256"
+    }
+  },
+  "required": [
+    "version",
+    "policy_id",
+    "category_key",
+    "source_marketplace",
+    "applies_to_marketplace",
+    "verification_status",
+    "fields"
+  ],
+  "title": "CategoryPolicyV1",
+  "type": "object"
+}

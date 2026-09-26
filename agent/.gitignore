@@ -1,0 +1,11 @@
+# Python tooling (the organiser-owned root .gitignore already covers .env, .venv/, __pycache__/)
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+*.egg-info/
+build/
+dist/
+.coverage
+htmlcov/
+.cache/
