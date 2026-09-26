@@ -68,6 +68,48 @@ def reference_load() -> None:
     typer.echo(f"  orders: {result['orders']}")
 
 
+@reference_app.command("draft")
+def reference_draft(
+    sku: str = typer.Option(..., "--sku", help="Unique SKU identifier"),
+    title: str = typer.Option(..., "--title", help="Product title from catalogue"),
+    category: str = typer.Option("electronics", "--category", "-c", help="Category key"),
+    org: str = typer.Option("org_demo_alpha", "--org", "-o", help="Target organization ID"),
+    brand: str = typer.Option("Unknown", "--brand", "-b", help="Product brand"),
+    asin: str | None = typer.Option(None, "--asin", help="ASIN identifier"),
+    out: Path | None = typer.Option(None, "--out", help="Optional output path for draft"),
+) -> None:
+    """Draft a PR-style Product Knowledge Card from catalogue data (§11.15)."""
+    from returns_manager.reference.onboarding import draft_product_card
+
+    path = draft_product_card(
+        org_id=org,
+        sku=sku,
+        title=title,
+        category_key=category,
+        brand=brand,
+        asin=asin,
+        out_path=out,
+    )
+    typer.echo(f"Product card draft created: {path}")
+    typer.echo("Review and approve via: returns-manager reference approve <path>")
+
+
+@reference_app.command("approve")
+def reference_approve(
+    draft_path: Path = typer.Argument(..., help="Path to draft product card YAML"),
+    dest: Path | None = typer.Option(None, "--dest", "-d", help="Optional destination directory"),
+) -> None:
+    """Approve and publish a draft product card to the reference store (§11.15)."""
+    from returns_manager.reference.onboarding import approve_product_card
+
+    try:
+        published = approve_product_card(draft_path, destination_dir=dest)
+        typer.echo(f"Product card approved and published: {published}")
+    except Exception as exc:
+        typer.echo(f"Failed to approve product card: {exc}", err=True)
+        raise typer.Exit(int(ExitCode.FAILURE)) from exc
+
+
 # ── rubric ─────────────────────────────────────────────────────────────
 
 

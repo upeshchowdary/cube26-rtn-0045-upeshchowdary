@@ -208,49 +208,16 @@ def _build_mcp_server(settings_override: Any = None) -> Any:
         This is a lightweight explainer that reads from the evidence record and events.
         The full Explainer Agent (§11.14) is planned for P14.
         """
-        from returns_manager.contract.service import get_evidence_document
+        from returns_manager.explainer.service import ExplainerService
 
         principal = _current_principal()
-        doc = await get_evidence_document(
-            db.pool,
+        service = ExplainerService(db.pool)
+        resp = await service.explain(
             org_id=principal.org_id,
             unit_id=unit_id,
-            include_pending=True,
+            question=question,
         )
-        if doc is None:
-            return {
-                "answer": "No evidence record found for this unit.",
-                "citations": [],
-                "not_recorded": [question],
-            }
-
-        # Build a concise summary from the evidence record fields
-        ext = doc.get("extensions", {}).get("returns", {})
-        if hasattr(ext, "model_dump"):
-            ext = ext.model_dump()
-
-        checks_summary = "; ".join(
-            f"{c.get('check_key', '?')}={c.get('verdict', '?')}" for c in (doc.get("checks") or [])
-        )
-        outcome = doc.get("outcome", {})
-
-        answer = (
-            f"Decision for {unit_id}: {outcome.get('decision', 'unknown')} "
-            f"(decided by {outcome.get('decided_by', 'unknown')} at {outcome.get('decided_at', 'unknown')}). "
-            f"Checks: {checks_summary or 'none recorded'}. "
-            f"Status: {doc.get('status', 'unknown')}."
-        )
-
-        citations = [
-            {"kind": "record_field", "ref": f"outcome.decision={outcome.get('decision')}"},
-            {"kind": "record_field", "ref": f"status={doc.get('status')}"},
-        ]
-
-        return {
-            "answer": answer,
-            "citations": citations,
-            "not_recorded": [],
-        }
+        return resp.model_dump()
 
     return mcp
 

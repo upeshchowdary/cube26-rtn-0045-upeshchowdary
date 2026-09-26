@@ -19,12 +19,14 @@ from returns_manager.api import problems
 from returns_manager.api.deps import Services, ServicesDep
 from returns_manager.api.routes import chain as chain_routes
 from returns_manager.api.routes import evidence as evidence_routes
+from returns_manager.api.routes import explainer as explainer_routes
 from returns_manager.api.routes import intake as intake_routes
 from returns_manager.api.routes import jobs as jobs_routes
 from returns_manager.api.routes import metrics as metrics_routes
 from returns_manager.api.routes import review as review_routes
 from returns_manager.api.routes import security as security_routes
 from returns_manager.api.routes import simulate as simulate_routes
+from returns_manager.api.routes import webhooks as webhooks_routes
 from returns_manager.config import Settings, get_settings
 from returns_manager.db.pool import Database
 from returns_manager.ids import new_id
@@ -108,5 +110,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(review_routes.router)
     app.include_router(chain_routes.router)
     app.include_router(evidence_routes.router)
+    app.include_router(explainer_routes.router)
+    app.include_router(webhooks_routes.router)
     app.include_router(metrics_routes.router)
     return app

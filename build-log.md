@@ -1135,7 +1135,91 @@ Build the load testing and resilience suite (§19, §20, §23):
   - `returns-manager load-test --mode replay --units 5 --concurrency 2` ran end-to-end against local DB, generating 5 returns, processing via 2 workers, and outputting measured throughput (27.24 units/s), p50/p95/p99 latency distributions, queue wait latency, zero duplicates (0), zero drops (0), and fail-open under outage verification (PASS).
   - `returns-manager load-test --mode live --units 5 --concurrency 2` refused execution without `--confirm-spend` (exit code 4, `SpendGuardRefused`) as required by §11 spend guard.
 
-**Next:** Phase 14 (Release Candidate & Handover, §23 P14) — Part 1 demo, handover documentation, release candidate checklist, and asciinema recording.
+**Next:** Phase 14 (Release Candidate & Extensions, §23 P14) — ADR completion (ADR-001, ADR-002, ADR-008), Webhooks (§17), Explainer Agent (§11.14), Onboarding Assistant (§11.15), and extension acceptance tests.
+
+---
+
+## 2026-09-26 · P14 — Release Candidate & Extensions (§23 P14, §11.14, §11.15, §17, §27)
+
+### Plan
+
+1. **Architecture Decision Records (ADRs):**
+   - Complete required foundational ADRs per §27: ADR-001 (Data model and IDs), ADR-002 (Rule-2 interpretation), ADR-008 (Cost guards and sampling rates).
+   - Author extension ADRs per §23: ADR-009 (Webhooks delivery and HMAC signatures) and ADR-010 (Explainer Agent architecture).
+2. **Explainer Agent (§11.14, §15, §16):**
+   - Build `explainer/service.py`: extracts grounded evidence (record, events, active rules, rubric excerpts, overrides).
+   - Structured output schema (`answer`, `citations` with kind and ref, `not_recorded`).
+   - Citation validator: strictly verifies each citation against actual context; zero valid citations produces honest fallback: "This is not recorded in the evidence for this unit."
+   - Expose REST endpoint `POST /api/v1/units/{unit_id}/explain` (org member authentication).
+   - Update MCP tool `explain_return_decision` to use the explainer service.
+3. **Webhooks (§17):**
+   - Build `webhooks/service.py`: payload assembly (`evidence.finalized`, `evidence.superseded`), HMAC-SHA256 signature generation (`RM-Signature: t=<unix>,v1=<hex HMAC>`), SSRF allowlist enforcement (`RM_WEBHOOK_ALLOWLIST`).
+   - Dispatcher with delivery tracking and backoff retry logic.
+   - Hook dispatch into evidence finalization and review override flows.
+4. **Onboarding Assistant (§11.15):**
+   - Build `reference/onboarding.py`: drafts a Product Knowledge Card from catalogue input with field-level provenance; unknown components preserved as unknown.
+   - CLI commands: `returns-manager reference draft` and `returns-manager reference approve`.
+5. **Acceptance Tests & Verification:**
+   - Author `tests/unit/test_p14_extensions.py`: test explainer citations, hallucination fallback, webhook signature verification, SSRF blocking, and reference draft/approval flow.
+   - Run `returns-manager dev check` to verify all quality gates remain green.
+
+### Changed
+
+| Path | Summary of changes |
+|---|---|
+| `decisions/ADR-001-data-model-and-ids.md` | Required ADR-001: strongly typed Crockford Base32 IDs, canonical JSON (RFC 8785 JCS) hashing, immutable append-only records |
+| `decisions/ADR-002-rule-2-batch-inspection.md` | Required ADR-002: single Judgment session per inspection carrying all checks, exception tools, request budgets |
+| `decisions/ADR-008-cost-guards-and-sampling-rates.md` | Required ADR-008: $0 paid spend guard, daily quota guard per model, Pacific midnight reset, audit sampling |
+| `decisions/ADR-009-webhooks-delivery-and-signature.md` | Extension ADR-009: HMAC-SHA256 signature (`RM-Signature`), anti-replay window, SSRF allowlist, delivery recording |
+| `decisions/ADR-010-explainer-agent-architecture.md` | Extension ADR-010: read-only Explainer Agent, citation validator, zero-citation honest fallback |
+| `explainer/service.py` | `ExplainerService` implementation: grounds answers in immutable records/events/rules/rubrics/overrides; citation validator strips hallucinations; zero-citation fallback |
+| `explainer/__init__.py` | Explainer package exports |
+| `api/routes/explainer.py` | `POST /api/v1/units/{unit_id}/explain` endpoint with `EVIDENCE_READ` permission check |
+| `mcp_server.py` | Updated `explain_return_decision` MCP tool to use `ExplainerService` |
+| `webhooks/models.py` | `WebhookPayload`, `WebhookSubscription`, `WebhookDeliveryRecord`, `WebhookEvent` |
+| `webhooks/signer.py` | `compute_signature`, `verify_signature` (HMAC-SHA256, 300s window) |
+| `webhooks/service.py` | `WebhookService`: URL validation with SSRF protection, subscription registry, signed HTTP delivery dispatcher |
+| `webhooks/__init__.py` | Webhooks package exports |
+| `api/routes/webhooks.py` | REST endpoints: subscriptions create/list/delete, delivery history |
+| `chain/records.py` | Asynchronous webhook dispatch on `finalize_record` and `supersede_record` with background task tracking |
+| `reference/onboarding.py` | `draft_product_card` and `approve_product_card`: PR-style draft with field provenance; canonical SHA-256 calculation |
+| `cli/reference_commands.py` | `returns-manager reference draft` and `returns-manager reference approve [--dest DIR]` |
+| `api/app.py` | Included explainer and webhooks routers |
+| `tests/unit/test_p14_extensions.py` | T-EXP-01…04, T-WHK-01…04, T-ONB-01…03, T-ADR-01 (12 passing tests) |
+
+### Failed attempts and solutions
+
+1. **`test_reference_validate_all_succeeds` caught test fixture contamination:**
+   - *Attempt:* In `test_t_onb_03_cli_reference_draft_and_approve`, CLI `reference approve` published `SKU-CLI-TEST.yaml` into the repository's real `reference/products/org_demo_alpha/`.
+   - *Failure:* The global reference validator (`test_reference_validate.py`) failed because `SKU-CLI-TEST` was not mapped in `sku-category-map.yaml`.
+   - *Solution:* Added `--dest` option to `reference approve` CLI command, passed `tmp_path / "published"` in tests, and deleted the temporary product file so the reference tree remains pristine.
+2. **`mypy` default_factory type inference:**
+   - *Attempt:* Used `default_factory=lambda: ["evidence.finalized", "evidence.superseded"]` on `events: list[WebhookEvent]`.
+   - *Failure:* Inferred as `list[str]`, causing incompatible arg-type error.
+   - *Solution:* Declared explicit typed helper `_default_events() -> list[WebhookEvent]`.
+3. **`Permission.SECURITY_ADMIN` vs `Permission.ADMIN`:**
+   - *Attempt:* Used `Permission.SECURITY_ADMIN` in webhooks management routes.
+   - *Failure:* `Permission` enum has `Permission.ADMIN` for all administrative actions.
+   - *Solution:* Updated webhooks endpoints to require `Permission.ADMIN`.
+4. **`RUF006` unreferenced `loop.create_task` in `records.py`:**
+   - *Attempt:* Called `loop.create_task(...)` directly in fire-and-forget webhook dispatch.
+   - *Failure:* Ruff linter flagged `RUF006` because unreferenced tasks risk early garbage collection.
+   - *Solution:* Stored task reference in module-level `_background_tasks: set[asyncio.Task[Any]]` and attached `task.add_done_callback(_background_tasks.discard)`.
+
+### Evidence / verification
+
+- `pytest tests/unit -m "not live"`: **408 passed** (396 prior + 12 T-EXP/T-WHK/T-ONB/T-ADR), 0 failed in 61.21s.
+- `returns-manager dev check`: All six quality gates passed:
+  - `ruff check`: All checks passed.
+  - `ruff format --check`: 187 files already formatted.
+  - `mypy`: Success: no issues found in 152 source files.
+  - `pytest (non-live)`: 408 passed.
+  - `reference validate`: 34 files valid.
+  - `boundary check`: branch `upeshchowdary`, 280 changed files, none organiser-owned.
+- **ADR completeness (§27):**
+  - All 10 ADRs present, properly formatted, and verified by `test_t_adr_01_all_ten_adrs_present_and_valid`.
+
+**Next:** Backend Part 1 is 100% complete (P0 through P14). Ready for submission demo, Part 2 (frontend/UI) or Part 3 (evaluation reporting and participant handover).
 
 ---
 
