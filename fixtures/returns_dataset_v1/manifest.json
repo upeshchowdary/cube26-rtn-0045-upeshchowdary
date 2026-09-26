@@ -1,0 +1,135 @@
+[
+  {
+    "unit_id": "TEST-UNIT-001",
+    "sku": "SKU-LAMP-LED",
+    "asin": "B0DUMMY357",
+    "order_id": "TEST-ORD-001",
+    "org_id": "org_demo_alpha",
+    "parts_list": [
+      "lamp",
+      "usb_cable",
+      "manual"
+    ],
+    "identity_match": "yes",
+    "parts_missing": [],
+    "observed_state": "opened_unused",
+    "disposition_hint": "restock (all parts present, no damage observed in the provided photos)",
+    "scenario": "Clean return: all listed components present, no visible damage.",
+    "before_file": "fixtures/returns_dataset_v1/images/lamp_before_reference.jpg",
+    "after_files": [
+      "fixtures/returns_dataset_v1/images/unit001_after_01.jpg"
+    ],
+    "notes": ""
+  },
+  {
+    "unit_id": "TEST-UNIT-002",
+    "sku": "SKU-LAMP-LED",
+    "asin": "B0DUMMY357",
+    "order_id": "TEST-ORD-002",
+    "org_id": "org_demo_alpha",
+    "parts_list": [
+      "lamp",
+      "usb_cable",
+      "manual"
+    ],
+    "identity_match": "yes",
+    "parts_missing": [
+      "usb_cable"
+    ],
+    "observed_state": "signs_of_use",
+    "disposition_hint": "refurbish candidate (essential-but-replaceable part missing; see disposition engine R09/R10, F-012)",
+    "scenario": "Lamp and manual present; the USB-C charging cable is absent from the returned parcel.",
+    "before_file": "fixtures/returns_dataset_v1/images/lamp_before_reference.jpg",
+    "after_files": [
+      "fixtures/returns_dataset_v1/images/unit002_after_01.jpg"
+    ],
+    "notes": ""
+  },
+  {
+    "unit_id": "TEST-UNIT-003",
+    "sku": "SKU-PUZZLE-500",
+    "asin": "B0DUMMY729",
+    "order_id": "TEST-ORD-003",
+    "org_id": "org_demo_alpha",
+    "parts_list": [
+      "puzzle_pieces (x500)",
+      "poster"
+    ],
+    "identity_match": "yes",
+    "parts_missing": [
+      "puzzle_pieces (partial: visible count far below 500)"
+    ],
+    "observed_state": "signs_of_use",
+    "disposition_hint": "liquidate/dispose candidate (essential, non-replaceable component short; puzzle_pieces.replaceable=false in the product card)",
+    "scenario": "Box reopened, poster present, but the piece bag visibly holds far fewer than 500 pieces.",
+    "before_file": "fixtures/returns_dataset_v1/images/puzzle_before_reference.jpg",
+    "after_files": [
+      "fixtures/returns_dataset_v1/images/unit003_after_01.jpg"
+    ],
+    "notes": ""
+  },
+  {
+    "unit_id": "TEST-UNIT-004",
+    "sku": "SKU-BOTTLE-750",
+    "asin": "B0DUMMY622",
+    "order_id": "TEST-ORD-004",
+    "org_id": "org_demo_alpha",
+    "parts_list": [
+      "bottle",
+      "lid"
+    ],
+    "identity_match": "yes",
+    "parts_missing": [],
+    "observed_state": "damaged",
+    "disposition_hint": "dispose/liquidate candidate (structural damage to an essential, non-replaceable component)",
+    "scenario": "Bottle and lid both present, but the body shows a visible dent and crack.",
+    "before_file": "fixtures/returns_dataset_v1/images/bottle_before_reference.jpg",
+    "after_files": [
+      "fixtures/returns_dataset_v1/images/unit004_after_01.jpg"
+    ],
+    "notes": ""
+  },
+  {
+    "unit_id": "TEST-UNIT-005",
+    "sku": "SKU-CABLE-USBC",
+    "asin": "B0DUMMY261",
+    "order_id": "TEST-ORD-005",
+    "org_id": "org_demo_alpha",
+    "parts_list": [
+      "cable"
+    ],
+    "identity_match": "no",
+    "parts_missing": [
+      "cable (not present; different item found)"
+    ],
+    "observed_state": "uncertain",
+    "disposition_hint": "pending_review (identity mismatch \u2014 possible product swap, requires human review; never auto-dispositioned)",
+    "scenario": "Outer packaging is labelled as the USB-C cable, but the item inside is a different product (box-swap / C06 defense test).",
+    "before_file": "fixtures/returns_dataset_v1/images/cable_before_reference.jpg",
+    "after_files": [
+      "fixtures/returns_dataset_v1/images/unit005_after_01.jpg"
+    ],
+    "notes": "Deliberately triggers the identity check's box-swap defense (F-013)."
+  },
+  {
+    "unit_id": "TEST-UNIT-006",
+    "sku": "SKU-BOTTLE-750",
+    "asin": "B0DUMMY622",
+    "order_id": "TEST-ORD-006",
+    "org_id": "org_demo_alpha",
+    "parts_list": [
+      "bottle",
+      "lid"
+    ],
+    "identity_match": "uncertain",
+    "parts_missing": [],
+    "observed_state": "uncertain",
+    "disposition_hint": "pending_review (evidence insufficient for a reliable judgment \u2014 UNCERTAIN is the required outcome, not a forced pass or fail)",
+    "scenario": "Single photo is dark, out of focus and cropped at the edges; the lid is not clearly visible.",
+    "before_file": "fixtures/returns_dataset_v1/images/bottle_before_reference.jpg",
+    "after_files": [
+      "fixtures/returns_dataset_v1/images/unit006_after_01.jpg"
+    ],
+    "notes": "Purpose-built to test that the pipeline emits UNCERTAIN instead of guessing."
+  }
+]
