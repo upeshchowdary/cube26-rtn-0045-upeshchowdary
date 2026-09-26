@@ -13,6 +13,8 @@ T-SEC-05  Org A gets NotFound for org B's photo (signed_url_for_photo with wrong
 T-SEC-06  Guessed storage path is not fetchable anonymously (bucket is private).
 T-SEC-07  API-key scope enforcement per endpoint permission.
 T-SEC-08  Kill-switch rules: global writes only without tenant context; reason required.
+T-SEC-09  No secrets in logs (§18.1): a captured integration-style log stream is scanned
+          for a real API key, JWT, signed URL and DB password — none survive redaction.
 """
 
 from __future__ import annotations
@@ -413,3 +415,53 @@ async def test_t_sec_08_kill_switch_rules(db: Database, two_orgs: tuple[str, str
     eff = await controls.effective(db, alpha)
     assert not eff[Control.AUTO_DISPOSITION].enabled, "org override must dominate"
     assert eff[Control.MODEL_CALLS].enabled, "global re-enabled → effective on"
+
+
+# ── T-SEC-09 ───────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.db
+@pytest.mark.asyncio
+async def test_t_sec_09_no_secrets_in_logs(db: Database, two_orgs: tuple[str, str]) -> None:
+    """§18.1: a captured log stream never contains a real secret, only redaction markers.
+
+    Uses a REAL generated API key (not a fabricated stand-in) so the assertion is about the
+    actual value that would otherwise leak, plus JWT-, signed-URL-, and DB-connection-string
+    shaped strings covering every §18.1 "never log" category besides raw image bytes and
+    prompts (covered by the deny-key tests in test_observability.py).
+    """
+    from returns_manager.observability.logging import configure_logging, get_logger
+
+    alpha, _ = two_orgs
+    key = await api_keys.create_key(
+        db, org_id=alpha, name="t-sec-09", scopes=["evidence:read"], created_by="test", env="local"
+    )
+    real_secret = key.plaintext
+
+    buf = io.StringIO()
+    configure_logging(level="info", stream=buf)
+    log = get_logger("t_sec_09")
+
+    # A structlog call site, as llm/ or api/ code would make it.
+    log.info(
+        "issuing credential",
+        api_key=real_secret,
+        signed_url="https://proj.supabase.co/storage/v1/object/sign/rm-return-photos/"
+        "org_x/photo.jpg?token=abcdef.ghijkl.mnopqr",
+        model="gemini-3.8-flash",
+    )
+    # A plain stdlib logging call site, as jobs/ or cli/ code already makes them (§18.1
+    # covers every logger in the process, not only ones written with structlog).
+    import logging
+
+    logging.getLogger("legacy").warning(
+        "connecting with %s and bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJl",
+        f"postgresql://rm_app_login:hunter2@127.0.0.1:5432/postgres and key {real_secret}",
+    )
+
+    captured = buf.getvalue()
+    assert real_secret not in captured, "the real API key leaked into the log stream"
+    assert "hunter2" not in captured, "the DB password leaked into the log stream"
+    assert "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0" not in captured, "the JWT leaked into the log stream"
+    assert "token=abcdef" not in captured, "the signed URL's token leaked into the log stream"
+    assert "***REDACTED***" in captured, "expected the redaction marker to appear in its place"

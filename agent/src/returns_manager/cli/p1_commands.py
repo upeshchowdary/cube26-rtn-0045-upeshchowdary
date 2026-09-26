@@ -186,8 +186,16 @@ def api_serve(
 
     from returns_manager.api.app import create_app
 
+    # log_config=None: keep the app's own structured JSON logging (§18.1, configured inside
+    # create_app) instead of letting uvicorn's default dictConfig overwrite the root logger's
+    # handlers with its plain-text formatter.
     config = uvicorn.Config(
-        create_app(), host=host, port=port, log_level=get_settings().log_level, loop="none"
+        create_app(),
+        host=host,
+        port=port,
+        log_level=get_settings().log_level,
+        loop="none",
+        log_config=None,
     )
     server = uvicorn.Server(config)
     run_async(server.serve)

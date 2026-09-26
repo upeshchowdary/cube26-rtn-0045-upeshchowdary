@@ -40,6 +40,10 @@ def worker_command(
     """Run the job worker (Ctrl+C stops it gracefully)."""
     settings = get_settings()
 
+    from returns_manager.observability.logging import configure_logging
+
+    configure_logging(settings.log_level)
+
     async def go() -> int:
         async with _app_db() as db:
             runtime = build_runtime(db, settings)

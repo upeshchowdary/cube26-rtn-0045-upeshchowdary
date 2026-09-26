@@ -753,6 +753,232 @@ stale test workers or risks taking down something unrelated.
 
 **Next:** push `2157795` (was local-only, 1 commit ahead of `origin/upeshchowdary`); then Phase 10.
 
+---
+
+## 2026-09-26 · P10 re-verification (before starting P11)
+
+The P10 build-log entry (previous section) recorded `dev check` and the full artifact set
+as "pending" / "expected" rather than actually run. Re-running everything for real, against
+a live local Supabase, surfaced four real defects. None were visible from unit tests alone
+because every P10 unit test built its evidence document in memory and never persisted +
+re-read a real row; the first genuine read of a real record (via a live MCP call) failed
+immediately.
+
+**Found and fixed:**
+
+1. **MCP server had no authentication (tenancy violation).** `mcp_server.py`'s four tools
+   took `org_id` as a plain caller-supplied string argument and used it directly to scope
+   the database query — any MCP client could read any organization's evidence by naming a
+   different `org_id`, with nothing checked. This contradicts §16 ("authenticated by API
+   key … the key's org scopes every call"), ADR-005's own "Rejected alternatives" table
+   ("Serve MCP without API key auth — Too permissive"), and Rule 1 (tenancy) in `CLAUDE.md`.
+   Fixed: every MCP request now must carry `Authorization: Bearer <api key>`, resolved
+   through the same `security.api_keys.authenticate()` REST uses, requiring `evidence:read`;
+   `org_id` comes only from the verified key and is no longer a tool parameter at all.
+   Added `tests/unit/test_mcp_server.py` (T-MCP-01…08): rejects missing/bad/under-scoped
+   keys, accepts a valid key, no tool signature accepts `org_id`, a tool call is scoped to
+   the caller's org via context (verified by patching the service call and reading which
+   `org_id` it received), and a tool called with no principal in context fails loudly
+   instead of silently defaulting.
+2. **MCP server did not import.** The installed `mcp` SDK is v2, which renamed `FastMCP` to
+   `MCPServer` and replaced `run_async` with `run_streamable_http_async`/`streamable_http_app`;
+   the P10 code was written against the v1 names (the package had also never actually been
+   added to `pyproject.toml` — `uv add mcp` was never run). `returns-manager mcp serve` could
+   not have started. Fixed: rewrote `mcp_server.py` against the installed v2 API, added `mcp`
+   as a real dependency, and wrapped the SDK's Starlette app with a small API-key middleware
+   (the SDK's own `TokenVerifier`/`AuthSettings` assume a full OAuth authorization server,
+   which does not describe our static keys).
+3. **`contract/service.py` selected a column that does not exist.** `get_evidence_document`,
+   `list_evidence_history`, and `export_evidence_stream` all selected
+   `rm.evidence_records.created_at`; the table has no such column (`chain/records.py` has
+   always written `finalized_at`). Every read of a real finalized record raised
+   `psycopg.errors.UndefinedColumn`, live — confirmed via a live MCP `tools/call` against
+   the running server. This is the read path behind **both** the REST evidence endpoints and
+   the MCP tools, so both were broken identically. Fixed by selecting `finalized_at`. Added
+   regression tests `T-CON-17`/`T-CON-18` in `test_contract.py`: insert a real event +
+   finalize a real record via `chain.records.finalize_record`, then read it back through all
+   three service functions (including a cross-org 404 check and a `since` filter check) —
+   the exact path that was silently untested before.
+4. **`returns-manager mcp serve` could not open the database on Windows.** The CLI called
+   `asyncio.run(run_mcp_server(...))` directly, which uses Windows' default
+   `ProactorEventLoop`; psycopg's async mode cannot run on it (this is exactly why
+   `tests/conftest.py` forces a `SelectorEventLoop` for tests, and why `db/pool.py` ships a
+   `run_async` helper every other CLI command already uses). Fixed by routing through that
+   same `run_async` helper.
+
+**Verified live**, not just in unit tests: started `returns-manager mcp serve` against the
+local Supabase, created a real `evidence:read` API key with `keys create`, and drove the
+full streamable-HTTP MCP protocol with curl — no `Authorization` header → 401; a bogus key →
+401; a valid key → 200 through `initialize`, `notifications/initialized`, and `tools/call`.
+The smoke-test key was revoked afterward (`keys revoke`).
+
+**Also closed (documentation-only artifacts, §14.1):** ran `contract build` and
+`openapi export` for real and committed the output (`evidence-record.v1.schema.json`,
+`return-evidence-flat.v1.schema.json`, `flat-columns.v1.csv`, `openapi.json`); the build-log
+had described these as written but they were never in the repository. Authored
+`contract/README.md` (semantics, join keys, auth, versioning, supports/contradicts/silent
+table) and `contract/mcp-tools.md` (the 4 tools, their auth, and their exact REST parity),
+neither of which is generated by any command and so had never been written.
+
+**Left open, documented rather than faked (honesty rule §6):**
+- `contract/examples/` has only the one headphones-case example
+  (`rtn-example-001-refurbish.json`) from P10. §14.1 asks for one example per official
+  scenario plus `X01`, `X06`, `X07`, `X11` (uncertain, provisional-with-review, and
+  null-recommendation cases). Building these honestly requires either real finalized
+  inspections or hand-authored documents clearly labelled as such — not yet done. Tracked as
+  **OQ-7** below rather than fabricated to look like real model output.
+- ADR-005 and §14.5 ask to "agree the contract with the Recovery pod" and record who/when.
+  Round 2 is a solo build; there is no Recovery pod to agree with yet. `contract/README.md`
+  says this plainly (a placeholder row, not a claimed agreement) — do not represent this
+  acceptance criterion as met in submission documents until Round 3 pod formation.
+
+**Evidence.** After all four fixes: `ruff check` — all checks passed (145 files); `ruff
+format --check` — 145 files already formatted; `mypy` — no issues in 117 source files;
+`pytest tests/unit -m "not live"` — **346 passed** (336 prior + 8 new T-MCP + 2 new T-CON);
+`reference validate` — 34 files valid; `check_boundary.py` — branch `upeshchowdary`, 233
+changed files, none organiser-owned. All six `dev check` gates green for real, not "expected".
+
+**Next:** Phase 11 (Observability and economics, §18).
+
+---
+
+## 2026-09-26 · Critical tenancy fix found while starting P11 (unauthenticated cross-org read)
+
+While reviewing `api/routes/*.py` for the metrics endpoints' auth pattern, found that
+`GET /api/v1/units/{unit_id}/chain/verification` (`api/routes/chain.py`, built in P7) had
+**no authentication at all**: the route took no `PrincipalDep`, called no `require()`, and
+read `org_id` straight from a client-supplied query parameter. Any caller — with no
+credential whatsoever — could verify (and read the summary of) any organization's event
+chain by naming its `org_id`. This directly violates Rule 1 in `CLAUDE.md` ("Cross-org
+access answers 404") and §6.5. The existing test (`T-CHN-11`,
+`test_chain_verify_api_endpoint`) never caught it because it always passed its own org's
+`org_id` and happened to send the API key on a header the route ignored anyway
+(`Authorization: Bearer`, when this API's convention for API keys is `X-API-Key` — see
+`api/deps.py::principal()`); it was really asserting "a request to the org's own endpoint
+about the org's own unit works," never "an unauthenticated or cross-org request is refused."
+
+**Fixed.** The route now takes `PrincipalDep`, calls `require(principal,
+Permission.EVIDENCE_READ)`, and derives `org_id` exclusively from the authenticated
+principal — `org_id` is no longer a route parameter at all, so there is nothing left to
+smuggle a different org through. Updated `T-CHN-11` to authenticate via `X-API-Key` (the
+correct header) with `evidence:read` scope, assert the response's `org_id` matches the
+key's own org, and added a new assertion that an unauthenticated request to the same URL
+now gets 401.
+
+**Evidence.** `pytest tests/unit/test_chain.py -q`: 19 passed. Full suite
+`pytest tests/unit -m "not live"`: **346 passed** (unchanged count — this fixed an existing
+test's blind spot rather than adding a new one). `ruff check`/`ruff format --check`/`mypy`:
+clean.
+
+**Lesson for the rest of P11-P14:** every future REST route must be checked for this exact
+shape — `PrincipalDep` present, `require()` called, and `org_id` read from `principal.org_id`
+never from a query/path/body parameter — before it ships, not discovered by an incidental
+review of a different phase. Checked every existing route file: `evidence.py`, `intake.py`,
+`jobs.py`, `review.py`, `simulate.py`, and `security.py` all correctly use `PrincipalDep` +
+`require()` on every route; `chain.py` was the only one with the gap.
+
+---
+
+## 2026-09-26 · P11 — Observability, metrics, unit economics, spend guards (§18)
+
+### Plan
+
+Implement §18 in full: structured JSON logging with redaction (§18.1), the metrics
+service and REST/CLI surface (§18.2), unit economics (§18.3), and the bulk-spend preflight
+guard (§18.4). `structlog` was already a pyproject dependency since P0 but never wired up;
+every table the metrics read from (`inspection_runs`, `inspection_results`, `returns`,
+`inspection_jobs`, `overrides`, `signoffs`, `audit_findings`, `model_request_ledger`) was
+already fully populated by P5–P9, so this phase needed no new migration.
+
+### Changed
+
+**New modules (`observability/`):**
+
+| File | Purpose |
+|---|---|
+| `observability/logging.py` | `configure_logging()` wires structlog **and** stdlib `logging` through one processor chain so every call site (structlog- or stdlib-based) renders as redacted JSON lines; `redact_processor` scrubs API keys, JWTs, signed-URL tokens, DB passwords, and denies known secret-shaped field names (`prompt`, `thinking`, `signed_url`, raw image fields) outright |
+| `observability/metrics.py` | `MetricValue{value, n, window, method}`; `parse_window`/`window_since`; `MetricsService` — throughput, model/queue-wait/capture-to-decision latency (p50/p95/mean), requests- and tool-calls-per-inspection (the Rule-2 metric), tokens-per-inspection + cached share, 7 rates (uncertain, retake, escalation, audit disagreement, override, sign-off approval, needs-attention), error rate by class, integrity counters (invented reference/quote counts, injection and reused-photo flags), disposition distribution, today's quota snapshot, and `summary()` |
+| `observability/economics.py` | `EconomicsService` — cost-by-stage (judgment/escalation/audit, USD+INR via `reference/pricing/fx.yaml`), blended cost-per-inspection, projected-monthly-cost at a volume, synthetic recovery uplift (reads the disposition engine's own `expected_recovery_minor` per unit, actual route vs. the literal §18.3 baseline "liquidate all opened returns"), and the Prep-track sanity anchor |
+| `observability/spend_guard.py` | `preflight_bulk_spend()`: computes requests needed, days-to-finish against today's remaining quota, and the paid-equivalent cost estimate; refuses (`SpendGuardRefused`, exit 4) without `--allow-multi-day` / `--confirm-spend`. Standalone and unit-tested now; P12 (`eval run`) and P13 (`load-test`) call it once built |
+| `api/routes/metrics.py` | `GET /api/v1/metrics/summary?window=`, `GET /api/v1/metrics/economics?window=&volume=`, both `PrincipalDep` + `Permission.METRICS_READ`, `org_id` from the principal only |
+| `cli/economics_commands.py` | `economics report --org --window --volume [--out]` (§20); registered in `cli/main.py`, P11 stub removed |
+| `tests/unit/test_observability.py` | T-OBS-01…08 |
+
+**Modified:** `api/app.py` (registered the metrics router; calls `configure_logging()` at
+app creation); `cli/job_commands.py` (`worker` now calls `configure_logging()`);
+`mcp_server.py` (`run_mcp_server` now calls `configure_logging()`); `cli/p1_commands.py`
+and `mcp_server.py` (`uvicorn.Config(..., log_config=None)` — see "failed attempts" below);
+`tests/unit/test_db_security.py` (added T-SEC-09, §19's explicit P11 acceptance test).
+
+### Failed attempts
+
+- First pass wired `configure_logging()` into `create_app()` but the live smoke test still
+  showed uvicorn's plain-text access logs, not JSON. Cause: `uvicorn.Config(...)` defaults
+  `log_config` to uvicorn's own dictConfig, which `Server.serve()` applies and which
+  overwrites the root logger's handlers — so the app's own logging setup was silently
+  discarded every time the API or MCP server actually started under uvicorn, even though
+  `configure_logging()` itself worked perfectly (confirmed earlier by a standalone script).
+  Fixed by passing `log_config=None` in both `p1_commands.py::api_serve` and
+  `mcp_server.py::run_mcp_server`; re-verified live (below) with real JSON lines from a
+  running server, not just from calling the function directly.
+
+### Two more real bugs found while wiring this phase (not introduced by it)
+
+1. **`evidence show` / `evidence export` were also broken on Windows.** While using
+   `cli/evidence_commands.py` as a style reference for the new `economics report` command,
+   found both already used raw `asyncio.run(...)` — the exact Windows `ProactorEventLoop`
+   bug fixed for `mcp serve` during the P10 re-verification, in the one CLI file that
+   fix never touched. Fixed both to use `db.pool.run_async`, matching every other command.
+2. **`GET /api/v1/units/{unit_id}/chain/verification` had no authentication at all**
+   (found while modeling the new metrics routes' auth pattern on the existing route
+   files). Logged and fixed in its own entry above (2026-09-26, "Critical tenancy fix").
+
+### Evidence / verification
+
+- `pytest tests/unit -m "not live"`: **357 passed** (346 prior + 10 T-OBS + 1 T-SEC-09).
+- `ruff check` / `ruff format --check` / `mypy`: all clean (124 source files).
+- `reference validate`: 34 files valid. `check_boundary.py`: branch `upeshchowdary`,
+  244 changed files, none organiser-owned.
+- **Metrics return "no data" correctly**: `test_t_obs_03_summary_no_data_on_fresh_org`
+  asserts every one of the 17 summary metrics renders `{"value": "no data", "n": 0}` on a
+  brand-new org; confirmed again live — `GET /metrics/summary?window=all` against the real
+  (but inspection-empty) `org_demo_alpha` returned exactly that for all 17 metrics.
+- **Economics report generated from real runs**: T-OBS-06/07 insert real rows (an
+  `inspection_runs` row with `cost_usd_micros` set, an `inspection_results` row shaped
+  exactly like `disposition/engine.py`'s real `DispositionDecision.expected_recovery_minor`
+  output) and assert the CLI/service compute the correct USD→INR conversion and the correct
+  synthetic uplift over the baseline. `returns-manager economics report --org
+  org_demo_alpha --window all` was also run live end-to-end; it correctly reports "no data"
+  because `org_demo_alpha` has no real inspection runs yet (no live judgment session has
+  been run against it — spending quota on that is deferred to the §18.5 P5 measurement /
+  eventual eval run, not manufactured here just to make this report show numbers).
+- **T-SEC-09 green**: `test_t_sec_09_no_secrets_in_logs` uses a real, freshly generated API
+  key (not a fabricated stand-in) plus JWT-, signed-URL-, and connection-string-shaped
+  strings, through both a structlog and a stdlib `logging` call site, and asserts none of
+  the real secret values survive in the captured stream.
+- **Live smoke, not just unit tests**: started `returns-manager api serve`, created a real
+  `metrics:read` key, hit both new endpoints (200, correct "no data" shape) and confirmed an
+  unauthenticated request gets 401; confirmed the server's own stdout is genuine JSON lines
+  after the `log_config=None` fix. Key revoked afterward.
+
+### Left open, documented rather than silently skipped
+
+- §18.2's "top missing components" / "top uncertainty / override reason" distributions are
+  not implemented — `disposition_distribution` and `integrity_counters` are built as the
+  representative distribution/counter pair; the others would read the same tables
+  (`inspection_results.components`, `.uncertainties`, `rm.overrides.reason_code`) and can be
+  added the same way when a consumer needs them.
+- The spend guard is standalone and tested but not yet wired into a real bulk-spend
+  command, because none exists yet (`eval run` is P12, `load-test` is P13). Its interface
+  (`preflight_bulk_spend`) is stable for them to call.
+- §18.5's cost/latency budget measurement on 5–8 dev fixtures is still pending real
+  judgment runs (tracked since P5); nothing in P11 required spending quota to build the
+  measurement machinery itself.
+
+**Next:** Phase 12 (Eval tooling, §21) — `eval seal`, `eval run --dev-mini`, `eval report`,
+`per_unit_table.csv`. The spend guard built here is the entry point `eval run`'s preflight
+will call.
+
 ## Findings
 
 | F-### | date | source | contradiction | impact | our handling | GitHub issue |
@@ -783,3 +1009,8 @@ F-001…F-006 (§26) are verified and filed in the phases that act on them (P2, 
   yet. Needed by about day 3 (2026-09-27) given ~18 judgment requests/day on the free tier.
 - **OQ-6** Findings are to be mirrored as GitHub Issues labelled `finding`; issues are disabled by default on
   forks. Pending the human enabling issues on the fork.
+- **OQ-7** `contract/examples/` needs one example per official scenario plus `X01`, `X06`, `X07`, `X11`
+  (§14.1), including an `uncertain` case, a provisional `requires_review` recommendation, and a `null`
+  recommendation with its reason. Only the headphones case exists. Needs either real finalized inspections
+  (quota-limited) or hand-authored documents explicitly labelled synthetic — raised during P10
+  re-verification rather than fabricated to look like real model output.

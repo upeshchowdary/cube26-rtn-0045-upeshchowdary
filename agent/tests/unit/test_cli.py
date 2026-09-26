@@ -38,11 +38,11 @@ def test_entry_point_is_installed_as_returns_manager() -> None:
 
 
 def test_unbuilt_command_fails_and_names_its_phase(capsys: pytest.CaptureFixture[str]) -> None:
-    # 'evidence show' was the P10 stub; now that P10 is built, use a P11 stub.
-    assert run(["economics", "report"]) == ExitCode.FAILURE
+    # 'economics report' was the P11 stub; now that P11 is built, use a P12 stub.
+    assert run(["eval", "seal"]) == ExitCode.FAILURE
     err = capsys.readouterr().err
     assert "not built yet" in err
-    assert "P11" in err
+    assert "P12" in err
 
 
 def test_unknown_command_is_a_usage_error() -> None:
@@ -51,4 +51,15 @@ def test_unknown_command_is_a_usage_error() -> None:
 
 def test_every_planned_group_has_help() -> None:
     names = {g.name for g in app.registered_groups}
-    assert {"db", "reference", "keys", "controls", "jobs", "review", "evidence", "chain", "eval"} <= names
+    assert {
+        "db",
+        "reference",
+        "keys",
+        "controls",
+        "jobs",
+        "review",
+        "evidence",
+        "chain",
+        "eval",
+        "economics",
+    } <= names
