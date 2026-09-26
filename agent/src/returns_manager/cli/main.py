@@ -21,6 +21,7 @@ from returns_manager.cli import (
     inspect_commands,
     intake_commands,
     job_commands,
+    load_commands,
     p1_commands,
     reference_commands,
     review_commands,
@@ -52,7 +53,7 @@ _PLANNED: list[tuple[str | None, str, str, str]] = [
     # P10 commands are now built; stubs removed.
     # P11 `economics report` is now built; stub removed.
     # P12 `eval seal|run|report` are now built; stubs removed.
-    (None, "load-test", "P13", "Load test in replay or live mode."),
+    # P13 `load-test` is now built; stub removed.
 ]
 
 _GROUP_HELP = {
@@ -122,6 +123,7 @@ def _register() -> None:
     app.command("capture")(intake_commands.capture_command)
     app.command("worker")(job_commands.worker_command)
     app.command("inspect")(inspect_commands.inspect_command)
+    app.command("load-test")(load_commands.load_test_command)
     for group, name, phase, help_text in _PLANNED:
         if group in _groups:
             cmds = getattr(_groups[group], "registered_commands", [])

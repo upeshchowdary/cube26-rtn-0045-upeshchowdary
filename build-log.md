@@ -1058,6 +1058,87 @@ than silently falling back to something smaller or fabricated.
 **Next:** Phase 13 (Load and resilience, §19 "Load" + §20 `load-test` + §23 P13) —
 `load-test` in replay and live modes, burst scenario, kill-switch/circuit/budget drills.
 
+---
+
+## 2026-09-26 · P13 — Load and resilience (§19 "Load" + §20 `load-test` + §23 P13)
+
+### Plan
+
+Build the load testing and resilience suite (§19, §20, §23):
+1. **Models and profiles (`load/models.py`, `load/profiles.py`):**
+   - `LatencyProfile`: parses `instant`, `fixed:<ms|s>`, `uniform:<min>:<max>`.
+   - `UnitExecutionRecord`, `LatencyPercentiles` (p50, p90, p95, p99, min, max, mean), and `LoadTestReport`.
+2. **Load test runner (`load/runner.py`):**
+   - Orchestrates `load-test --mode replay|live --units N --concurrency C [--latency-profile p] [--confirm-spend]`.
+   - Replay mode: measures system throughput without spending model quota, generating N returns and draining via C concurrent workers with simulated latency profiles.
+   - Live mode: enforced via P11 spend guard (`preflight_bulk_spend`); refuses without `--confirm-spend` (exit 4).
+   - Injected outage: simulates provider 500 / timeout errors and verifies fail-open behavior (photos intact, returns pending or needs_attention, zero dropped units, zero duplicates).
+3. **Resilience drills (`load/drills.py`):**
+   - Burst scenario: large burst of returns enqueued simultaneously, processed under concurrency C with zero drops and zero duplicates.
+   - Kill-switch drill: `model_calls_enabled` turned off holds jobs pending; `auto_disposition_enabled` turned off routes to `awaiting_review` (`assisted_mode`).
+   - Circuit-breaker drill: threshold consecutive failures trigger OPEN; cooldown and probe recovery.
+   - Budget exhaustion drill: daily quota limit holds jobs pending until Pacific midnight reset without consuming attempts.
+4. **CLI integration (`cli/load_commands.py`, `cli/main.py`):**
+   - Wire `returns-manager load-test` top-level command, removing P13 stub from `_PLANNED`.
+   - Rich stdout formatting and optional `--out` report.
+5. **Acceptance tests (`tests/unit/test_load.py`):**
+   - T-LOD-01…10 covering all CLI flags, latency profiles, throughput and percentile measurements, zero duplicates and drops, spend-guard refusal in live mode, injected outage fail-open, burst scenario, kill-switch, circuit breaker, and budget exhaustion.
+
+### Changed
+
+| Path | Summary of changes |
+|---|---|
+| `load/models.py` | `LoadMode`, `LatencyProfile`, `UnitExecutionRecord`, `LatencyPercentiles` (p50, p90, p95, p99, min, max, mean), `LoadTestReport`, `DrillReport` |
+| `load/profiles.py` | `parse_latency_profile` supporting `instant`, `fixed:<ms\|s>`, `uniform:<min>:<max>`, and plain duration strings |
+| `load/runner.py` | `run_load_test` orchestrator: synthetic return generator (with valid textured JPEG photos passing quality gate), concurrent worker pool (`JobWorker`), zero-duplicates and zero-drops accounting, injected outage drill with fail-open verification, spend-guard enforcement for live mode |
+| `load/drills.py` | `run_burst_scenario`, `run_outage_drill`, `run_kill_switch_drill`, `run_circuit_breaker_drill`, `run_budget_exhaustion_drill`, and `run_all_drills` |
+| `load/__init__.py` | Package exports for models, profiles, runner, and drills |
+| `cli/load_commands.py` | `load-test` Typer command with rich markdown summary, `--out` (JSON or Markdown), and `--run-drills` |
+| `cli/main.py` | Registered `load_test_command` under `returns-manager load-test`; removed P13 stub from `_PLANNED` |
+| `tests/unit/test_load.py` | T-LOD-01…10 covering CLI arguments, latency profile parsing, percentiles, replay throughput, zero duplicates/drops, spend-guard refusal in live mode, injected outage fail-open, and resilience drills |
+| `tests/unit/test_cli.py` | Updated `test_unbuilt_command_fails_and_names_its_phase` to verify stub behavior dynamically via `_stub`, as all spec-planned commands (through P13) are now built |
+
+### Failed attempts and solutions
+
+1. **`validate_org_id` rejected uppercase Base32 identifiers:**
+   - *Attempt:* Used `new_id()` to generate isolated tenant org IDs for load test runs.
+   - *Failure:* `InvalidOrgId` raised because `validate_org_id` enforces regex `^[a-z0-9][a-z0-9_]{1,62}$`, while `new_id()` generates uppercase Crockford Base32 strings.
+   - *Solution:* Generated org IDs formatted as `f"org_t{uuid.uuid4().hex[:12]}"` (matching `test_jobs.py::_fresh_org`).
+2. **Org table name and RLS policy constraint:**
+   - *Attempt:* Attempted to insert tenant into `rm.orgs`.
+   - *Failure:* Table does not exist (`rm.organizations` is the actual table), and `rm.organizations` has RLS enabled with policy `org_id = current_setting('app.org_id', true)`.
+   - *Solution:* Opened tenant creation transactions via `db.transaction(org_id)` against `rm.organizations`.
+3. **Queue state tracking for retryable errors:**
+   - *Attempt:* Counted only `JobStatus.PENDING` when tallying remaining or pending units.
+   - *Failure:* When a simulated outage error occurs, `JobQueue.hold_job` marks the job as `JobStatus.FAILED_RETRYABLE = "failed_retryable"`, so checking only `PENDING` reported 0 pending units.
+   - *Solution:* Updated `runner.py`'s queue monitor to count both `JobStatus.PENDING` and `JobStatus.FAILED_RETRYABLE`.
+4. **Outage error classification:**
+   - *Attempt:* Raised generic `RuntimeError` to simulate provider failure.
+   - *Failure:* The worker classified generic exceptions as `unexpected_error` (non-retryable).
+   - *Solution:* Raised `ProviderError("server_error", "500 internal server error", status_code=500)` to trigger the proper retry and circuit breaker paths defined in §10.4.
+5. **CLI unbuilt command regression:**
+   - *Attempt:* `test_cli.py::test_unbuilt_command_fails_and_names_its_phase` was testing `load-test`.
+   - *Failure:* Running `run(["load-test"])` succeeded (exit code 0) once `load-test` was built and registered.
+   - *Solution:* Updated the test to register and invoke a test stub via `_stub(app, "_test_stub", "P99", ...)`, ensuring the unbuilt stub mechanism remains verified without relying on built commands.
+
+### Evidence / verification
+
+- `pytest tests/unit -m "not live"`: **396 passed** (386 prior + 10 T-LOD), 0 failed in 83.75s.
+- `returns-manager dev check`: All six quality gates passed:
+  - `ruff check`: All checks passed.
+  - `ruff format --check`: 177 files already formatted.
+  - `mypy`: Success: no issues found in 143 source files.
+  - `pytest (non-live)`: 396 passed.
+  - `reference validate`: 34 files valid.
+  - `boundary check`: branch `upeshchowdary`, 265 changed files, none organiser-owned.
+- **Live CLI smoke test:**
+  - `returns-manager load-test --mode replay --units 5 --concurrency 2` ran end-to-end against local DB, generating 5 returns, processing via 2 workers, and outputting measured throughput (27.24 units/s), p50/p95/p99 latency distributions, queue wait latency, zero duplicates (0), zero drops (0), and fail-open under outage verification (PASS).
+  - `returns-manager load-test --mode live --units 5 --concurrency 2` refused execution without `--confirm-spend` (exit code 4, `SpendGuardRefused`) as required by §11 spend guard.
+
+**Next:** Phase 14 (Release Candidate & Handover, §23 P14) — Part 1 demo, handover documentation, release candidate checklist, and asciinema recording.
+
+---
+
 ## Findings
 
 | F-### | date | source | contradiction | impact | our handling | GitHub issue |

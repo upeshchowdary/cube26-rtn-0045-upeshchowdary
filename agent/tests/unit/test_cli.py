@@ -38,11 +38,14 @@ def test_entry_point_is_installed_as_returns_manager() -> None:
 
 
 def test_unbuilt_command_fails_and_names_its_phase(capsys: pytest.CaptureFixture[str]) -> None:
-    # 'eval seal|run|report' were the P12 stubs; now that P12 is built, use a P13 stub.
-    assert run(["load-test"]) == ExitCode.FAILURE
+    # All planned commands (through P13 load-test) are built; verify stub mechanism via _stub.
+    from returns_manager.cli.main import _stub
+
+    _stub(app, "_test_stub", "P99", "Stub help", "_test_stub")
+    assert run(["_test_stub"]) == ExitCode.FAILURE
     err = capsys.readouterr().err
     assert "not built yet" in err
-    assert "P13" in err
+    assert "P99" in err
 
 
 def test_unknown_command_is_a_usage_error() -> None:
