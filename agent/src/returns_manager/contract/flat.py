@@ -57,10 +57,11 @@ def build_flat_row(document: dict[str, Any]) -> dict[str, str]:
     review_reasons_raw = disp.get("review_reasons") or []
     review_reasons = ";".join(review_reasons_raw)
 
-    # returned_damaged is a nested dict; flatten to bool string
+    # returned_damaged.value is tri-state ('yes'/'no'/'uncertain'), not a plain bool;
+    # only 'yes' flattens to true - 'no' and 'uncertain' are both truthy strings.
     returned_damaged = claims.get("returned_damaged") or {}
     if isinstance(returned_damaged, dict):
-        returned_damaged_str = "true" if returned_damaged.get("value") else "false"
+        returned_damaged_str = "true" if returned_damaged.get("value") == "yes" else "false"
     else:
         returned_damaged_str = str(bool(returned_damaged)).lower()
 

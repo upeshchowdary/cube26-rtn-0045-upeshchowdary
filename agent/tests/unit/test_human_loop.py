@@ -118,6 +118,49 @@ async def test_override_is_preserved_and_post_finalization_creates_superseding_r
 
 
 @pytest.mark.asyncio
+async def test_finalized_document_conforms_to_the_evidence_contract(
+    db: Any, decision_case: tuple[str, str, str, str, str, str]
+) -> None:
+    """P8/P10: a document produced by the real decide() -> _finalize_document() path
+    (not a hand-crafted contract-shaped fixture) must validate as an EvidenceRecord
+    and carry real data through to the fixed top-level fields and extensions.returns."""
+    from returns_manager.contract.models import EvidenceRecord
+    from returns_manager.contract.service import get_evidence_document
+
+    org, ret, unit, _, _, _ = decision_case
+    svc = HumanReviewService(db)
+    decision = await svc.decide(
+        org_id=org,
+        actor_id="capturer",
+        actor_role="operator",
+        return_id=ret,
+        action="override",
+        overrides=[OverrideInput("disposition", "liquidate", "policy_exception", "approved exception")],
+    )
+    assert decision.status == "finalized"
+
+    doc = await get_evidence_document(db.pool, org_id=org, unit_id=unit)
+    assert doc is not None
+    record = EvidenceRecord.model_validate(doc)
+
+    assert record.organization_id == org
+    assert record.subject["unit_id"] == unit
+    assert record.subject["order_id"]
+    assert record.status == "finalized"
+    assert record.content_hash.startswith("sha256:")
+    assert record.outcome.decision == "LIQUIDATE"
+    assert record.outcome.decided_by == "operator:capturer"
+
+    ext = record.extensions["returns"]
+    assert ext["unit_id"] == unit
+    assert ext["disposition"]["rule_id"] == "R13"
+    assert ext["disposition"]["final_disposition"] == "liquidate"
+    assert ext["disposition"]["recommended_disposition"] == "liquidate"
+    assert len(ext["overrides"]) == 1
+    assert ext["overrides"][0]["by"] == "operator:capturer"
+
+
+@pytest.mark.asyncio
 async def test_four_eyes_blocks_capturer_and_finalizes_after_independent_approval(
     db: Any, decision_case: tuple[str, str, str, str, str, str]
 ) -> None:

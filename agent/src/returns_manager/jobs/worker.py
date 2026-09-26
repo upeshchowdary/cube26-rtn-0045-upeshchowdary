@@ -105,6 +105,7 @@ class Worker:
         kinds: list[str] | None = None,
         handler: JobHandler | None = None,
         breakers: CircuitBreakerRegistry | None = None,
+        bypass_operational_guards: bool = False,
     ) -> None:
         assert_lease_sizing(settings)
         self.db = db
@@ -117,6 +118,15 @@ class Worker:
             failure_threshold=settings.rm_circuit_failure_threshold,
             cooldown_s=settings.rm_circuit_cooldown_s,
         )
+        # Skips the kill-switch, circuit-breaker and daily-quota checks in _process_job
+        # (steps 1-3) before every job. Off by default: production code must never set
+        # this. It exists only for load-test's synthetic replay-mode throughput
+        # measurement (load/runner.py), whose handler never calls a model and so has
+        # nothing to do with real production quota/circuit/kill-switch state - without
+        # it, a load-test run is spuriously gated by whatever real quota happens to be
+        # left today. The dedicated kill-switch/circuit/budget drills (load/drills.py)
+        # never set this: their entire purpose is to exercise these real guards.
+        self.bypass_operational_guards = bypass_operational_guards
 
         self.processed = 0
         self._max_jobs: int | None = None
@@ -271,43 +281,51 @@ class Worker:
             kill_control = controls.Control.MODEL_CALLS
         breaker = self.breakers.get(model_id)
 
-        # 1. Kill switch (§6.7): effective value = global AND org.
-        eff = await controls.effective(self.db, job.org_id)
-        if not eff[controls.Control.MODEL_CALLS].enabled or not eff[kill_control].enabled:
-            await self._hold(
-                job,
-                "model_calls_disabled",
-                f"{kill_control.value} is switched off (kill switch)",
-                60,
-            )
-            return False
+        # Steps 1-3 gate on real production model availability (kill switch, circuit,
+        # daily quota). A bypassed worker's handler never calls a model, so none of
+        # these mean anything to it; skip straight to claiming/state-transition/handler.
+        if not self.bypass_operational_guards:
+            # 1. Kill switch (§6.7): effective value = global AND org.
+            eff = await controls.effective(self.db, job.org_id)
+            if not eff[controls.Control.MODEL_CALLS].enabled or not eff[kill_control].enabled:
+                await self._hold(
+                    job,
+                    "model_calls_disabled",
+                    f"{kill_control.value} is switched off (kill switch)",
+                    60,
+                )
+                return False
 
-        # 2. Circuit breaker (§10.4).
-        if not breaker.allow_request():
-            await self._hold(
-                job, "circuit_open", f"Circuit breaker is open for model '{model_id}'", breaker.cooldown_s
-            )
-            return False
+            # 2. Circuit breaker (§10.4).
+            if not breaker.allow_request():
+                await self._hold(
+                    job,
+                    "circuit_open",
+                    f"Circuit breaker is open for model '{model_id}'",
+                    breaker.cooldown_s,
+                )
+                return False
 
-        # 3. Daily request budget (§10.4a): the model client reserves tokens per request; here the job is
-        #    only held when nothing is left today, so it waits for the Pacific-midnight reset.
-        async with self.db.transaction(None) as conn:
-            budget = await get_budget_status(
-                conn,
-                model_id,
-                daily_budget,
-                self.settings.rm_quota_reset_tz,
-            )
-        if not budget.allowed:
-            delay = (budget.next_reset_utc - datetime.now(UTC)).total_seconds()
-            reset_iso = budget.next_reset_utc.isoformat()
-            await self._hold(
-                job,
-                "quota_exhausted",
-                f"Daily request budget for {model_id} exhausted (resets at {reset_iso})",
-                max(delay, 1.0),
-            )
-            return False
+            # 3. Daily request budget (§10.4a): the model client reserves tokens per
+            #    request; here the job is only held when nothing is left today, so it
+            #    waits for the Pacific-midnight reset.
+            async with self.db.transaction(None) as conn:
+                budget = await get_budget_status(
+                    conn,
+                    model_id,
+                    daily_budget,
+                    self.settings.rm_quota_reset_tz,
+                )
+            if not budget.allowed:
+                delay = (budget.next_reset_utc - datetime.now(UTC)).total_seconds()
+                reset_iso = budget.next_reset_utc.isoformat()
+                await self._hold(
+                    job,
+                    "quota_exhausted",
+                    f"Daily request budget for {model_id} exhausted (resets at {reset_iso})",
+                    max(delay, 1.0),
+                )
+                return False
 
         # 4. State transitions on claim (§10.1):
         #    Only judgment jobs transition the return from QUEUED -> INSPECTING.

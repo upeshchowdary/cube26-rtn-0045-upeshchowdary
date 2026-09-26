@@ -17,7 +17,9 @@ Acceptance coverage:
 
 from __future__ import annotations
 
+import ipaddress
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -74,9 +76,23 @@ def mock_evidence_doc() -> dict[str, Any]:
         },
         "extensions": {
             "returns": {
-                "rule_id": "R09",
-                "parts_missing": ["usb_cable"],
-                "amazon_condition": "Used - Good",
+                "disposition": {"rule_id": "R09", "rules_version": "rules-2026.09.25"},
+                "completeness": {
+                    "status": "incomplete",
+                    "parts_list": "usb_cable",
+                    "parts_missing": "usb_cable",
+                },
+                "condition": {
+                    "amazon_condition": "Used - Good",
+                    "rubric": {
+                        "snapshot_id": "amazon.co.uk-2020-12",
+                        "source_marketplace": "amazon.co.uk",
+                        "applies_to_marketplace": "amazon.in",
+                        "verification_status": "unverified_substitute",
+                        "content_sha256": "a" * 64,
+                        "phrases_matched": ["minor cosmetic imperfections"],
+                    },
+                },
             }
         },
         "overrides": [],
@@ -91,7 +107,7 @@ def test_t_exp_01_grounded_answer_with_valid_citations(mock_evidence_doc: dict[s
     service = ExplainerService(pool=MagicMock())
     ans = (
         "The rules engine computed the disposition as REFURBISH (status: finalized, "
-        "decided by: rules_engine). Applied rule R09: Refurbish replaceable component missing. "
+        "decided by: rules_engine). Applied rule R09 (rules version rules-2026.09.25). "
         "Missing components observed: usb_cable."
     )
     service._synthesize_grounded_answer = MagicMock(
@@ -101,7 +117,7 @@ def test_t_exp_01_grounded_answer_with_valid_citations(mock_evidence_doc: dict[s
                 Citation(kind="record_field", ref="outcome.decision"),
                 Citation(kind="record_field", ref="status"),
                 Citation(kind="rule", ref="R09"),
-                Citation(kind="record_field", ref="extensions.returns.parts_missing"),
+                Citation(kind="record_field", ref="extensions.returns.completeness.parts_missing"),
             ],
             [],
         )
@@ -126,33 +142,38 @@ def test_t_exp_01_grounded_answer_with_valid_citations(mock_evidence_doc: dict[s
 
 
 def test_t_exp_02_citation_validator_filters_and_falls_back(mock_evidence_doc: dict[str, Any]) -> None:
-    """T-EXP-02: Citation validator strips nonexistent fields and triggers fallback."""
-    rules = {"R09": "Refurbish replaceable component missing"}
-    rubrics = {"GOOD": "Used - Good"}
+    """T-EXP-02: Citation validator strips nonexistent fields and triggers fallback.
 
+    "rule" and "rubric" citations are checked against what is actually recorded on
+    THIS record (disposition.rule_id, condition.rubric.phrases_matched) - not a
+    general-purpose lookup table - so a rule_id or rubric phrase this record never
+    actually used is invalid even if it would be a real rule/phrase somewhere else.
+    """
     # Mixed valid and invalid citations
     test_citations = [
         Citation(kind="record_field", ref="outcome.decision"),  # Valid
         Citation(kind="record_field", ref="nonexistent.fake_field"),  # Invalid
-        Citation(kind="rule", ref="R99_FAKE_RULE"),  # Invalid
-        Citation(kind="rule", ref="R09"),  # Valid
+        Citation(kind="rule", ref="R99_FAKE_RULE"),  # Invalid: not this record's rule_id
+        Citation(kind="rule", ref="R09"),  # Valid: matches disposition.rule_id
+        Citation(kind="rubric", ref="minor cosmetic"),  # Valid: substring of phrases_matched
+        Citation(kind="rubric", ref="a paraphrase nobody actually extracted"),  # Invalid
     ]
 
-    valid = validate_citations(test_citations, doc=mock_evidence_doc, events=[], rules=rules, rubrics=rubrics)
-    assert len(valid) == 2
+    valid = validate_citations(test_citations, doc=mock_evidence_doc, events=[])
+    assert len(valid) == 3
     refs = [c.ref for c in valid]
     assert "outcome.decision" in refs
     assert "R09" in refs
+    assert "minor cosmetic" in refs
     assert "nonexistent.fake_field" not in refs
+    assert "R99_FAKE_RULE" not in refs
 
     # Zero valid citations fallback
     invalid_only = [
         Citation(kind="record_field", ref="completely.bogus"),
         Citation(kind="rule", ref="R999"),
     ]
-    valid_none = validate_citations(
-        invalid_only, doc=mock_evidence_doc, events=[], rules=rules, rubrics=rubrics
-    )
+    valid_none = validate_citations(invalid_only, doc=mock_evidence_doc, events=[])
     assert valid_none == []
 
 
@@ -234,54 +255,116 @@ def test_t_whk_02_anti_replay_window() -> None:
     assert verify_signature(secret, body, future_header, max_age_seconds=300, current_time=now) is False
 
 
-def test_t_whk_03_ssrf_allowlist_control() -> None:
+@pytest.mark.asyncio
+async def test_t_whk_03_ssrf_allowlist_control() -> None:
     """T-WHK-03: Webhook URL validation blocks cloud metadata (169.254.169.254) and requires HTTPS."""
-    # Cloud metadata endpoint blocked
-    allowed, reason = is_url_allowed("http://169.254.169.254/latest/meta-data")
+    # Cloud metadata endpoint blocked (literal IP)
+    allowed, reason = await is_url_allowed("http://169.254.169.254/latest/meta-data")
     assert allowed is False
 
     # HTTP non-local blocked
-    allowed, reason = is_url_allowed("http://external-api.com/webhook")
+    allowed, reason = await is_url_allowed("http://external-api.com/webhook")
     assert allowed is False
     assert "HTTPS required" in reason
 
     # Localhost HTTP allowed for local testing
-    allowed, _ = is_url_allowed("http://localhost:8000/webhook")
+    allowed, _ = await is_url_allowed("http://localhost:8000/webhook")
     assert allowed is True
 
-    # Allowlist filtering
+    # Allowlist filtering. These hostnames are fictional test data, not real registered
+    # domains, so DNS resolution is mocked to a benign public IP - the allowlist check
+    # itself (not the resolver) is what this assertion exercises.
+    from unittest.mock import patch
+
     allowlist = "partner.example.com,api.recoverypod.internal"
-    allowed, _ = is_url_allowed("https://partner.example.com/events", allowlist)
-    assert allowed is True
+    with patch(
+        "returns_manager.webhooks.service.resolve_all_ips",
+        new=AsyncMock(return_value=[ipaddress.ip_address("203.0.113.10")]),
+    ):
+        allowed, _ = await is_url_allowed("https://partner.example.com/events", allowlist)
+        assert allowed is True
 
-    allowed, reason = is_url_allowed("https://evil-attacker.com/steal", allowlist)
+        allowed, reason = await is_url_allowed("https://evil-attacker.com/steal", allowlist)
     assert allowed is False
     assert "RM_WEBHOOK_ALLOWLIST" in reason
 
 
-def test_t_whk_04_webhook_service_lifecycle() -> None:
-    """T-WHK-04: WebhookService registers subscriptions and lists deliveries."""
-    service = WebhookService(allowlist="localhost,127.0.0.1,api.example.com")
+@pytest.mark.asyncio
+async def test_t_whk_03b_ssrf_blocks_dns_rebinding_to_private_ip() -> None:
+    """T-WHK-03b (regression): a hostname that RESOLVES to a private/loopback IP must be
+    blocked even though the URL itself contains no literal IP address - checking only a
+    literal IP in the URL is a classic DNS-rebinding SSRF bypass."""
+    from unittest.mock import patch
+
+    # localhost.example.test is not itself in _LOCAL_HOSTNAMES, but resolves to loopback.
+    with patch(
+        "returns_manager.webhooks.service.resolve_all_ips",
+        new=AsyncMock(return_value=[ipaddress.ip_address("127.0.0.1")]),
+    ):
+        allowed, reason = await is_url_allowed("https://attacker-controlled.example.test/hook")
+    assert allowed is False
+    assert "restricted network" in reason
+
+    with patch(
+        "returns_manager.webhooks.service.resolve_all_ips",
+        new=AsyncMock(return_value=[ipaddress.ip_address("169.254.169.254")]),
+    ):
+        allowed, reason = await is_url_allowed("https://attacker-controlled.example.test/hook")
+    assert allowed is False
+    assert "restricted network" in reason
+
+
+@pytest.mark.db
+@pytest.mark.asyncio
+async def test_t_whk_04_webhook_service_lifecycle(db: Any) -> None:
+    """T-WHK-04: WebhookService persists subscriptions to the database (regression: the
+    original implementation kept them in a process-local dict, invisible across
+    processes - api serve and worker are separate OS processes in this project)."""
+    org_id = f"org_t{uuid.uuid4().hex[:12]}"
+    async with db.transaction(org_id) as conn:
+        await conn.execute(
+            "INSERT INTO rm.organizations (org_id, name) VALUES (%s, %s)", (org_id, "webhook test")
+        )
+
+    service = WebhookService(db, allowlist="localhost,127.0.0.1,api.example.com")
 
     # Register subscription
-    sub = service.register_subscription(
-        org_id="org_whk_test",
+    sub = await service.register_subscription(
+        org_id=org_id,
         url="http://localhost:9999/whk",
         secret="dummy-subscription-secret",
+        created_by="test",
         events=["evidence.finalized"],
     )
-    assert sub.org_id == "org_whk_test"
+    assert sub.org_id == org_id
     assert sub.is_active is True
 
-    # List subscriptions
-    active = service.list_subscriptions("org_whk_test")
+    # A SEPARATE WebhookService instance (simulating a different process) reads the
+    # same subscription straight from the database - this is exactly the guarantee
+    # the in-memory singleton could never make.
+    other_process_service = WebhookService(db, allowlist="localhost,127.0.0.1,api.example.com")
+    active = await other_process_service.list_subscriptions(org_id)
     assert len(active) == 1
     assert active[0].subscription_id == sub.subscription_id
 
+    # Dispatch delivers to it and records a delivery row.
+    deliveries = await other_process_service.dispatch(
+        event="evidence.finalized",
+        org_id=org_id,
+        unit_id="UNIT-WHK-1",
+        record_id="RTN-9999",
+        record_version=1,
+        document_sha256="b" * 64,
+    )
+    assert len(deliveries) == 1
+    recorded = await service.list_deliveries(org_id)
+    assert len(recorded) == 1
+    assert recorded[0].subscription_id == sub.subscription_id
+
     # Deactivate subscription
-    ok = service.delete_subscription("org_whk_test", sub.subscription_id)
+    ok = await service.delete_subscription(org_id, sub.subscription_id)
     assert ok is True
-    assert service.list_subscriptions("org_whk_test") == []
+    assert await service.list_subscriptions(org_id) == []
 
 
 # ── Onboarding Assistant Tests (T-ONB) ────────────────────────────────────────

@@ -204,9 +204,9 @@ def _build_mcp_server(settings_override: Any = None) -> Any:
     async def explain_return_decision(unit_id: str, question: str) -> dict[str, Any]:
         """Answer `question` about the decision for unit_id using the evidence record.
 
-        Returns {answer, citations, not_recorded}.
-        This is a lightweight explainer that reads from the evidence record and events.
-        The full Explainer Agent (§11.14) is planned for P14.
+        Returns {answer, citations, not_recorded}. Delegates to `ExplainerService`
+        (§11.14, built in P14): every fact and citation is grounded in this unit's own
+        evidence document and event history, never a general-purpose description table.
         """
         from returns_manager.explainer.service import ExplainerService
 

@@ -7,14 +7,21 @@ appended for each write.
 `document_sha256 = SHA-256(JCS(document))` is computed here before INSERT.
 
 Never stored: thinking content, raw prompts, signed URLs, secrets.
+
+Webhook dispatch (`evidence.finalized` / `evidence.superseded`, §17) does NOT happen
+here. It used to: fired via `loop.create_task(...)` from inside this module, which runs
+inside the caller's still-open transaction (see the docstrings below - these functions
+must run inside `db.tenant.transaction(org_id)`). A fire-and-forget task scheduled there
+has no guarantee the surrounding transaction ever commits, so a webhook could go out for
+a record a later rollback undoes. The dispatch now happens in the one real caller,
+`review/service.py`, after its transaction has actually committed - see
+`HumanReviewService._dispatch_finalized_webhook`.
 """
 
 from __future__ import annotations
 
-import asyncio
 import dataclasses
 import json
-import logging
 from datetime import UTC, datetime
 from typing import Any
 
@@ -25,9 +32,6 @@ from returns_manager.canonical.jcs import canonical_bytes
 from returns_manager.chain.append import append_ledger_entry
 from returns_manager.chain.event_types import RECORD_FINALIZED, RECORD_SUPERSEDED
 from returns_manager.ids import new_id
-
-logger = logging.getLogger(__name__)
-_background_tasks: set[asyncio.Task[Any]] = set()
 
 
 def document_sha256_of(document: dict[str, Any]) -> str:
@@ -111,25 +115,6 @@ async def finalize_record(
         unit_head_event_hash=unit_head_event_hash,
         occurred_at=ts,
     )
-
-    try:
-        from returns_manager.webhooks.service import get_webhook_service
-
-        loop = asyncio.get_running_loop()
-        task = loop.create_task(
-            get_webhook_service().dispatch(
-                event="evidence.finalized",
-                org_id=org_id,
-                unit_id=unit_id,
-                record_id=record_id,
-                record_version=record_version,
-                document_sha256=doc_sha256,
-            )
-        )
-        _background_tasks.add(task)
-        task.add_done_callback(_background_tasks.discard)
-    except Exception as exc:
-        logger.debug("Webhook finalized dispatch bypassed: %s", exc)
 
     return FinalizedRecord(
         evidence_id=evidence_id,
@@ -216,25 +201,6 @@ async def supersede_record(
         unit_head_event_hash=unit_head_event_hash,
         occurred_at=ts,
     )
-
-    try:
-        from returns_manager.webhooks.service import get_webhook_service
-
-        loop = asyncio.get_running_loop()
-        task = loop.create_task(
-            get_webhook_service().dispatch(
-                event="evidence.superseded",
-                org_id=org_id,
-                unit_id=unit_id,
-                record_id=record_id,
-                record_version=new_version,
-                document_sha256=doc_sha256,
-            )
-        )
-        _background_tasks.add(task)
-        task.add_done_callback(_background_tasks.discard)
-    except Exception as exc:
-        logger.debug("Webhook superseded dispatch bypassed: %s", exc)
 
     return FinalizedRecord(
         evidence_id=evidence_id,

@@ -57,18 +57,34 @@ def _get_nested_field(doc: dict[str, Any], path: str) -> Any:
     return current
 
 
+def _returns_ext(doc: dict[str, Any] | None) -> dict[str, Any]:
+    ext = ((doc or {}).get("extensions") or {}).get("returns") or {}
+    if hasattr(ext, "model_dump"):
+        ext = ext.model_dump()
+    return ext
+
+
 def validate_citations(
     citations: list[Citation],
     *,
     doc: dict[str, Any] | None,
     events: list[dict[str, Any]],
-    rules: dict[str, str],
-    rubrics: dict[str, str],
 ) -> list[Citation]:
-    """Validate each citation against the gathered context.
-
-    Any unresolvable citation is discarded.
+    """Validate each citation against the gathered context. Any unresolvable citation
+    is discarded - this includes "rule" and "rubric" citations, which are checked
+    against the rule_id/rubric phrases actually recorded on THIS record
+    (extensions.returns.disposition.rule_id, extensions.returns.condition.rubric.
+    phrases_matched), never against a general-purpose lookup table of hand-written
+    descriptions. A hardcoded "R09 means missing replaceable component" dictionary is
+    exactly the kind of invented reference CLAUDE.md's hard rules forbid ("the model
+    never invents references... checked by code") - the fact that Python code would be
+    doing the inventing here instead of the model does not make it any less invented.
     """
+    ext = _returns_ext(doc)
+    disposition = ext.get("disposition") or {}
+    rubric = (ext.get("condition") or {}).get("rubric") or {}
+    phrases_matched = rubric.get("phrases_matched") or []
+
     valid: list[Citation] = []
     for c in citations:
         ref = c.ref.strip()
@@ -78,7 +94,7 @@ def validate_citations(
             if doc is not None and _get_nested_field(doc, field_path) is not None:
                 valid.append(c)
         elif c.kind == "event":
-            # Match by event_type or seq or id
+            # Match by event_type or seq or id (from the unit's own real event history)
             matched = any(
                 ref == ev.get("event_type") or ref == str(ev.get("seq")) or ref in str(ev.get("payload", {}))
                 for ev in events
@@ -86,14 +102,14 @@ def validate_citations(
             if matched:
                 valid.append(c)
         elif c.kind == "rule":
-            # Match rule ID (e.g. R01, R09, R10)
-            rule_id = ref.split(":", 1)[0].split(" ", 1)[0]
-            if rule_id in rules or any(rule_id in k for k in rules):
+            # Valid only if it names the rule actually applied to THIS record.
+            if disposition.get("rule_id") and ref == disposition["rule_id"]:
                 valid.append(c)
         elif c.kind == "rubric":
-            # Match rubric code or snapshot
-            code = ref.split(":", 1)[0].split(" ", 1)[0]
-            if code in rubrics or any(code in k for k in rubrics):
+            # Valid only if it is an exact substring of a phrase the rubric extraction
+            # (P2, hash-verified against the source PDF) actually matched for this
+            # record, or the snapshot_id itself - never a paraphrase.
+            if ref and (any(ref in phrase for phrase in phrases_matched) or ref == rubric.get("snapshot_id")):
                 valid.append(c)
         elif c.kind == "override":
             # Match override in doc
@@ -153,48 +169,17 @@ class ExplainerService:
                 not_recorded=[question],
             )
 
-        # Standard known disposition rules and rubrics
-        known_rules = {
-            "R01": "Missing essential part without replacement",
-            "R02": "Wrong product / identity mismatch",
-            "R03": "Empty packaging / no unit present",
-            "R04": "Severe physical damage",
-            "R05": "Biohazard or safety defect",
-            "R06": "Counterfeit indicators observed",
-            "R07": "Restock New condition",
-            "R08": "Restock Open Box",
-            "R09": "Refurbish replaceable component missing",
-            "R10": "Liquidate economic threshold met",
-            "R11": "Dispose hazardous or unrecoverable",
-            "R12": "Review required high value override",
-            "R13": "Assisted mode operator override",
-            "R14": "Monotonic disposition invariant rule",
-        }
-        known_rubrics = {
-            "NEW": "Brand new intact packaging",
-            "LIKE_NEW": "Used - Like New: cosmetic perfection",
-            "VERY_GOOD": "Used - Very Good: minor cosmetic blemishes",
-            "GOOD": "Used - Good: moderate wear, fully intact body",
-            "ACCEPTABLE": "Used - Acceptable: heavy wear, signs of use",
-        }
-
-        # Synthesize grounded answer
+        # Synthesize grounded answer: every fact and every citation comes from this
+        # unit's own evidence document and event history, never from a general-purpose
+        # rule/rubric description table (see validate_citations' docstring for why).
         answer, raw_citations, not_recorded = self._synthesize_grounded_answer(
             question=question,
             doc=doc,
             events=events,
-            rules=known_rules,
-            rubrics=known_rubrics,
         )
 
         # Validate citations
-        valid_citations = validate_citations(
-            raw_citations,
-            doc=doc,
-            events=events,
-            rules=known_rules,
-            rubrics=known_rubrics,
-        )
+        valid_citations = validate_citations(raw_citations, doc=doc, events=events)
 
         # Validator rule (§11.14): An answer with zero valid citations is replaced
         if not valid_citations:
@@ -218,8 +203,6 @@ class ExplainerService:
         question: str,
         doc: dict[str, Any],
         events: list[dict[str, Any]],
-        rules: dict[str, str],
-        rubrics: dict[str, str],
     ) -> tuple[str, list[Citation], list[str]]:
         q_lower = question.lower()
         citations: list[Citation] = []
@@ -230,9 +213,11 @@ class ExplainerService:
         decided_by = outcome.get("decided_by", "rules_engine")
         status = doc.get("status", "unknown")
 
-        ext = (doc.get("extensions") or {}).get("returns") or {}
-        if hasattr(ext, "model_dump"):
-            ext = ext.model_dump()
+        ext = _returns_ext(doc)
+        disposition = ext.get("disposition") or {}
+        completeness = ext.get("completeness") or {}
+        condition = ext.get("condition") or {}
+        rubric = condition.get("rubric") or {}
 
         checks = doc.get("checks") or []
         checks_by_key = {c.get("check_key"): c for c in checks if isinstance(c, dict)}
@@ -240,24 +225,31 @@ class ExplainerService:
         # 1. Question about disposition / recommendation
         disp_keywords = ["disposition", "why", "decide", "refurbish", "restock", "liquidate", "dispose"]
         if any(w in q_lower for w in disp_keywords):
-            rule_id = ext.get("rule_id", "R09") if ext else "R09"
             citations.append(Citation(kind="record_field", ref="outcome.decision"))
             citations.append(Citation(kind="record_field", ref="status"))
-            if rule_id in rules:
-                citations.append(Citation(kind="rule", ref=rule_id))
 
             ans = (
                 f"The rules engine computed the disposition as {decision.upper()} "
                 f"(status: {status}, decided by: {decided_by}). "
             )
-            rule_desc = rules.get(rule_id)
-            if rule_desc:
-                ans += f"Applied rule {rule_id}: {rule_desc}. "
+            rule_id = disposition.get("rule_id")
+            rules_version = disposition.get("rules_version")
+            if rule_id:
+                # Cite the exact rule_id recorded for THIS decision - never a
+                # paraphrase of what that rule is supposed to mean; the deterministic
+                # engine's own source (disposition/engine.py) is the only place that
+                # description is allowed to live.
+                citations.append(Citation(kind="rule", ref=rule_id))
+                ans += f"Applied rule {rule_id}"
+                ans += f" (rules version {rules_version})." if rules_version else "."
 
-            missing = ext.get("parts_missing") or []
-            if missing:
-                ans += f"Missing components observed: {', '.join(missing)}. "
-                citations.append(Citation(kind="record_field", ref="extensions.returns.parts_missing"))
+            missing = completeness.get("parts_missing") or ""
+            missing_list = [p.strip() for p in missing.split(";") if p.strip()]
+            if missing_list:
+                ans += f" Missing components observed: {', '.join(missing_list)}."
+                citations.append(
+                    Citation(kind="record_field", ref="extensions.returns.completeness.parts_missing")
+                )
 
             return ans.strip(), citations, not_recorded
 
@@ -269,10 +261,13 @@ class ExplainerService:
                 verdict = comp_check.get("verdict", "unknown")
                 detail = comp_check.get("detail", "none")
                 ans = f"Completeness check reported verdict {verdict}: {detail}."
-                missing = ext.get("parts_missing") or []
-                if missing:
-                    ans += f" Missing parts: {', '.join(missing)}."
-                    citations.append(Citation(kind="record_field", ref="extensions.returns.parts_missing"))
+                missing = completeness.get("parts_missing") or ""
+                missing_list = [p.strip() for p in missing.split(";") if p.strip()]
+                if missing_list:
+                    ans += f" Missing parts: {', '.join(missing_list)}."
+                    citations.append(
+                        Citation(kind="record_field", ref="extensions.returns.completeness.parts_missing")
+                    )
                 return ans, citations, not_recorded
 
         # 3. Question about condition / damage
@@ -283,10 +278,19 @@ class ExplainerService:
                 verdict = cond_check.get("verdict", "unknown")
                 detail = cond_check.get("detail", "none")
                 ans = f"Condition grade was reported as {verdict}: {detail}."
-                amazon_cond = ext.get("amazon_condition")
+                amazon_cond = condition.get("amazon_condition")
                 if amazon_cond:
                     ans += f" Graded against published condition guidelines as {amazon_cond}."
-                    citations.append(Citation(kind="record_field", ref="extensions.returns.amazon_condition"))
+                    citations.append(
+                        Citation(kind="record_field", ref="extensions.returns.condition.amazon_condition")
+                    )
+                phrases = rubric.get("phrases_matched") or []
+                if phrases:
+                    # Quote the actual matched rubric text verbatim - it was already
+                    # verified as an exact substring of the extracted, hash-checked
+                    # source document at ingestion time (§11.9); never paraphrased here.
+                    ans += f' Matched rubric text: "{phrases[0]}".'
+                    citations.append(Citation(kind="rubric", ref=phrases[0]))
                 return ans, citations, not_recorded
 
         # 4. Question about identity / SKU / model

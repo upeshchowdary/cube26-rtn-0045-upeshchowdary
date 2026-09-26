@@ -48,14 +48,14 @@ async def create_subscription(
 ) -> WebhookSubscription:
     """Register a new webhook subscription for the caller's organization."""
     require(principal, Permission.ADMIN)
-    allowlist = svc.settings.rm_webhook_allowlist
-    service = get_webhook_service(allowlist)
+    service = get_webhook_service(svc.db, svc.settings.rm_webhook_allowlist)
 
     try:
-        return service.register_subscription(
+        return await service.register_subscription(
             org_id=principal.org_id,
             url=body.url,
             secret=body.secret,
+            created_by=principal.actor_label,
             events=body.events,
         )
     except ValueError as exc:
@@ -73,8 +73,8 @@ async def list_subscriptions(
 ) -> list[WebhookSubscription]:
     """List all active webhook subscriptions for the caller's organization."""
     require(principal, Permission.ADMIN)
-    service = get_webhook_service(svc.settings.rm_webhook_allowlist)
-    return service.list_subscriptions(principal.org_id)
+    service = get_webhook_service(svc.db, svc.settings.rm_webhook_allowlist)
+    return await service.list_subscriptions(principal.org_id)
 
 
 @router.delete(
@@ -88,8 +88,8 @@ async def delete_subscription(
 ) -> dict[str, Any]:
     """Deactivate a webhook subscription."""
     require(principal, Permission.ADMIN)
-    service = get_webhook_service(svc.settings.rm_webhook_allowlist)
-    ok = service.delete_subscription(principal.org_id, subscription_id)
+    service = get_webhook_service(svc.db, svc.settings.rm_webhook_allowlist)
+    ok = await service.delete_subscription(principal.org_id, subscription_id)
     if not ok:
         raise NotFound(f"Webhook subscription {subscription_id} not found")
     return {"status": "deleted", "subscription_id": subscription_id}
@@ -106,5 +106,5 @@ async def list_deliveries(
 ) -> list[WebhookDeliveryRecord]:
     """List recent webhook delivery attempts for the caller's organization."""
     require(principal, Permission.ADMIN)
-    service = get_webhook_service(svc.settings.rm_webhook_allowlist)
-    return service.list_deliveries(principal.org_id)
+    service = get_webhook_service(svc.db, svc.settings.rm_webhook_allowlist)
+    return await service.list_deliveries(principal.org_id)

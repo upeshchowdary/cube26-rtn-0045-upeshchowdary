@@ -9,16 +9,20 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import logging
 from datetime import date, datetime
 from typing import Any, Literal
 
 from returns_manager.chain import event_types as ET
 from returns_manager.chain.append import append_event
 from returns_manager.chain.records import finalize_record, supersede_record
+from returns_manager.contract.service import build_evidence_record
 from returns_manager.db.pool import Database
 from returns_manager.errors import BadRequest, Conflict, NotFound
 from returns_manager.ids import new_id
 from returns_manager.jobs.statemachine import ReturnStatus, transition_return_status
+
+logger = logging.getLogger(__name__)
 
 Action = Literal["accept", "override"]
 _PATHS = {
@@ -58,6 +62,9 @@ class HumanDecision:
     record_version: int | None
     requires_signoff: bool
     unresolved_review_reasons: tuple[str, ...]
+    unit_id: str | None = None
+    record_id: str | None = None
+    document_sha256: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
@@ -128,6 +135,33 @@ class HumanReviewService:
     def __init__(self, db: Database) -> None:
         self.db = db
 
+    async def _dispatch_finalized_webhook(self, org_id: str, decision: HumanDecision) -> None:
+        """Fire evidence.finalized/superseded AFTER the caller's transaction has
+        committed - never from inside it. Firing from inside a still-open transaction
+        (the original P14 implementation did this in chain/records.py) cannot guarantee
+        the record it describes was ever actually persisted: if something later in the
+        same transaction rolled back, a webhook would still have gone out for a record
+        that no longer exists. Best-effort: a webhook failure must never surface to the
+        human whose accept/override/signoff already succeeded and committed.
+        """
+        if decision.evidence_id is None or decision.unit_id is None or decision.record_id is None:
+            return
+        try:
+            from returns_manager.webhooks.service import get_webhook_service
+
+            service = get_webhook_service(self.db)
+            event: Any = "evidence.finalized" if decision.record_version == 1 else "evidence.superseded"
+            await service.dispatch(
+                event=event,
+                org_id=org_id,
+                unit_id=decision.unit_id,
+                record_id=decision.record_id,
+                record_version=decision.record_version or 1,
+                document_sha256=decision.document_sha256 or "",
+            )
+        except Exception:
+            logger.warning("Webhook dispatch failed for %s (committed regardless)", decision.return_id)
+
     async def decide(
         self,
         *,
@@ -175,9 +209,11 @@ class HumanReviewService:
                 await self._insert_overrides(
                     conn, org_id, return_id, ret["unit_id"], actor_id, actor_role, result, overrides
                 )
-            return await self._snapshot_and_route(
+            decision = await self._snapshot_and_route(
                 conn, org_id, ret, result, actor_id, "override" if overrides else "accept", set()
             )
+        await self._dispatch_finalized_webhook(org_id, decision)
+        return decision
 
     async def resolve_review(
         self,
@@ -226,9 +262,11 @@ class HumanReviewService:
                 await self._insert_overrides(
                     conn, org_id, return_id, ret["unit_id"], reviewer_id, reviewer_role, result, overrides
                 )
-            return await self._snapshot_and_route(
+            decision = await self._snapshot_and_route(
                 conn, org_id, ret, result, reviewer_id, "review_resolution", resolved
             )
+        await self._dispatch_finalized_webhook(org_id, decision)
+        return decision
 
     async def signoff(
         self, *, org_id: str, reviewer_id: str, return_id: str, approved: bool, reason: str
@@ -242,11 +280,11 @@ class HumanReviewService:
             if reviewer_id == ret["created_by"]:
                 raise Conflict("Four-eyes rule: the return capturer cannot sign off")
             signoff_id = new_id()
-            decision = "approved" if approved else "rejected"
+            signoff_decision = "approved" if approved else "rejected"
             await conn.execute(
                 """INSERT INTO rm.signoffs (signoff_id, org_id, return_id, decision, reason, actor_id)
                    VALUES (%s, %s, %s, %s, %s, %s)""",
-                (signoff_id, org_id, return_id, decision, reason, reviewer_id),
+                (signoff_id, org_id, return_id, signoff_decision, reason, reviewer_id),
             )
             await append_event(
                 conn,
@@ -256,7 +294,7 @@ class HumanReviewService:
                 event_type=ET.SIGNOFF_RECORDED,
                 actor_type="operator",
                 actor_id=reviewer_id,
-                payload={"signoff_id": signoff_id, "decision": decision, "reason": reason},
+                payload={"signoff_id": signoff_id, "decision": signoff_decision, "reason": reason},
             )
             if not approved:
                 await self._set_status(
@@ -271,9 +309,11 @@ class HumanReviewService:
                     True,
                     ("signoff_rejected",),
                 )
-            return await self._snapshot_and_route(
+            decision = await self._snapshot_and_route(
                 conn, org_id, ret, result, reviewer_id, "signoff", set(), signoff_approved=True
             )
+        await self._dispatch_finalized_webhook(org_id, decision)
+        return decision
 
     async def review_queue(
         self, *, org_id: str, reason: str | None = None, limit: int = 50
@@ -447,7 +487,7 @@ class HumanReviewService:
                 ret["return_id"], str(target), snapshot_id, None, None, requires_signoff, remaining
             )
         finalized = await self._finalize_document(
-            conn, org_id, ret, result, snapshot_id, values, effective_disposition
+            conn, org_id, ret, result, snapshot_id, values, effective_disposition, actor_id, action
         )
         return HumanDecision(
             ret["return_id"],
@@ -457,6 +497,9 @@ class HumanReviewService:
             finalized.record_version,
             requires_signoff,
             remaining,
+            unit_id=ret["unit_id"],
+            record_id=ret["record_id"],
+            document_sha256=finalized.document_sha256,
         )
 
     async def _set_status(
@@ -478,6 +521,8 @@ class HumanReviewService:
         snapshot_id: str,
         values: dict[str, Any],
         effective_disposition: dict[str, Any],
+        actor_id: str,
+        action: str,
     ) -> Any:
         cur = await conn.execute(
             """SELECT * FROM rm.overrides WHERE org_id = %s AND return_id = %s
@@ -485,18 +530,42 @@ class HumanReviewService:
             (org_id, ret["return_id"]),
         )
         overrides = [dict(r) for r in await cur.fetchall()]
+
+        cur = await conn.execute(
+            """SELECT * FROM rm.return_photos WHERE org_id = %s AND return_id = %s
+               AND NOT superseded ORDER BY slot""",
+            (org_id, ret["return_id"]),
+        )
+        photos = [dict(r) for r in await cur.fetchall()]
+
+        cur = await conn.execute(
+            """SELECT evidence_id, record_version FROM rm.evidence_records
+               WHERE org_id = %s AND return_id = %s AND status = 'finalized' FOR UPDATE""",
+            (org_id, ret["return_id"]),
+        )
+        previous = await cur.fetchone()
+        record_version = 1 if previous is None else previous["record_version"] + 1
+
+        rules_version = str(effective_disposition.get("rules_version") or "")
+        if action == "accept":
+            decided_by = f"rules_engine@{rules_version}"
+        elif action == "review_resolution" or action == "signoff":
+            decided_by = f"reviewer:{actor_id}"
+        else:  # "override"
+            decided_by = f"operator:{actor_id}"
+
         document = _normalise_for_jcs(
-            {
-                "schema_version": "returns-human-loop/v1",
-                "record_id": ret["record_id"],
-                "organization_id": org_id,
-                "unit_id": ret["unit_id"],
-                "source_inspection_id": result["inspection_id"],
-                "human_decision_snapshot_id": snapshot_id,
-                "effective_values": values,
-                "outcome": effective_disposition,
-                "overrides": overrides,
-            }
+            build_evidence_record(
+                org_id=org_id,
+                ret=dict(ret),
+                result=dict(result),
+                values=values,
+                overrides=overrides,
+                photos=photos,
+                record_version=record_version,
+                actor_id=actor_id,
+                decided_by=decided_by,
+            )
         )
         event = await append_event(
             conn,
@@ -508,12 +577,6 @@ class HumanReviewService:
             actor_id="human-loop",
             payload={"snapshot_id": snapshot_id},
         )
-        cur = await conn.execute(
-            """SELECT evidence_id, record_version FROM rm.evidence_records
-               WHERE org_id = %s AND return_id = %s AND status = 'finalized' FOR UPDATE""",
-            (org_id, ret["return_id"]),
-        )
-        previous = await cur.fetchone()
         if previous is None:
             written = await finalize_record(
                 conn,

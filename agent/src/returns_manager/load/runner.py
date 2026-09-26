@@ -26,7 +26,7 @@ from returns_manager.intake.service import IntakeService
 from returns_manager.jobs.budget import get_budget_status
 from returns_manager.jobs.queue import JobQueue, JobRecord
 from returns_manager.jobs.statemachine import JobStatus, ReturnStatus
-from returns_manager.jobs.worker import HandlerResult, Worker
+from returns_manager.jobs.worker import HandlerResult, JobHandler, Worker
 from returns_manager.llm.client import ProviderError
 from returns_manager.load.models import (
     LatencyPercentiles,
@@ -172,7 +172,11 @@ async def run_load_test(
     executions: Counter[str] = Counter()
     t_start = datetime.now(UTC)
 
-    async def load_handler(job: JobRecord) -> HandlerResult:
+    async def synthetic_handler(job: JobRecord) -> HandlerResult:
+        """Replay mode: no model call, ever. Measures queue/worker/DB throughput and
+        (with `injected_outage`) the worker's own fail-open behavior - never real
+        latency or real cost, and never gated by real production quota/kill-switch/
+        circuit state (see `bypass_operational_guards` below)."""
         executions[job.job_id] += 1
         rec = unit_records.get(job.job_id)
         if rec:
@@ -205,6 +209,44 @@ async def run_load_test(
 
         return HandlerResult(target_return_status=ReturnStatus.AWAITING_OPERATOR)
 
+    is_live = mode == LoadMode.LIVE
+
+    if is_live:
+        if injected_outage:
+            raise BadRequest("--injected-outage is only meaningful in replay mode (--mode replay)")
+        # Live mode must call the SAME handler real inspections use, so "real latency
+        # and cost" (§20) means something - measuring the synthetic handler's simulated
+        # delay under a different flag name would just be replay mode wearing a live
+        # label. This also means live mode is subject to the real quota/kill-switch/
+        # circuit guards in jobs/worker.py, exactly like production traffic - that is
+        # the point, not a bug: §18.4's spend guard above is the pre-flight estimate,
+        # these are the real-time enforcement.
+        from returns_manager.inspection.runtime import build_runtime
+
+        real_handler = build_runtime(db, settings).handler
+
+        async def live_handler(job: JobRecord) -> HandlerResult:
+            executions[job.job_id] += 1
+            rec = unit_records.get(job.job_id)
+            if rec:
+                rec.claimed_at = datetime.now(UTC)
+            try:
+                result = await real_handler(job)
+            except Exception as exc:
+                if rec:
+                    rec.error_class = type(exc).__name__
+                    rec.error_detail = str(exc)[:500]
+                raise
+            if rec:
+                rec.completed_at = datetime.now(UTC)
+                rec.status = "succeeded"
+                rec.finalize_timings()
+            return result
+
+        job_handler: JobHandler = live_handler
+    else:
+        job_handler = synthetic_handler
+
     # Launch worker pool
     worker_settings = settings.model_copy(update={"rm_worker_concurrency": 1})
     workers = [
@@ -213,7 +255,8 @@ async def run_load_test(
             worker_settings,
             concurrency=1,
             kinds=["judgment"],
-            handler=load_handler,
+            handler=job_handler,
+            bypass_operational_guards=not is_live,
         )
         for _ in range(concurrency)
     ]

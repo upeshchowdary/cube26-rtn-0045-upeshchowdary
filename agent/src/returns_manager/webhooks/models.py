@@ -34,6 +34,7 @@ class WebhookSubscription(BaseModel):
     secret: str
     events: list[WebhookEvent] = Field(default_factory=_default_events)
     is_active: bool = True
+    created_by: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
