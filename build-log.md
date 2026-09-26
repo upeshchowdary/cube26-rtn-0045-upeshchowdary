@@ -979,6 +979,85 @@ and `mcp_server.py` (`uvicorn.Config(..., log_config=None)` — see "failed atte
 `per_unit_table.csv`. The spend guard built here is the entry point `eval run`'s preflight
 will call.
 
+---
+
+## 2026-09-26 · P12 — Eval tooling (§21: computation, seal, run manifest, report generator)
+
+### Plan
+
+Build the full §21 computation library as pure functions over a small internal data
+model (`EvaluatedUnit`: metadata + two human labels + gold + agent result), independent
+of the database and of any model call — "computation only" per §21's own title. Prove it
+end to end with `--dev-mini` per the phase's acceptance bar, since no real sealed eval set
+or human labels exist yet (OQ-5).
+
+### Changed
+
+**New package `eval/`:**
+
+| File | Purpose |
+|---|---|
+| `eval/models.py` | `EvaluatedUnit`, `HumanLabel`, `GoldLabel`, `AgentResult`, `UnitMeta`, `RunManifest`; `CONDITION_GRADE_ORDER` (New → Used - Acceptable, from the same rubric ladder `judgment/grading.py` uses); the fixed §21.4 `FAILURE_MODES` taxonomy |
+| `eval/agreement.py` | §21.3: raw agreement, `sklearn.metrics.cohen_kappa_score` (nominal) and quadratic-weighted (ordinal), 95% bootstrap CI (1000 resamples, seeded). Handles the real edge case where two raters agree on every single unit for a check — kappa is then mathematically undefined (NaN, not an error); found by the first smoke test, not by a written test |
+| `eval/selective.py` | §21.2: strict accuracy, coverage, selective accuracy, unnecessary-uncertain rate. An agent "uncertain" never counts as correct even when gold also says uncertain |
+| `eval/confusion.py` | §21.1 per-check FP/FN with the exact direction the prompt specifies (FN is always the dangerous one); ordinal condition over/under-grade; the disposition confusion matrix plus its two named dangerous cells (`restock` when gold says otherwise; `dispose` when gold was recoverable); §21.4 failure-mode tagging over the fixed taxonomy |
+| `eval/per_unit_table.py` | §21.9: the exact column list and order, `*_agree`/`condition_error` value rules, disagreements-first row ordering, RFC 4180 CSV and a Markdown mirror, and the per-check summary block |
+| `eval/policy_tuning.py` | §21.6: re-runs `disposition.engine.decide()` over a unit's own stored `DispositionInputs` under an alternate parameter (e.g. `restock_used_grades`), diffs the disposition mix and `expected_recovery_minor` against the baseline decision - no model calls |
+| `eval/threshold_sweep.py` | §21.5: auto-decided rate / false-accept rate / review load per confidence threshold; `choose_operating_point` picks and justifies the most permissive threshold under a false-accept-rate bar |
+| `eval/seal.py` | §21.0: the six coverage quotas (10 scenarios ≥3 each; lighting=poor, angle=oblique ≥10; blur=slight, ambiguity ≥8; unseen-products ≥15) with an exact missing-quota report; the ≥50-unit size guard; fixture-overlap rejection (SKU **and** photo hash both matching, not either alone); `labels_before_run_guard` (§8.10: two independent labels on file before the agent may run) |
+| `eval/manifest.py`, `eval/report.py`, `eval/run.py` | Run-directory I/O; `report.md` assembly (renders already-computed sections, computes nothing itself); `run_eval()` - the one function that computes every §21 section over a unit list and writes `manifest.json`, `metrics.json`, `report.md`, `per_unit_table.csv` |
+| `cli/eval_commands.py` | `eval seal [--dev-mini] [--units-dir]`, `eval run --run-id X [--dev-mini] [--confirm-spend]`, `eval report --run-id X [--out]`; P12 stubs removed from `cli/main.py` |
+| `tests/unit/test_eval.py` | T-EVL-01…10 |
+
+**Dependency added:** `scikit-learn` (§21.3 names `sklearn.metrics.cohen_kappa_score`
+explicitly; not guessed - added and used exactly as specified). `numpy`/`scipy` were
+already present transitively via `opencv-python-headless`.
+
+### Design decision: what `--dev-mini` actually runs
+
+`eval run --dev-mini` builds a small (8-unit), hand-crafted, clearly-labelled-synthetic
+set of `EvaluatedUnit`s in the CLI layer itself and runs it through the exact same
+`run_eval()` that a real sealed run would use - nothing is stubbed or mocked inside the
+computation path. This is what "prove the tooling works" can honestly mean right now:
+`eval/sealed/` and `eval/labels/` are empty (no real candidate pool, no real independent
+human labels - OQ-5), so there is no real sealed set to run against yet. `eval run`
+without `--dev-mini` refuses with a clear message naming exactly what's missing, rather
+than silently falling back to something smaller or fabricated.
+
+**Left open, honestly, not silently skipped:**
+- Building `EvaluatedUnit`s from a REAL sealed run (reading `eval/labels/*.json` and the
+  matching `rm.inspection_results`/`rm.inspection_runs` rows for sealed units) is not
+  wired. It needs real labelled data to be built against and verified; building it blind
+  is exactly the kind of thing this project's own re-verification passes (P10, P11) have
+  shown produces bugs that unit tests alone don't catch. `run_eval()` itself is fully
+  built and tested; only the DB/label loader that would feed it real units is deferred.
+- Live ablations (§21.7) need real judgment-model quota; not run. The variant mechanism
+  (`policy_tuning.PolicyVariant`) is the same shape §21.7's ablations would use once a
+  real sealed set exists to run them against.
+- The kill-condition evaluation note (§21.8) is a field `report.py` renders when given
+  one; nothing populates it yet because `03-one-pager.md` (Part 3) doesn't exist yet.
+
+### Evidence / verification
+
+- `pytest tests/unit -m "not live"`: **386 passed** (357 prior + 29 T-EVL). `ruff check` /
+  `ruff format --check` / `mypy`: clean (137 source files). `reference validate`: 34
+  files. `check_boundary.py`: branch `upeshchowdary`, 258 changed files, none
+  organiser-owned. `returns-manager dev check`: all six gates green.
+- **Live, via the real CLI, not just pytest:** `returns-manager eval run --run-id
+  smoke-devmini-1 --dev-mini` wrote real `manifest.json`, `metrics.json`, `report.md`
+  (9 KB, all §21 sections present and readable), and `per_unit_table.csv` under
+  `eval/runs/smoke-devmini-1/`; `eval report --run-id smoke-devmini-1` read the same
+  report back. `returns-manager eval seal --units-dir <2 units>` refused (exit 3, "need
+  at least 50") without `--dev-mini` and sealed with it, printing exactly which of the
+  six coverage quotas were short and by how much. `eval run` without `--dev-mini` refused
+  cleanly, naming what's missing, without touching the filesystem. All smoke-test output
+  was deleted afterward - nothing generated during manual verification is committed;
+  `tests/unit/test_eval.py`'s CLI tests write to `tmp_path` (monkeypatched `EVAL_ROOT`),
+  never the real repository `eval/` directory.
+
+**Next:** Phase 13 (Load and resilience, §19 "Load" + §20 `load-test` + §23 P13) —
+`load-test` in replay and live modes, burst scenario, kill-switch/circuit/budget drills.
+
 ## Findings
 
 | F-### | date | source | contradiction | impact | our handling | GitHub issue |

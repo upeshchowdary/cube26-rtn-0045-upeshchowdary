@@ -16,6 +16,7 @@ from returns_manager.cli import (
     chain_commands,
     dev,
     economics_commands,
+    eval_commands,
     evidence_commands,
     inspect_commands,
     intake_commands,
@@ -50,9 +51,7 @@ def _stub(group: typer.Typer, name: str, phase: str, help_text: str, full_name: 
 _PLANNED: list[tuple[str | None, str, str, str]] = [
     # P10 commands are now built; stubs removed.
     # P11 `economics report` is now built; stub removed.
-    ("eval", "seal", "P12", "Hash and seal the eval set (quota checks)."),
-    ("eval", "run", "P12", "Run the sealed eval (quota- and spend-guarded)."),
-    ("eval", "report", "P12", "Generate the eval report for a run."),
+    # P12 `eval seal|run|report` are now built; stubs removed.
     (None, "load-test", "P13", "Load test in replay or live mode."),
 ]
 
@@ -115,6 +114,7 @@ def _register() -> None:
         "contract": evidence_commands.contract_app,
         "mcp": evidence_commands.mcp_app,
         "economics": economics_commands.economics_app,
+        "eval": eval_commands.eval_app,
     }
     for name, sub in built.items():
         _groups[name] = sub
