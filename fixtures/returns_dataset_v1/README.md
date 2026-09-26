@@ -83,7 +83,6 @@ hashed Amazon rubric snapshot (see ADR-006), never from a hand-typed expectation
 ## Regenerating
 
 ```sh
-pip install pillow   # not an agent runtime dependency; only this generator script needs it
 cd fixtures/returns_dataset_v1
 python3 generate_fixtures.py
 ```

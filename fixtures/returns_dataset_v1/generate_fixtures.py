@@ -317,7 +317,11 @@ def build_unit_005() -> None:
 
 
 def build_unit_006() -> None:
-    before = "fixtures/returns_dataset_v1/images/bottle_before_reference.jpg"
+    img, draw = new_canvas()
+    header(draw, "REFERENCE", "SKU-BOTTLE-750", "AS SOLD (CATALOGUE)", GREEN)
+    draw_bottle(draw, W // 2, 380, damaged=False)
+    watermark(draw)
+    before = save(img, "bottle_before_reference_2.jpg")
 
     img, draw = new_canvas()
     header(draw, "TEST-UNIT-006", "SKU-BOTTLE-750", "AS RETURNED (POOR EVIDENCE)", RED)
