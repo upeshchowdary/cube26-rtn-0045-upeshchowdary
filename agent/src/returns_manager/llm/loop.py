@@ -151,11 +151,14 @@ async def run_session(
     tools = tool_definitions()
     generation_config: dict[str, Any] = {
         "thinking_level": thinking or settings.rm_judgment_thinking,
-        # {"allowed_tools": {"mode": "auto"}}, not the bare string "auto": both are valid per
-        # the installed SDK's ToolChoice union, but this is the shape build-log.md's P5 spike
-        # verified against the installed source (ToolChoiceConfig.allowed_tools) - matching it
-        # keeps behavior identical to what was actually read and recorded, not re-guessed.
-        "tool_choice": {"allowed_tools": {"mode": "auto"}},
+        # The bare string "auto", not {"allowed_tools": {"mode": "auto"}}: the installed SDK's
+        # local type stubs permit "auto" in both places (ToolChoice = Union[ToolChoiceConfig,
+        # ToolChoiceType]), but a live call proved the server itself rejects "auto" inside
+        # allowed_tools.mode ("400: allowed_tools mode must be either ANY or VALIDATED") -
+        # build-log.md's P5 spike verified only against the local source, not a live call, and
+        # that documented shape turned out to be wrong; see finding F-023. This bare-string
+        # form is the one actually verified live.
+        "tool_choice": "auto",
         "max_output_tokens": max_output_tokens or settings.rm_max_output_tokens,
     }
     response_format = (

@@ -1,0 +1,316 @@
+{
+  "manifest": {
+    "run_id": "manual-30row-self-labeled-20260927",
+    "dev_mini": false,
+    "units_requested": 30,
+    "units_evaluated": 30,
+    "seed": 20260925,
+    "spend_preflight": {},
+    "actual_cost_usd": 0.0,
+    "actual_requests": 0,
+    "started_at": "2026-09-27T17:16:59.109019+00:00",
+    "completed_at": "2026-09-27T17:17:23.245325+00:00"
+  },
+  "agreement": {
+    "identity": {
+      "labeller_a_vs_b/raw_agreement": {
+        "statistic": "raw_agreement",
+        "value": 1.0,
+        "n": 30,
+        "ci_low": 1.0,
+        "ci_high": 1.0,
+        "method": "fraction exact match; 95% bootstrap CI"
+      },
+      "labeller_a_vs_b/cohen_kappa": {
+        "statistic": "cohen_kappa",
+        "value": 1.0,
+        "n": 30,
+        "ci_low": 1.0,
+        "ci_high": 1.0,
+        "method": "sklearn.metrics.cohen_kappa_score; 95% bootstrap CI, 1000 resamples, seeded"
+      },
+      "model_vs_gold/raw_agreement": {
+        "statistic": "raw_agreement",
+        "value": 0.9,
+        "n": 30,
+        "ci_low": 0.8,
+        "ci_high": 1.0,
+        "method": "fraction exact match; 95% bootstrap CI"
+      },
+      "model_vs_gold/cohen_kappa": {
+        "statistic": "cohen_kappa",
+        "value": 0.3793103448275863,
+        "n": 30,
+        "ci_low": 0.0,
+        "ci_high": 0.8717948717948718,
+        "method": "sklearn.metrics.cohen_kappa_score; 95% bootstrap CI, 1000 resamples, seeded"
+      }
+    },
+    "completeness": {
+      "labeller_a_vs_b/raw_agreement": {
+        "statistic": "raw_agreement",
+        "value": 1.0,
+        "n": 30,
+        "ci_low": 1.0,
+        "ci_high": 1.0,
+        "method": "fraction exact match; 95% bootstrap CI"
+      },
+      "labeller_a_vs_b/cohen_kappa": {
+        "statistic": "cohen_kappa",
+        "value": 1.0,
+        "n": 30,
+        "ci_low": 1.0,
+        "ci_high": 1.0,
+        "method": "sklearn.metrics.cohen_kappa_score; 95% bootstrap CI, 1000 resamples, seeded"
+      },
+      "model_vs_gold/raw_agreement": {
+        "statistic": "raw_agreement",
+        "value": 0.7,
+        "n": 30,
+        "ci_low": 0.5333333333333333,
+        "ci_high": 0.8666666666666667,
+        "method": "fraction exact match; 95% bootstrap CI"
+      },
+      "model_vs_gold/cohen_kappa": {
+        "statistic": "cohen_kappa",
+        "value": 0.32330827067669177,
+        "n": 30,
+        "ci_low": -0.0743801652892564,
+        "ci_high": 0.6527777777777778,
+        "method": "sklearn.metrics.cohen_kappa_score; 95% bootstrap CI, 1000 resamples, seeded"
+      }
+    },
+    "condition": {
+      "labeller_a_vs_b/raw_agreement": {
+        "statistic": "raw_agreement",
+        "value": 1.0,
+        "n": 30,
+        "ci_low": 1.0,
+        "ci_high": 1.0,
+        "method": "fraction exact match; 95% bootstrap CI"
+      },
+      "labeller_a_vs_b/cohen_kappa": {
+        "statistic": "cohen_kappa",
+        "value": 1.0,
+        "n": 30,
+        "ci_low": 1.0,
+        "ci_high": 1.0,
+        "method": "sklearn.metrics.cohen_kappa_score; 95% bootstrap CI, 1000 resamples, seeded"
+      },
+      "labeller_a_vs_b/weighted_kappa_quadratic": {
+        "statistic": "weighted_kappa_quadratic",
+        "value": 1.0,
+        "n": 30,
+        "ci_low": 1.0,
+        "ci_high": 1.0,
+        "method": "sklearn.metrics.cohen_kappa_score(weights='quadratic'); 95% bootstrap CI, 1000 resamples, seeded"
+      },
+      "model_vs_gold/raw_agreement": {
+        "statistic": "raw_agreement",
+        "value": 0.3333333333333333,
+        "n": 30,
+        "ci_low": 0.16666666666666666,
+        "ci_high": 0.5,
+        "method": "fraction exact match; 95% bootstrap CI"
+      },
+      "model_vs_gold/cohen_kappa": {
+        "statistic": "cohen_kappa",
+        "value": 0.14407988587731801,
+        "n": 30,
+        "ci_low": 0.014084507042253502,
+        "ci_high": 0.2972181551976574,
+        "method": "sklearn.metrics.cohen_kappa_score; 95% bootstrap CI, 1000 resamples, seeded"
+      },
+      "model_vs_gold/weighted_kappa_quadratic": {
+        "statistic": "weighted_kappa_quadratic",
+        "value": 0.7272727272727273,
+        "n": 30,
+        "ci_low": 0.0,
+        "ci_high": 1.0,
+        "method": "sklearn.metrics.cohen_kappa_score(weights='quadratic'); 95% bootstrap CI, 1000 resamples, seeded"
+      }
+    },
+    "unit_presence": {
+      "labeller_a_vs_b/raw_agreement": {
+        "statistic": "raw_agreement",
+        "value": 1.0,
+        "n": 30,
+        "ci_low": 1.0,
+        "ci_high": 1.0,
+        "method": "fraction exact match; 95% bootstrap CI"
+      },
+      "labeller_a_vs_b/cohen_kappa": {
+        "statistic": "cohen_kappa",
+        "value": NaN,
+        "n": 30,
+        "ci_low": NaN,
+        "ci_high": NaN,
+        "method": "sklearn.metrics.cohen_kappa_score; 95% bootstrap CI, 1000 resamples, seeded (undefined: only one class present in this pairing - total agreement)"
+      },
+      "model_vs_gold/raw_agreement": {
+        "statistic": "raw_agreement",
+        "value": 1.0,
+        "n": 30,
+        "ci_low": 1.0,
+        "ci_high": 1.0,
+        "method": "fraction exact match; 95% bootstrap CI"
+      },
+      "model_vs_gold/cohen_kappa": {
+        "statistic": "cohen_kappa",
+        "value": NaN,
+        "n": 30,
+        "ci_low": NaN,
+        "ci_high": NaN,
+        "method": "sklearn.metrics.cohen_kappa_score; 95% bootstrap CI, 1000 resamples, seeded (undefined: only one class present in this pairing - total agreement)"
+      }
+    }
+  },
+  "selective_prediction": {
+    "identity": {
+      "strict_accuracy": 0.8666666666666667,
+      "coverage": 0.9666666666666667,
+      "selective_accuracy": 0.896551724137931,
+      "unnecessary_uncertain_rate": 0.0,
+      "n": 30
+    },
+    "completeness": {
+      "strict_accuracy": 0.6,
+      "coverage": 0.9,
+      "selective_accuracy": 0.6666666666666666,
+      "unnecessary_uncertain_rate": 0.0,
+      "n": 30
+    },
+    "condition": {
+      "strict_accuracy": 0.1,
+      "coverage": 0.2,
+      "selective_accuracy": 0.5,
+      "unnecessary_uncertain_rate": 0.7391304347826086,
+      "n": 30
+    }
+  },
+  "fp_fn": {
+    "unit_presence": {
+      "check": "unit_presence",
+      "positive_meaning": "item not returned (empty/non-product)",
+      "fp": 0,
+      "fp_meaning": "flagged empty, but the item was there",
+      "fn": 0,
+      "fn_meaning": "empty box passed as a real return",
+      "n": 30
+    },
+    "identity": {
+      "check": "identity",
+      "positive_meaning": "wrong item (identity_match = no)",
+      "fp": 0,
+      "fp_meaning": "flagged wrong, but it was right",
+      "fn": 3,
+      "fn_meaning": "wrong item passed as right",
+      "n": 30
+    },
+    "completeness": {
+      "check": "completeness",
+      "positive_meaning": "incomplete (>=1 component missing)",
+      "fp": 4,
+      "fp_meaning": "said missing, but complete",
+      "fn": 5,
+      "fn_meaning": "said complete, but something was missing",
+      "n": 30
+    },
+    "condition": {
+      "check": "condition",
+      "positive_meaning": "N/A (ordinal; ranked by CONDITION_GRADE_ORDER)",
+      "fp": 1,
+      "fp_meaning": "under-grade: system says worse than gold",
+      "fn": 2,
+      "fn_meaning": "over-grade: system says better than gold (customer gets less than listed)",
+      "n": 6
+    }
+  },
+  "disposition_confusion": {
+    "matrix": {
+      "restock": {
+        "restock": 1,
+        "refurbish": 3,
+        "liquidate": 1,
+        "dispose": 0,
+        "null": 2
+      },
+      "refurbish": {
+        "restock": 0,
+        "refurbish": 0,
+        "liquidate": 0,
+        "dispose": 0,
+        "null": 0
+      },
+      "liquidate": {
+        "restock": 0,
+        "refurbish": 0,
+        "liquidate": 0,
+        "dispose": 0,
+        "null": 3
+      },
+      "dispose": {
+        "restock": 1,
+        "refurbish": 0,
+        "liquidate": 0,
+        "dispose": 0,
+        "null": 3
+      },
+      "null": {
+        "restock": 0,
+        "refurbish": 0,
+        "liquidate": 0,
+        "dispose": 0,
+        "null": 16
+      }
+    },
+    "n": 30,
+    "restock_when_gold_not_restock": 1,
+    "dispose_when_gold_recoverable": 0
+  },
+  "failure_modes": {
+    "counts": {
+      "wrong_disposition": 3,
+      "accessory_not_visible": 5,
+      "condition_ambiguity": 12,
+      "barcode_failure": 3,
+      "false_missing_component": 4,
+      "undergrade": 1,
+      "overgrade": 2
+    },
+    "examples": {
+      "wrong_disposition": [
+        "UNIT-WATCH-01",
+        "UNIT-AIR-01",
+        "UNIT-PHONE-01"
+      ],
+      "accessory_not_visible": [
+        "UNIT-WATCH-02",
+        "UNIT-PHONE-02",
+        "UNIT-PHONE-03"
+      ],
+      "condition_ambiguity": [
+        "UNIT-WATCH-03",
+        "UNIT-AIR-03",
+        "UNIT-PHONE-04"
+      ],
+      "barcode_failure": [
+        "UNIT-AIR-02",
+        "UNIT-LEASH-02",
+        "UNIT-SHAMPOO-02"
+      ],
+      "false_missing_component": [
+        "UNIT-PUZZLE-02",
+        "UNIT-CEREAL-01",
+        "UNIT-CEREAL-02"
+      ],
+      "undergrade": [
+        "UNIT-PUZZLE-04"
+      ],
+      "overgrade": [
+        "UNIT-KETTLE-01",
+        "UNIT-SHAMPOO-01"
+      ]
+    }
+  }
+}

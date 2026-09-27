@@ -368,7 +368,7 @@ async def test_t_rpl_one_request_when_no_tools_needed() -> None:
     assert quota.released == get_settings().rm_max_round_trips - 1
     req = client.requests[0]
     assert "temperature" not in json.dumps(req.generation_config)
-    assert req.generation_config["tool_choice"] == {"allowed_tools": {"mode": "auto"}}
+    assert req.generation_config["tool_choice"] == "auto"
     assert req.response_format is not None
     assert result.trace.usage["total_input_tokens"] == 5000
 
