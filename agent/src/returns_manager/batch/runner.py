@@ -149,7 +149,19 @@ def check_id_match(before: BeforeRow | None, row: ReturnedRow) -> str:
     return "matched"
 
 
+def _disposition_for_id_check(before: BeforeRow | None, id_check: str, fallback: str) -> str:
+    """A returned unit whose sold-record IDs don't match is flagged wrong_product
+    regardless of what the photo-based pipeline concluded - mismatched paperwork on the
+    returned package is a stronger, independent signal than condition grading, and a
+    correct-looking photo can't excuse it. Not applied when there is no sold record at
+    all to compare against (that's a missing-data problem, not a proven mismatch)."""
+    if before is not None and id_check.startswith("NOT MATCHED"):
+        return "wrong_product"
+    return fallback
+
+
 def _uncertain_row(row: ReturnedRow, before: BeforeRow | None, reason: str) -> dict[str, str]:
+    id_check = check_id_match(before, row)
     return {
         "record_id": row.record_id,
         "unit_id": row.unit_id,
@@ -162,10 +174,10 @@ def _uncertain_row(row: ReturnedRow, before: BeforeRow | None, reason: str) -> d
         "parts_missing": "",
         "observed_state": "uncertain",
         "amazon_condition": "uncertain",
-        "operator_disposition": "pending_review",
+        "operator_disposition": _disposition_for_id_check(before, id_check, "pending_review"),
         "photo_refs": ";".join(row.returned_photo_refs),
         "captured_at": row.time,
-        "sold_vs_returned_id_check": check_id_match(before, row),
+        "sold_vs_returned_id_check": id_check,
     }
 
 
@@ -340,8 +352,14 @@ async def process_returned_row(
     # also needs a human sign-off, which the disposition-params high-value threshold makes
     # true for almost every non-restock route at realistic prices. requires_review /
     # requires_signoff are real, additional facts the engine records; collapsing every one of
-    # them into the same "pending_review" string was throwing that decision away.
-    disposition = result.decision.recommended_disposition or "pending_review"
+    # them into the same "pending_review" string was throwing that decision away. That
+    # engine route is overridden to "wrong_product" when the sold-vs-returned ID check
+    # below disagrees - mismatched order/SKU paperwork on the returned unit outranks
+    # whatever the photo looked like.
+    id_check = check_id_match(before, row)
+    disposition = _disposition_for_id_check(
+        before, id_check, result.decision.recommended_disposition or "pending_review"
+    )
 
     output_row = {
         "record_id": row.record_id,
@@ -358,7 +376,7 @@ async def process_returned_row(
         "operator_disposition": disposition,
         "photo_refs": ";".join(row.returned_photo_refs),
         "captured_at": row.time,
-        "sold_vs_returned_id_check": check_id_match(before, row),
+        "sold_vs_returned_id_check": id_check,
     }
     warning = (
         f"{len(photo_errors)} of {len(row.returned_photo_refs)} return photo(s) failed to fetch: "

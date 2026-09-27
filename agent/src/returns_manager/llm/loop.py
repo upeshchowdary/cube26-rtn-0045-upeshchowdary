@@ -151,7 +151,11 @@ async def run_session(
     tools = tool_definitions()
     generation_config: dict[str, Any] = {
         "thinking_level": thinking or settings.rm_judgment_thinking,
-        "tool_choice": "auto",
+        # {"allowed_tools": {"mode": "auto"}}, not the bare string "auto": both are valid per
+        # the installed SDK's ToolChoice union, but this is the shape build-log.md's P5 spike
+        # verified against the installed source (ToolChoiceConfig.allowed_tools) - matching it
+        # keeps behavior identical to what was actually read and recorded, not re-guessed.
+        "tool_choice": {"allowed_tools": {"mode": "auto"}},
         "max_output_tokens": max_output_tokens or settings.rm_max_output_tokens,
     }
     response_format = (

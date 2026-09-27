@@ -20,7 +20,12 @@ from returns_manager.batch.io_csv import (
     write_output_csv,
 )
 from returns_manager.batch.parts import parse_parts_list
-from returns_manager.batch.runner import _missing_parts_field, _uncertain_row, check_id_match
+from returns_manager.batch.runner import (
+    _disposition_for_id_check,
+    _missing_parts_field,
+    _uncertain_row,
+    check_id_match,
+)
 
 # ── parts_list parsing and essential/replaceable classification ──────────────────────
 
@@ -294,6 +299,35 @@ def test_check_id_match_flags_org_id_mismatch() -> None:
     result = check_id_match(_before(), _returned(org_id="org_demo_beta"))
     assert result.startswith("NOT MATCHED:")
     assert "org_id" in result
+
+
+# ── ID mismatch overrides operator_disposition to wrong_product ────────────────────
+# A mismatched order/SKU/org/ASIN on the returned label outranks whatever the photo
+# looked like - the fail-open row's disposition is forced to wrong_product instead of
+# the usual pending_review, but only when there IS a sold record to disagree with (no
+# sold record at all is a missing-data problem, not a proven mismatch).
+
+
+def test_uncertain_row_marks_wrong_product_on_id_mismatch() -> None:
+    row = _returned(order_id="ORD-999")
+    out = _uncertain_row(row, _before(), "image_fetch_failed: timeout")
+    assert out["operator_disposition"] == "wrong_product"
+    assert out["sold_vs_returned_id_check"].startswith("NOT MATCHED:")
+
+
+def test_uncertain_row_no_sold_record_stays_pending_review_not_wrong_product() -> None:
+    out = _uncertain_row(_returned(), None, "no before-record for this unit_id")
+    assert out["operator_disposition"] == "pending_review"
+    assert out["sold_vs_returned_id_check"] == "NOT MATCHED: no sold-record for this unit_id"
+
+
+def test_disposition_for_id_check_overrides_fallback_only_when_before_known() -> None:
+    assert _disposition_for_id_check(_before(), "NOT MATCHED: order_id: ...", "restock") == "wrong_product"
+    assert _disposition_for_id_check(_before(), "matched", "restock") == "restock"
+    assert (
+        _disposition_for_id_check(None, "NOT MATCHED: no sold-record for this unit_id", "pending_review")
+        == "pending_review"
+    )
 
 
 class _FakeCompleteness:

@@ -280,7 +280,16 @@ async def test_daily_quota_429_holds_until_reset(
     db: Database, quiet_queue: set[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     s = await _setup(db, tmp_path, monkeypatch)
-    worker_task_client = ScriptedClient([ProviderError("quota_exhausted", "daily quota", status_code=429)])
+    # Two scripted 429s, not one: quota_exhausted on the primary model now genuinely triggers
+    # the §10.4a fallback-model attempt (inspection/service.py), which was dead code when this
+    # test was first written and consumed nothing from this client. With it wired in, a second
+    # real session is started on rm_judgment_fallback_model before the job is held.
+    worker_task_client = ScriptedClient(
+        [
+            ProviderError("quota_exhausted", "daily quota", status_code=429),
+            ProviderError("quota_exhausted", "daily quota", status_code=429),
+        ]
+    )
     handler = JudgmentHandler(
         db,
         s.settings,
