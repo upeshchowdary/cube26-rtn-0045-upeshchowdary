@@ -44,4 +44,12 @@ mapping:
     rationale: USB-C charging and data cable; electrical accessory, safety test applies
       for used
     status: interpretation_needs_verification
-content_sha256: b873b2c4b7afa0a0d5f513be96de842497e480e20e30805b43edc8de1bab2bef
+  SKU-PHONE-IQOO9:
+    category_key: electronics
+    rationale: smartphone with 120W fast charger; consumer electronics category
+    status: interpretation_needs_verification
+  SKU-LAPTOP-DELL:
+    category_key: electronics
+    rationale: laptop computer with power adapter and carrying case; consumer electronics
+    status: interpretation_needs_verification
+content_sha256: 105e4eee5556ab3cdb06508fe74ad4584a30c0e487dc5c569dda58dfea827f8e

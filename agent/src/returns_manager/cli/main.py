@@ -13,6 +13,7 @@ import typer
 from returns_manager import __version__
 from returns_manager.cli import (
     audit_commands,
+    batch_commands,
     chain_commands,
     dev,
     economics_commands,
@@ -74,6 +75,7 @@ _GROUP_HELP = {
     "simulate": "What-if simulation.",
     "economics": "Unit economics.",
     "eval": "Evaluation tooling (never reads sealed data outside `eval run`).",
+    "batch": "Standalone batch processing of return records with image URLs (no database).",
     "openapi": "OpenAPI export.",
     "contract": "Cross-pod evidence contract.",
     "mcp": "MCP server.",
@@ -116,6 +118,7 @@ def _register() -> None:
         "mcp": evidence_commands.mcp_app,
         "economics": economics_commands.economics_app,
         "eval": eval_commands.eval_app,
+        "batch": batch_commands.batch_app,
     }
     for name, sub in built.items():
         _groups[name] = sub

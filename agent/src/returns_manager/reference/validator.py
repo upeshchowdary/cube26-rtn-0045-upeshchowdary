@@ -256,7 +256,7 @@ class ReferenceValidator:
         image_owners: dict[str, str] = {}  # sha256 -> "org/sku" that first listed it
 
         for org_dir in sorted(products_dir.iterdir()):
-            if not org_dir.is_dir() or org_dir.name.startswith("."):
+            if not org_dir.is_dir() or org_dir.name.startswith((".", "_")):
                 continue
             org_id = org_dir.name
             for f in sorted(org_dir.glob("*.yaml")):

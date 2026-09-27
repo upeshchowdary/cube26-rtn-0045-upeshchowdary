@@ -151,7 +151,7 @@ async def run_session(
     tools = tool_definitions()
     generation_config: dict[str, Any] = {
         "thinking_level": thinking or settings.rm_judgment_thinking,
-        "tool_choice": {"allowed_tools": {"mode": "auto"}},
+        "tool_choice": "auto",
         "max_output_tokens": max_output_tokens or settings.rm_max_output_tokens,
     }
     response_format = (

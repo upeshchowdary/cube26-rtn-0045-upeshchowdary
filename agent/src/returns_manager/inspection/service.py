@@ -131,15 +131,23 @@ async def _gate_facts(conn: Any, return_id: str) -> GateFacts:
     )
 
 
-def inspection_config_version(bundle: ContextBundle, settings: Settings, rv: str) -> str:
-    """§10.5: hash of everything that, when changed, makes a new inspection of the same photos meaningful."""
+def inspection_config_version(
+    bundle: ContextBundle, settings: Settings, rv: str, *, model_id: str | None = None
+) -> str:
+    """§10.5: hash of everything that, when changed, makes a new inspection of the same photos meaningful.
+
+    `model_id` is the model that actually served the session (it can differ from
+    `settings.rm_judgment_model` when the quota-exhaustion fallback of §10.4a fired); it
+    defaults to the configured judgment model for the escalation/audit call sites, which
+    do not have a fallback.
+    """
     m = bundle.manifest
     return sha256_jcs(
         {
             "prompts": [m["prompt"], m["task_prompt"]],
             "judgment_schema_version": SCHEMA_VERSION,
             "response_schema_sha256": m["response_schema_sha256"],
-            "model": settings.rm_judgment_model,
+            "model": model_id or settings.rm_judgment_model,
             "thinking": settings.rm_judgment_thinking,
             "output_mode": settings.rm_output_mode,
             "rules_version": rv,
@@ -215,8 +223,33 @@ class JudgmentHandler:
                 self.client, self.quota, bundle, self.settings, max_output_tokens=max_tokens
             )
         except SessionFailed as failed:
-            await self._persist_failed_run(job, inspection_id, bundle, failed.trace, failed.cause)
-            raise failed.cause from None
+            fallback_model = self.settings.rm_judgment_fallback_model
+            can_fall_back = (
+                getattr(failed.cause, "error_class", None) == "quota_exhausted"
+                and fallback_model
+                and fallback_model != self.settings.rm_judgment_model
+            )
+            if not can_fall_back:
+                await self._persist_failed_run(job, inspection_id, bundle, failed.trace, failed.cause)
+                raise failed.cause from None
+            # §10.4a fallback: the primary model's real daily quota is exhausted before any turn of
+            # this session succeeded. Start an entirely fresh session on the fallback model — never a
+            # continuation of the failed one, so "never switch models mid-session" still holds. If the
+            # fallback also fails, fail open on that failure instead.
+            try:
+                session = await run_session(
+                    self.client,
+                    self.quota,
+                    bundle,
+                    self.settings,
+                    model=fallback_model,
+                    max_output_tokens=max_tokens,
+                )
+            except SessionFailed as fallback_failed:
+                await self._persist_failed_run(
+                    job, inspection_id, bundle, fallback_failed.trace, fallback_failed.cause
+                )
+                raise fallback_failed.cause from None
 
         ctx = dataclasses.replace(
             bundle.ctx,
@@ -234,7 +267,7 @@ class JudgmentHandler:
             operator_state=facts.operator_state,
         )
         det_ms = int((time.perf_counter() - t0) * 1000)
-        config_version = inspection_config_version(bundle, self.settings, rv)
+        config_version = inspection_config_version(bundle, self.settings, rv, model_id=session.trace.model)
         target = ReturnStatus(result.target_status)
         output_sha = _output_sha256(session.raw_output) if session.raw_output else None
 

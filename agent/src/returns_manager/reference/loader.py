@@ -111,7 +111,7 @@ async def load_products(db: Database, ref_dir: Path | None = None) -> dict[str, 
 
     counts: dict[str, int] = {}
     for org_dir in sorted(prod_dir.iterdir()):
-        if not org_dir.is_dir() or org_dir.name.startswith("."):
+        if not org_dir.is_dir() or org_dir.name.startswith((".", "_")):
             continue
         org_id = org_dir.name
         org_count = 0

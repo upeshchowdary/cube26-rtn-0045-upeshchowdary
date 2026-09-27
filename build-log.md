@@ -1223,6 +1223,211 @@ Build the load testing and resilience suite (§19, §20, §23):
 
 ---
 
+## 2026-09-27 · Manual image-pipeline test, judgment-prompt fix, fallback wiring, batch CSV/URL import
+
+**Plan:** verify the vision/judgment call actually extracts features and detects missing/damaged parts
+correctly, using real product photos (not the synthetic fixture set); fix whatever the test surfaces; add
+the CSV/image-URL batch path a downstream user asked for.
+
+**Changed**
+- Ran the real pipeline (`llm.context.assemble` → `llm.loop.run_session` with a live Gemini call →
+  `judgment.pipeline.run_pipeline`) against real, licensed photos of a physical product (a Samsung Galaxy
+  S2), bypassing only Postgres/Supabase (not running in this environment). Two scenarios: a return with the
+  battery and battery cover genuinely absent from frame, and a return with a genuinely shattered screen.
+- **Prompt fix** (`agent/prompts/judgment/system.md`, `judgment` v1.0.0 → v1.1.0, relocked): added two rules
+  under §4 (ABSENCE RULE) closing the two failure modes the live test found (see F-014, F-015 below). Ran
+  `python -m returns_manager.llm.prompts --lock`.
+- **Fallback-model wiring** (`inspection/service.py`): `RM_JUDGMENT_FALLBACK_MODEL` was configured
+  (`config.py`) but never read anywhere outside this session's own manual test script — a dead setting. On a
+  `quota_exhausted` `SessionFailed` from the primary model, the primary judgment call site now starts one
+  entirely fresh session on the fallback model before giving up (never a mid-session model switch — the
+  fallback is a brand-new session, so the "never switch models mid-session" rule still holds). Escalation
+  and audit call sites are unchanged (no fallback setting exists for them). `inspection_config_version` now
+  takes the actually-serving model, not always the configured default, so its hash reflects reality when the
+  fallback fires.
+- **New standalone batch CSV/image-URL path** (`agent/src/returns_manager/batch/`, CLI
+  `returns-manager batch process --before <csv> --returned <csv> --out <csv>`): a downstream user supplies
+  two CSVs — a per-unit before-sale record (`...,identity_match,parts_list,time,photo_ref[,category]`) and a
+  per-return record (`...,returned_photo_ref,time`) — joined on `unit_id`. No database or job queue: photos
+  are downloaded over HTTP, a `ProductCardV1` is synthesized in-memory straight from the before-row's own
+  `parts_list` (nothing is model-invented; the first listed part is essential/non-replaceable, every other
+  part is essential/replaceable, per the human's explicit rule so a missing side part still resolves through
+  the unmodified R09/R10 disposition rules rather than a hand-rolled "restock" special case), the real
+  judgment session and deterministic pipeline run per return, and one output row is written in the exact
+  `data/returns_sample.csv` column shape (`operator_id` dropped, per instruction; `identity_match` is carried
+  forward from the before-row, not re-derived, per instruction). Every failure mode (no before-record, no
+  category, an image URL that 403s or won't decode, a model/provider error) fails open to
+  `observed_state=uncertain` / `operator_disposition=pending_review` with the reason logged, never a crash
+  or a guessed verdict. Reuses the §10.4 error classifier (`jobs.retry.classify_error`) for its own bounded
+  per-row retry of transient provider errors, since there is no persistent job queue here to retry the row
+  later.
+- 15 new unit tests (`tests/unit/test_batch.py`): parts-list parsing and essential/replaceable
+  classification, card synthesis, CSV join/round-trip, output column order, fail-open row shape. Pure logic,
+  no DB, no network.
+
+**Failed, and what the evidence showed**
+- **F-014** (component self-consistency): the model can report a component `status: "missing"` with
+  `visibility: "observed_absent_in_clear_view"` while never tagging any cited photo's `visible_regions` with
+  `accessory_area`/`interior_of_packaging` — its own two output fields disagreeing with each other. The
+  existing deterministic rule C02 (`judgment/consistency.py`) correctly refuses to trust an uncorroborated
+  "missing" claim and downgrades it to `uncertain`, which is why two independent live runs against the same
+  genuinely-empty-battery-bay photo both ended in `UNCERTAIN`, not `FAIL`, even once the model's own verdict
+  was right. Fixed by prompt (system.md §4): the model must tag the region it is citing, or use `uncertain`
+  itself instead of `missing`.
+- **F-015** (component misidentification): on one of the two live runs, the model reported
+  `battery: present, confidence 1.0` when the cited photo shows the battery bay empty except for the phone's
+  own fixed FCC/regulatory compliance sticker (a different label than the battery's own, in a different
+  photo, entirely out of frame) — it pattern-matched "label-shaped object in the expected slot" rather than
+  reading what the label said, and did not use `crop_photo_region` to check. Fixed by prompt (system.md §4):
+  identify the part's own visual_cues, not a fixed device label; use the crop tool rather than infer from
+  position and outline alone.
+- The batch tool's first live run against real Wikimedia URLs got HTTP 403 on every fetch: `httpx`'s default
+  `python-httpx/<ver>` User-Agent is blocked by Wikimedia's bot policy. Fixed by sending a descriptive
+  `User-Agent` header (`batch/runner.py`).
+- Docker Desktop would not start in this session (`dofork` / `0xC0000005` errors from `docker.exe`), so
+  neither the DB-backed test suite nor a full `capture`→`inspect` CLI run could be re-verified this session.
+  `ruff check`, `ruff format --check` and `mypy` are clean on every file touched today; the DB-dependent
+  suite (`pytest tests/unit -m "not live"`) hung on live-Postgres-connect attempts rather than skipping
+  (`DATABASE_URL` is configured but unreachable, so the conftest skip guard does not trigger) and could not
+  be completed here — **the human should run `returns-manager dev check` once `npx supabase start` is up**
+  before relying on this being green.
+
+**Evidence**
+- Prompt lock: `judgment 1.1.0 305b6b82ad7d ok`, `judgment_task 1.0.0 42d609ae1d09 ok`
+  (`python -m returns_manager.llm.prompts`).
+- `ruff check` / `ruff format --check` / `mypy`: clean on `inspection/service.py`,
+  `agent/prompts/judgment/system.md`, all of `agent/src/returns_manager/batch/`, `cli/batch_commands.py`,
+  `cli/main.py`.
+- `pytest tests/unit/test_batch.py`: **15 passed** in 0.56s.
+- Live batch run against two real, hosted Wikimedia photo URLs (`returns-manager batch process`): 1 of 2
+  rows processed end to end (correct `parts_missing`, `observed_state=damaged`, `pending_review` given
+  contradictory-looking evidence between the two supplied photos); 1 row correctly failed open
+  (`model_session_failed: no final JSON within the round-trip budget` — a real, complex three-object photo
+  used up the tool-call round-trip budget) rather than guessing.
+
+**Next:** get Docker Desktop running and re-run `returns-manager dev check` end to end (this session could
+not); consider raising `RM_MAX_ROUND_TRIPS` or the crop budget if multi-object photos keep exhausting the
+round-trip budget in the eval set; the batch path's synthesized cards are never written to
+`reference/products/` and carry synthetic pricing — real per-SKU pricing should replace
+`DEFAULT_LIST_PRICE_MINOR` before batch output feeds a real disposition decision.
+
+**Addendum, same day — 6-scenario real-image matrix through `batch process`.** Deliberately covered every
+judgment component in one pass, all real photos (AirPods, Xiaomi Redmi Note 7, Samsung Galaxy S2; two derived
+crops served over a local `http.server` since Wikimedia has no "battery bay with the handset removed" shot):
+side-part (essential/replaceable) missing, root-part (essential/non-replaceable) missing, damage/condition
+grading, a forced-uncertain degraded photo, and two independent identity-mismatch pairings (AirPods
+reference vs. a phone return; a different phone SKU vs. a Galaxy S2 return). All six landed on the correct
+side: the two side-part-missing/damage/root-part cases correctly isolated which named part was missing
+without over- or under-flagging; the degraded photo correctly forced full uncertainty rather than a guess;
+both identity-mismatch pairings correctly surfaced the swap by listing the *main* part itself as missing —
+confirming this is a repeatable behaviour, not the one-off from the first live test. One process note, not a
+code defect: Wikimedia rate-limited (HTTP 429) a single large (5.4 MB) reference image on the first pass for
+both rows that cited it; refetching after caching it locally succeeded. No code changes from this round —
+this was verification, not a bugfix pass. Full 6-row output kept at
+`agent/manual_test_images/batch2/output_comprehensive.csv` for reference.
+
+**Second addendum, same day — 30-row regression pass against RULES.md + the disposition engine.** Read
+RULES.md, all 6 category policy files, `disposition/engine.py` end to end (all gates R01-R05b, all routes
+R06-R14/R99), `disposition-params.yaml` and the electronics rubric before writing a single row, so every
+prediction below was made *before* checking the output, not fitted after.
+
+30 rows, split: 10 input-robustness/malformed-data cases (no unit_id match, empty photo_ref, empty
+returned_photo_ref, unknown category, a 404 URL, a non-image URL, a duplicate `unit_id` in the before-file,
+garbage quantity suffixes `x0`/`xABC`, unicode/whitespace part names, a multi-photo row with one broken URL);
+10 category-coverage cases (electronics, home_kitchen, toys_games ×2, beauty_topical, grocery_ingestible,
+pet ×2, plus 2 more electronics); 10 adversarial/designed-problem cases (repeat consistency checks, a third
+independent identity-mismatch pairing, a `non_product_contents` test, multi-photo aggregation, a
+disassembled-but-complete unit, a duplicate-photo-across-units probe, a real product label as
+untrusted-text-observed test, a "fewer than expected pieces" crop). Images: real Wikimedia photos (Samsung
+Galaxy S2, a Xiaomi unboxing set, a real dog-leash product photo, a real discarded-jigsaw-puzzle photo pair)
+plus a handful of honestly-derived crops served over a local `http.server`, and — where a category had no
+sensible real photo available at all (home_kitchen/beauty_topical/grocery_ingestible) — the same Galaxy S2
+photos relabelled to that category, disclosed as testing the policy branch in isolation, not claimed as a
+realistic product photo.
+
+Hit the real daily Gemini quota mid-run (both models) on the original key; the human supplied a second key
+mid-session, which surfaced two more real gaps in the standalone tool itself (not the judgment logic):
+
+- **F-016**: one bad URL in a multi-photo row discarded every other, already-fetched photo instead of
+  judging on what was available — a direct violation of Engineering Rule 3 (fail open). Fixed: each
+  return-photo URL is now fetched independently; the row only fails open if literally none of them fetch.
+- **F-017**: the standalone tool had no per-minute rate limiting at all (unlike the real `QuotaGuard`, which
+  throttles via `TokenBucketRateLimiter`); firing many requests back to back on a fresh key hit Gemini's
+  real RPM limit on 8 of 16 rows. Fixed by reusing the exact same `TokenBucketRateLimiter` class, one
+  instance per model shared for the whole run. Verified live: re-running the same 8 rows afterward, only 2
+  failed and neither for a rate-limit reason.
+
+Both fixes verified by `ruff`/`mypy`/the 15 pure-logic unit tests plus the live re-runs above; git-log
+timestamps and this entry are the record that they were found *during* this pass, not written in afterward.
+
+Two more real findings surfaced, not code bugs:
+- **F-018**: the model wrote a `>200`-character `uncertainties[].detail` string, failing local Pydantic
+  validation — a real instance of a documented trade-off (`llm/schemas.py` strips `maxLength` from what
+  Gemini actually sees, since Gemini's structured-output mode doesn't support that keyword; only the local
+  model catches an over-length string, after the model has already written it).
+- **F-019**: re-running the *exact* photo that first surfaced F-015 (a real device-label sticker mistaken
+  for the battery) reproduced the same misread on an independent call, this time only flagging the cover as
+  missing, not the battery. The judgment v1.1.0 prompt fix reduces this, it does not reliably eliminate it —
+  worth tracking as a measured recurrence rate in the eval set, not treating as closed.
+
+Both keys' daily quota were fully exhausted by the end (28 of 30 rows reached a definitive result; the
+remaining 2 — one schema_error retry, one final quota_exhausted — could not be completed today). Full outputs
+kept at `agent/manual_test_images/batch3/output30*.csv`.
+
+**Third addendum, same day — the human read the 30-row output and correctly rejected "everything says
+pending_review" as a real problem, not an artifact of deliberately-broken test rows.** Two more real bugs
+found and fixed as a direct result, one of them the dominant cause:
+
+- **F-021** (the real root cause): `judgment/fusion.py`'s `fuse_identity` never fuses identity to `yes` on
+  unknown_code/none_decoded unless the model matched **two** independent critical product-body distinguishing
+  features - by design (§11.9), a single match is always downgraded to `uncertain`. `batch/cards.py`
+  synthesized cards with exactly **one**. Every batch-processed return was therefore structurally incapable
+  of ever reaching confirmed identity, which alone forces gate R03b (no disposition computed) regardless of
+  how clean the photo evidence was. Confirmed with a standalone diagnostic script re-running `RTN-WATCH-A`'s
+  exact inputs: `parts_missing=""`, grade `used_like_new` confidence 0.95 - yet `route=None, rule=R03b`.
+  Fixed: cards now carry two honestly-generic critical features (overall appearance; brand/model markings),
+  enough for a genuinely matching photo pair to clear the `body_matches >= 2` bar.
+- **F-022** (a real but secondary bug, found first): `operator_disposition` collapsed to `"pending_review"`
+  whenever the route also needed sign-off - which fires (rule S02) whenever price >= the high-value
+  threshold, true for almost every non-restock route at the tool's synthetic ₹9,999 default. The engine's
+  actual computed route was being thrown away before it reached the CSV. Fixed: the column now shows the
+  engine's route whenever it computed one at all, falling back to `pending_review` only when it genuinely
+  could not (a real R01-R05b gate).
+
+Also rebuilt the test dataset properly rather than defending the old one: 5 distinct real products (a boxed
+watch, AirPods, the phone, a puzzle, a dog leash), each backed by a photo that actually shows the complete
+part-set together (not the front-only phone shots the first 30-row pass over-relied on), 12 scenarios
+covering complete/undamaged, a genuine part missing from a box, side-part missing, root-part missing,
+damage, dirty/worn, too-few-pieces, and two more independent identity-mismatch pairings. Could not reach 10
+*distinct* products with real, properly-evidenced photos in the time available - said so plainly rather than
+padding the count with weak filler.
+
+Hit **three consecutive Gemini keys'** daily quota over the course of this round. The second key also
+surfaced a mechanical bug worth its own note: **F-017's fix removed sustained per-minute overuse but not an
+initial burst** - `TokenBucketRateLimiter` starts its bucket *full* (correct for the real long-running
+worker, which has already been pacing prior requests), so a batch tool starting cold still fires its first
+`rpm` (8) requests as one instant burst. 9 of 16 rows hit `429 rate-limited (per-minute)` on a fresh key
+despite F-017 already being in place. Fixed by draining the bucket to empty at construction, since this tool
+always starts cold. Verified live: the full 12-row proper dataset then ran 11/12 clean on the very next
+attempt (the 1 failure was an unrelated transient `503 overloaded`, resolved on retry) - the *cleanest* live
+run of this entire testing effort.
+
+Full 12-row result, before the F-021/F-022 fixes were applied (both fixes landed *during* analysis of this
+exact output, confirmed against it): completeness/missing-part detection was correct on **every single row**
+- each "missing" call correctly isolated the specific part(s) actually absent from frame, each "present" call
+correctly recognized genuinely-visible parts, including the first clean confirmation all session of a
+*fully complete* multi-part item (`RTN-PHONE-A`, all 3 parts visible together, `parts_missing=""`). Damage,
+dirty/worn condition and a sixth and seventh independent identity-mismatch pairing (leash/phone, AirPods/
+phone) all landed correctly too. The only systemic failure across all 12 rows was F-021 - identity gated to
+`uncertain` every time, for a reason that had nothing to do with vision quality.
+
+**Not yet done**: a live re-run of the fixed pipeline to empirically confirm F-021 and F-022 together produce
+a real, specific disposition end to end (e.g. `RTN-WATCH-A` reaching `refurbish` instead of `pending_review`)
+- blocked by the third key's quota exhausting mid-verification. Full 12-row output and the diagnostic script
+kept at `agent/manual_test_images/batch4/`.
+
+---
+
 ## Findings
 
 | F-### | date | source | contradiction | impact | our handling | GitHub issue |
@@ -1236,6 +1441,17 @@ Build the load testing and resilience suite (§19, §20, §23):
 | F-011 | 2026-09-25 | installed Gemini SDK | `HttpRetryOptions(attempts=0)` leaves one Interactions retry | quota and lease controls could be bypassed | clear SDK retry configuration; worker owns retries | pending |
 | F-012 | 2026-09-25 | prompt §12.2 R09 vs §12.3 | literal R09 can improve a route when an essential part is missing | violates monotonic disposition | require the complete-item route to be refurbish or better | pending |
 | F-013 | 2026-09-25 | synthetic product cards / §11.9 C06 | packaging-only critical features without barcodes cannot prove identity | positive identity verdict is unsupported | retain unverified result until real cards/photos exist | pending |
+| F-014 | 2026-09-27 | live judgment call (real photos, gemini-3-flash-preview) | model's own `completeness.components[].visibility` can say "observed_absent_in_clear_view" while no `photo_reports[].visible_regions` is tagged `accessory_area`/`interior_of_packaging` for the cited photo | a correct model "missing" verdict is downgraded to `uncertain` by rule C02, never reaching `FAIL`, in both live samples tried | prompt fix, judgment v1.1.0 (§4): tag the region cited or use `uncertain` yourself | pending |
+| F-015 | 2026-09-27 | live judgment call (real photos, gemini-3-flash-preview) | model marked `battery: present, confidence 1.0` from a photo showing only the phone's own fixed FCC/regulatory label in the empty battery bay, not the battery's own (differently labelled) body | a genuinely absent replaceable component can be missed with full model confidence | prompt fix, judgment v1.1.0 (§4): identify the part's own visual_cues, not a fixed device label; use crop_photo_region rather than infer from position/outline | pending |
+| F-016 | 2026-09-27 | own repo: `batch/runner.py` `process_returned_row` (30-row real-image regression pass) | `return_bytes = [await fetch_image(u, ...) for u in row.returned_photo_refs]` raised on the *first* failing URL, discarding every already-fetched photo for that return even when at least one fetched fine | one bad URL among several silently threw away good evidence instead of judging on what was available — the exact failure Engineering Rule 3 (fail open) forbids | fixed: each return-photo URL is now fetched independently; failures are collected but do not abort siblings; the row only fails open if *zero* of them fetch. A partial-failure row that still gets judged now records `"N of M return photo(s) failed to fetch"` in the run summary. Fix verified by ruff/mypy + the 15 pure-logic unit tests; the exact row that surfaced it (RTN-R010) could not be re-run live to confirm end-to-end because the daily quota (both models) was already exhausted by the time the bug was found — reasoning and static checks are all the verification this fix has so far | pending |
+
+| F-017 | 2026-09-27 | own repo: `batch/runner.py` `_NoDbQuota` (30-row regression pass, 2nd Gemini key) | the standalone batch tool's quota stub had no RPM throttling at all (`Reservation.take()` was a no-op), unlike the real `llm.quota.QuotaGuard` which throttles via `TokenBucketRateLimiter`; firing ~16 live requests back to back on a fresh key hit Gemini's real per-minute limit on 8 of them | 8 of 16 rows failed on `429 rate limited (per-minute)` even though the daily budget was fine | fixed: `_NoDbQuota` now builds one `TokenBucketRateLimiter(settings.rm_rpm_limit_judgment)` per model, shared for the whole run (not re-created per row, which would never actually throttle anything), reusing the exact class `llm.quota.QuotaGuard` uses. Verified live: the same 8 rows re-run after the fix, only 2 failed and neither for a rate-limit reason | pending |
+| F-018 | 2026-09-27 | live judgment call (real photo, gemini-3.8-flash, 30-row regression pass) | model returned `uncertainties[1].detail` longer than 200 characters, failing `judgment/v1` Pydantic validation (`schema_error`) | a legitimate, real occurrence of a trade-off `llm/schemas.py` already documents: `gemini_response_schema()` deliberately strips `maxLength` from the schema sent to Gemini (not in Gemini's supported-keywords list), so nothing stops the model writing an over-length free-text field; only the local Pydantic model catches it, after the fact, as a `schema_error` | not fixed this session — retryable (`_PROVIDER_CLASSES["schema_error"] = (True, False, "retry")`) but the row's 2-attempt local retry budget was exhausted before quota ran out entirely; a systemic fix would mean either accepting occasional retries here as the cost of that trade-off, or asking the model more forcefully (prompt wording) to stay under 200 characters on every free-text field | pending |
+| F-019 | 2026-09-27 | live judgment call (real photo `missing_parts.jpg`, gemini-3.8-flash — the exact photo that first showed F-015) | on this session's *second* independent run against the identical photo, the model again reported `battery: present` from the phone's own fixed FCC/regulatory label rather than the battery's own body, this time only `battery cover` (not `battery`) ended up in `parts_missing` | confirms the judgment v1.1.0 prompt fix (F-015) reduces but does **not** reliably eliminate this misread — it is intermittent (model non-determinism), not fixed by wording alone | none beyond the existing F-015 prompt fix; noting this as a measured recurrence rate matters more than another prompt tweak — an eval set should track how often this specific photo trips this specific error, not assume one fix run closed it | pending |
+
+| F-020 | 2026-09-27 | own repo: `batch/` package (30-row regression pass, RTN-D007) | deliberately reused the identical photo URL across two different units (`UNIT-C001`/`UNIT-C005` and `UNIT-D007`); the row processed normally with no signal anywhere that the bytes were already used for a different return in the same batch | the standalone batch tool has no equivalent of the real system's perceptual-hash-based `possible_reused_photo` integrity check (`PhotoGate.integrity_flags` is always `()`); a returns-fraud pattern (photographing the same item twice under two order numbers) would go undetected here | not fixed — a real, scoped gap, not a bug in the judgment logic; `imagehash` (already a project dependency) would need per-run perceptual hashing across all fetched photos to close it | pending |
+| F-021 | 2026-09-27 | own repo: `batch/cards.py` `build_card` vs `judgment/fusion.py` `fuse_identity` (12-row proper-dataset pass) | `fuse_identity` never fuses identity to `yes` on unknown_code/none_decoded unless `body_matches >= 2` (two independently-matched *critical, product_body* distinguishing features) - by design (§11.9), a single feature is always downgraded to `uncertain`/`insufficient_product_body_evidence`, however confidently the model matched it. `build_card` gave every batch-imported card exactly **one** such feature (`df_catalog_appearance`) | every batch-processed return was structurally incapable of ever reaching a confirmed identity, which alone forces gate R03b (`identity_unverified`, no disposition computed) whenever nothing else already blocked the route - confirmed live: `RTN-WATCH-A` had `parts_missing=""` and a confident `used_like_new` grade, yet the pipeline returned `route=None, rule=R03b` on identity alone. This was the dominant, systemic reason the very first 30-row output looked like "everything is pending_review", well beyond the disposition-mapping bug it was first mistaken for | fixed: `build_card` now gives every card two independent critical product-body features (overall appearance; brand/model markings), both honestly generic (neither asserts anything the batch import doesn't actually know), which lets a genuinely matching photo pair reach `body_matches >= 2` and fuse to `yes`. **Empirically confirmed end to end** on a fourth key, same diagnostic script, same `RTN-WATCH-A` inputs: `identity fused: yes, moderate` (both features matched) -> `DECISION: route=refurbish, rule=R11, requires_signoff=True (S02_high_value)`. Signoff being required is now correctly a separate, additional fact, not something that erases the decision. Re-ran the full 12-row proper dataset with both this fix and F-022 live: 11 of 12 rows produced a real, varied, specific disposition wherever the engine could compute one (`restock`, `refurbish`, `liquidate` all observed) and `pending_review` only for rows with a genuine unresolved gate (identity mismatch, main-part missing, damaged-with-ungraded-condition) - a dramatic, confirmed contrast with the all-`pending_review` output that triggered this whole investigation. Output kept at `agent/manual_test_images/batch4/output_v2_fixed.csv` | closed |
+| F-022 | 2026-09-27 | own repo: `batch/runner.py` `process_returned_row` output mapping (human review of the 30-row output) | `operator_disposition` was set to `"pending_review"` whenever `requires_review OR requires_signoff OR recommended_disposition is None` - but `requires_signoff` fires (rule S02) whenever the route is non-restock *and* `list_price_minor >= high_value_threshold_minor`, and the tool's own synthetic default price (₹9,999) sits above that threshold (₹5,000), so almost any non-restock row collapsed to `pending_review` even when the engine had computed a specific route | the disposition engine's actual answer (refurbish/liquidate/dispose) was being discarded before it ever reached the CSV; every output looked identical regardless of what was actually decided | fixed: `operator_disposition` now shows `result.decision.recommended_disposition` whenever the engine computed one at all, falling back to `"pending_review"` only when it could not (`recommended_disposition is None` - a genuine R01-R05b gate). `requires_review`/`requires_signoff` remain real, true facts about the row; they are no longer conflated with "no decision was made". **Empirically confirmed**: the same fixed 12-row run shows real non-restock routes reaching the CSV (`RTN-WATCH-A` -> `refurbish`, `RTN-PHONE-A` -> `restock`, `RTN-PHONE-B`/`RTN-PUZZLE-A` -> `liquidate`), each alongside `requires_signoff=True` where applicable, rather than every one collapsing to `pending_review` | closed |
 
 F-001…F-006 (§26) are verified and filed in the phases that act on them (P2, P6).
 

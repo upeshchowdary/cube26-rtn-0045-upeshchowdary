@@ -1,12 +1,12 @@
 schema: quality-gate/v1
 version: 1.1.0
-calibration_notes: >-
-  NOT YET CALIBRATED. These are the placeholder thresholds of build prompt §9.2, copied verbatim. They
-  must be calibrated on dev fixtures (never the eval set) once real fixture photos exist; record the
-  fixtures used, the date and the person here and bump the version. Decimal thresholds are strings
-  because hashed reference documents carry no floats.
-calibrated_at: 'not calibrated'
-calibrated_by: 'n/a (build prompt §9.2 placeholders)'
+calibration_notes: NOT YET CALIBRATED. These are the placeholder thresholds of build
+  prompt §9.2, copied verbatim. They must be calibrated on dev fixtures (never the
+  eval set) once real fixture photos exist; record the fixtures used, the date and
+  the person here and bump the version. Decimal thresholds are strings because hashed
+  reference documents carry no floats.
+calibrated_at: not calibrated
+calibrated_by: n/a (build prompt §9.2 placeholders)
 thresholds:
   sharpness_long_edge_px: 1024
   sharpness_laplacian_var_pass_min: '120.0'
