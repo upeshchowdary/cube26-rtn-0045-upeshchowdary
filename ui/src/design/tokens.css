@@ -1,0 +1,110 @@
+/* Return Manager design tokens (ui-sydon). One source for colour, type, radius, shadow and easing.
+   Scoped to .rm-site (landing) and .rm-app (workspace) so the legacy :root variables in styles.css
+   never leak in. Motion durations live in src/motion/tokens.ts and are mirrored here for CSS. */
+
+.rm-site,
+.rm-app {
+  /* colour */
+  --bg: #ffffff;
+  --bg-2: #f8fafc;
+  --text: #0b0f19;
+  --text-2: #6b7280;
+  --text-3: #9ca3af;
+  --blue: #2563eb;
+  --blue-hover: #1d4ed8;
+  --blue-2: #3b82f6;
+  --blue-50: #eff6ff;
+  --blue-25: #f5f9ff;
+  --blue-line: #bfd3fb;
+  --cyan: #22d3ee;
+  --glow: #eef2ff;
+  --border: #e5e7eb;
+  --border-soft: #eef2f7;
+  --border-strong: #d6dbe3;
+  --success: #15803d;
+  --success-50: #f0fdf4;
+  --success-line: #bbf7d0;
+  --warning: #b45309;
+  --warning-50: #fffbeb;
+  --warning-line: #fde68a;
+  --danger: #b91c1c;
+  --danger-50: #fef2f2;
+  --danger-line: #fecaca;
+  --focus: #2563eb;
+
+  /* type */
+  --font: 'DM Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono: 'DM Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  --fs-hero: clamp(40px, 6.2vw, 76px);
+  --fs-h2: clamp(32px, 4.4vw, 56px);
+  --fs-h3: clamp(22px, 2.2vw, 28px);
+  --fs-sub: clamp(17px, 1.5vw, 20px);
+  --fs-body: 16px;
+  --fs-small: 14px;
+  --fs-label: 12px;
+  --tracking-tight: -0.025em;
+  --tracking-label: 0.12em;
+
+  /* shape */
+  --r-sm: 8px;
+  --r-md: 11px;
+  --r-lg: 16px;
+  --r-xl: 18px;
+  --r-pill: 999px;
+
+  /* depth: soft, low opacity, never a glow explosion */
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.06);
+  --shadow-lg: 0 14px 50px rgba(15, 23, 42, 0.08);
+  --shadow-blue: 0 2px 8px rgba(37, 99, 235, 0.28);
+  --shadow-blue-lg: 0 8px 22px rgba(37, 99, 235, 0.3);
+
+  /* layout */
+  --max: 1280px;
+  --gutter: clamp(16px, 4vw, 48px);
+  --section-y: clamp(88px, 12vw, 168px);
+
+  /* motion (mirrors src/motion/tokens.ts) */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --t-fast: 180ms;
+  --t-hover: 240ms;
+  --t-ui: 380ms;
+
+  font-family: var(--font);
+  font-optical-sizing: none;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: var(--fs-body);
+  line-height: 1.55;
+}
+
+.rm-site *:focus-visible,
+.rm-app *:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+.rm-site ::selection,
+.rm-app ::selection {
+  background: #dbe7fe;
+  color: var(--text);
+}
+
+/* Reduced motion keeps colour and opacity fades; it removes movement. Components read this. */
+@media (prefers-reduced-motion: reduce) {
+  .rm-site,
+  .rm-app {
+    --lift: 0px;
+    --nudge: 0px;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .rm-site,
+  .rm-app {
+    --lift: -2px;
+    --nudge: 3px;
+  }
+}

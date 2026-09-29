@@ -1,0 +1,47 @@
+/* Landing page layout (Parts C4, E). Tokens from design/tokens.css. */
+.rm-site { min-height: 100vh; overflow-x: clip; }
+.rm-site h1, .rm-site h2, .rm-site h3, .rm-site p { margin: 0; }
+
+.lp-accent {
+  background: linear-gradient(95deg, var(--blue) 0%, var(--blue-2) 70%, #60a5fa 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.lp-section { max-width: var(--max); margin: 0 auto; padding: var(--section-y) var(--gutter) 0; }
+.lp-head { display: grid; gap: 18px; max-width: 760px; }
+.lp-center { margin: 0 auto; text-align: center; justify-items: center; }
+.lp-h2 {
+  font-weight: 600;
+  font-size: var(--fs-h2);
+  line-height: 1.06;
+  letter-spacing: var(--tracking-tight);
+}
+.lp-lead { font-size: var(--fs-sub); color: var(--text-2); line-height: 1.55; max-width: 620px; }
+
+/* ---------- hero ---------- */
+.lp-hero {
+  position: relative;
+  padding: calc(76px + clamp(64px, 11vw, 150px)) var(--gutter) clamp(48px, 7vw, 96px);
+  text-align: center;
+}
+.lp-hero-copy { position: relative; z-index: 2; max-width: 980px; margin: 0 auto; display: grid; justify-items: center; gap: 26px; }
+.lp-hero-title {
+  font-weight: 600;
+  font-size: var(--fs-hero);
+  line-height: 1.08;
+  letter-spacing: var(--tracking-tight);
+  color: var(--text);
+}
+.lp-hero-sub { max-width: 720px; font-size: var(--fs-sub); line-height: 1.6; color: #4b5563; }
+.lp-hero-ctas { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: 6px; }
+
+/* ---------- FAQ ---------- */
+.lp-faq-wrap { max-width: 860px; margin: 48px auto 0; }
+.lp-faq { padding-bottom: var(--section-y); }
+
+@media (max-width: 640px) {
+  .lp-hero-ctas { width: 100%; }
+  .lp-hero-ctas .rm-btn { flex: 1 1 100%; }
+}

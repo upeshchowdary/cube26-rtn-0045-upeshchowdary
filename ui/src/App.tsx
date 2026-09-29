@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import {
   Activity,
   ArrowRight,
@@ -26,12 +26,8 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
-import Lenis from 'lenis'
-import gsap from 'gsap'
-import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 
-import CinematicOverview from './CinematicOverview'
 import AmbientCanvas from './AmbientCanvas'
 import Connect from './Connect'
 import { SessionProvider, useSession } from './lib/session'
@@ -52,6 +48,9 @@ import Integrations from './screens/Integrations'
 import SettingsPage from './screens/Settings'
 
 import './styles.css'
+
+// The landing page (and the GSAP + Lenis motion stack it carries) is a separate chunk.
+const Landing = lazy(() => import('./landing/Landing'))
 
 const groups: { title: string; items: [string, string, LucideIcon][] }[] = [
   {
@@ -131,28 +130,6 @@ function Shell({ children }: { children: ReactNode }) {
           r.operator_disposition.toLowerCase().includes(q),
       )
     : rows
-
-  useEffect(() => {
-    const lenis = new Lenis({
-      duration: 0.85,
-      easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
-      smoothWheel: true,
-      wheelMultiplier: 0.95,
-      touchMultiplier: 1.5,
-      autoRaf: false,
-    })
-    const updateScrollTrigger = () => ScrollTrigger.update()
-    const raf = (time: number) => lenis.raf(time * 1000)
-    lenis.on('scroll', updateScrollTrigger)
-    gsap.ticker.fps(120)
-    gsap.ticker.lagSmoothing(0)
-    gsap.ticker.add(raf)
-    return () => {
-      lenis.off('scroll', updateScrollTrigger)
-      gsap.ticker.remove(raf)
-      lenis.destroy()
-    }
-  }, [])
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
@@ -501,11 +478,9 @@ function Gate() {
         <Route
           path="/overview"
           element={
-            <div className="shell overview-shell">
-              <main className="page" style={{ maxWidth: 'none', padding: 0 }}>
-                <CinematicOverview />
-              </main>
-            </div>
+            <Suspense fallback={<div className="rm-loading" aria-label="Loading Return Manager" />}>
+              <Landing />
+            </Suspense>
           }
         />
 

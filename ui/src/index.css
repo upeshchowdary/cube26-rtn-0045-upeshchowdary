@@ -1,11 +1,17 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,400;0,500;1,400&family=Inter:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@1,6..72,400;1,6..72,500;1,6..72,600&display=swap');
 @import 'tailwindcss';
 * { box-sizing: border-box; }
-:root { font-family: Inter, sans-serif; color: #1d2924; background: #050706; font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; font-optical-sizing: auto; font-size: 13px; }
-body { margin: 0; min-width: 320px; min-height: 100vh; background: #050706; }
+:root { font-family: Inter, sans-serif; color: #0b0f19; background: #ffffff; font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; font-optical-sizing: auto; font-size: 13px; }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: #ffffff; }
 button, input, select, textarea { font: inherit; }
 button { color: inherit; }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid #2fa866; outline-offset: 2px; }
 a { color: inherit; text-decoration: none; }
 img { display: block; max-width: 100%; }
 ::selection { background: #123a25; color: #a3e8b7; }
+
+/* Minimal loading state (D7): white, the small mark, a faint blue motion. */
+.rm-loading { position: fixed; inset: 0; background: #fff; display: grid; place-items: center; }
+.rm-loading::before { content: ''; width: 28px; height: 28px; border-radius: 8px; background: linear-gradient(135deg, #2563eb, #3b82f6); animation: rm-loading-pulse 1.2s cubic-bezier(0.22, 1, 0.36, 1) infinite alternate; }
+@keyframes rm-loading-pulse { from { opacity: 0.45; transform: scale(0.94); } to { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .rm-loading::before { animation: none; } }
