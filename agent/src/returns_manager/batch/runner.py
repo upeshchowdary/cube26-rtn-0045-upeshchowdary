@@ -309,7 +309,7 @@ def _report_progress(on_progress: Any | None, *args: Any) -> None:
         return
     try:
         on_progress(*args)
-    except Exception:  # a progress-reporting failure must never stop the batch
+    except OSError:  # a failed progress write must not stop the batch; anything else is a bug
         logger.warning("batch progress callback failed", exc_info=True)
 
 

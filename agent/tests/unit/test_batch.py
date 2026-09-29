@@ -1260,3 +1260,80 @@ def test_ui_shows_pass_only_for_a_real_match() -> None:
         assert "? 'FAIL' : 'PASS'" not in text, screen
     derive = (ui / "lib" / "derive.ts").read_text(encoding="utf-8")
     assert "check === 'matched'" in derive
+
+
+# ── progress writer surfaces serialization bugs (Stage 2 item 2) ───────────────────
+# Only OSError (a disk write) is tolerated mid-run. A TypeError from json.dumps is a bug in our
+# own row detail: the job fails with that error instead of logging it and carrying on.
+
+
+def _progress_job(svc: BatchJobsService, tmp_path: Path) -> BatchJob:
+    job = BatchJob(
+        job_id="job-p",
+        org_id="org_demo_alpha",
+        status="queued",
+        created_at=time.time(),
+        before_filename="before.csv",
+        returned_filename="returned.csv",
+    )
+    svc._jobs[job.job_id] = job
+    svc._job_dir(job.org_id, job.job_id).mkdir(parents=True, exist_ok=True)
+    return job
+
+
+def _fake_run_batch(detail: Any) -> Any:
+    from returns_manager.batch.runner import BatchSummary, _report_progress
+
+    async def _run(**kwargs: Any) -> Any:
+        summary = BatchSummary(total_rows=1, processed=1)
+        rows = [{"record_id": "RTN-1"}]
+        _report_progress(kwargs["on_progress"], rows[0], detail, summary, rows, {"RTN-1": detail})
+        # The final details are serializable, so only the progress write sees the bad detail: the
+        # old code logged that TypeError and finished the job as "done".
+        return rows, {}, summary
+
+    return _run
+
+
+async def test_non_serializable_detail_fails_the_job_loudly(tmp_path: Path, monkeypatch: Any) -> None:
+    from returns_manager.batch import jobs_service
+
+    svc = _service(tmp_path)
+    job = _progress_job(svc, tmp_path)
+    monkeypatch.setattr(jobs_service, "run_batch", _fake_run_batch({"when": object()}))
+    await svc._run(job, None, 1)
+    assert job.status == "failed"
+    assert job.error is not None
+    assert job.error.startswith("TypeError:")
+    assert "not JSON serializable" in job.error
+
+
+def test_report_progress_does_not_swallow_a_type_error() -> None:
+    from returns_manager.batch.runner import _report_progress
+
+    def _bad(*args: Any) -> None:
+        raise TypeError("Object of type object is not JSON serializable")
+
+    with pytest.raises(TypeError):
+        _report_progress(_bad, {})
+
+
+async def test_progress_disk_write_failure_is_tolerated(tmp_path: Path, monkeypatch: Any) -> None:
+    from returns_manager.batch import io_csv, jobs_service
+
+    svc = _service(tmp_path)
+    job = _progress_job(svc, tmp_path)
+    monkeypatch.setattr(jobs_service, "run_batch", _fake_run_batch({"ok": 1}))
+    real_write = io_csv.write_output_csv
+    calls = {"n": 0}
+
+    def _flaky(path: Path, rows: list[dict[str, str]]) -> None:
+        calls["n"] += 1
+        if calls["n"] == 1:  # the mid-run progress write fails; the final write succeeds
+            raise OSError("disk full")
+        real_write(path, rows)
+
+    monkeypatch.setattr(io_csv, "write_output_csv", _flaky)
+    await svc._run(job, None, 1)
+    assert job.status == "done"
+    assert calls["n"] == 2

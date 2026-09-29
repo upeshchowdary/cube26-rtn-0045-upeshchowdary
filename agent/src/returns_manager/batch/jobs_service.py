@@ -159,11 +159,14 @@ class BatchJobsService:
             job.processed = summary.processed
             job.uncertain = summary.uncertain
             job.live_requests = summary.live_requests
+            # Serialize first, outside the try: a TypeError/ValueError here is a bug in our own row
+            # detail and must surface (the job fails with the error), never be logged and skipped.
+            detail_json = json.dumps(current_details)
             try:
                 write_output_csv(job_dir / "output.csv", current_rows)
-                (job_dir / "rows_detail.json").write_text(json.dumps(current_details), encoding="utf-8")
+                (job_dir / "rows_detail.json").write_text(detail_json, encoding="utf-8")
                 self._save(job)
-            except (OSError, TypeError, ValueError):  # a partial-progress write failing must not stop the run
+            except OSError:  # a disk write failing mid-run must not stop the run; the final write retries
                 logger.warning("could not write progress for batch job %s", job.job_id, exc_info=True)
 
         try:
@@ -187,8 +190,9 @@ class BatchJobsService:
             job.live_requests = summary.live_requests
             job.notes = summary.notes
         except Exception as exc:  # fail open: the job record itself must not vanish
+            logger.exception("batch job %s failed", job.job_id)
             job.status = "failed"
-            job.error = str(exc)
+            job.error = f"{type(exc).__name__}: {exc}"
         self._save(job)
 
     def delete_job(self, org_id: str, job_id: str) -> bool:
