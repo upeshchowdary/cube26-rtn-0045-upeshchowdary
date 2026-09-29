@@ -6,6 +6,7 @@ from pathlib import Path
 
 import typer
 
+from returns_manager.batch.cards import DEFAULT_LIST_PRICE_MINOR
 from returns_manager.batch.io_csv import write_output_csv
 from returns_manager.batch.runner import run_batch_sync
 from returns_manager.config import get_settings
@@ -28,9 +29,10 @@ def process_command(
         "(electronics | home_kitchen | toys_games | beauty_topical | pet | grocery_ingestible).",
     ),
     list_price_minor: int = typer.Option(
-        999900,
+        DEFAULT_LIST_PRICE_MINOR,
         "--list-price-minor",
-        help="Synthetic list price (minor units) for every row's disposition math.",
+        help="Default list price (paise) for rows whose before-file has no list_price / "
+        "list_price_minor. Those rows are marked value_source=synthetic_default.",
     ),
     max_requests: int | None = typer.Option(
         None,

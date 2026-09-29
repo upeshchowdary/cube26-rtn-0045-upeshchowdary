@@ -18,7 +18,7 @@ export interface BatchJob {
   notes: string[]
 }
 
-// The 19 flat columns written by batch/io_csv.py:OUTPUT_FIELDNAMES.
+// The 20 flat columns written by batch/io_csv.py:OUTPUT_FIELDNAMES.
 export interface BatchRowFlat {
   record_id: string
   unit_id: string
@@ -39,6 +39,7 @@ export interface BatchRowFlat {
   captured_at: string
   sold_vs_returned_id_check: string
   failure_reason: string // why the row failed open; empty on a real model + engine result
+  value_source: string // 'csv_list_price' | 'synthetic_default' ('' when there is no before-record)
 }
 
 export type DecisionAction = 'accept' | 'override' | 'retake_request' | 'review_request'
@@ -227,6 +228,15 @@ export interface RowDetail {
     threshold_bp: number
     threshold_calibrated: boolean // false until the §21.5 threshold sweep is run
     blocked_by: string[]
+  }
+  // Where the numbers behind a value-driven outcome came from (batch/runner.py:value_record).
+  value?: {
+    list_price_minor: number
+    currency: string
+    value_source: string // 'csv_list_price' | 'synthetic_default'
+    recovery_rates_source: string
+    refurbish_cost_source: string
+    value_driven_outcomes: string[] // e.g. ['R09'], ['S02_high_value'] - backend-computed
   }
 }
 

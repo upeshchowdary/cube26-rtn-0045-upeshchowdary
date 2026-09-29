@@ -158,6 +158,8 @@ export default function Inspection() {
 
   const photos = row.photos.length ? row.photos : row.image ? [row.image] : []
   const currentPhoto = photos[photoIndex] ?? photos[0]
+  // From the backend's value record only: the CSV gave no list price, so the default was used.
+  const priceAssumed = detail?.value?.value_source === 'synthetic_default'
 
   return (
     <>
@@ -530,7 +532,12 @@ export default function Inspection() {
                   })()}
                 </small>
               </div>
-              <i>{detail?.decision?.rule_id || (row.failure_reason ? 'FAILED OPEN' : 'NO DETAIL')}</i>
+              <i>
+                {detail?.decision?.rule_id || (row.failure_reason ? 'FAILED OPEN' : 'NO DETAIL')}
+                {priceAssumed && detail?.value?.value_driven_outcomes.includes(detail.decision.rule_id) && (
+                  <small className="price-assumed"> · price assumed (synthetic)</small>
+                )}
+              </i>
             </div>
             <div className="decision-facts">
               <div>
@@ -577,7 +584,15 @@ export default function Inspection() {
                     {dispositionLabel(route)} <b>{moneyMinor(minor, detail.decision.currency)}</b>
                   </div>
                 ))}
-                <small>{detail.decision.synthetic_values ? 'Synthetic values' : 'Real values'}</small>
+                <small>
+                  {detail.value
+                    ? `List price ${moneyMinor(detail.value.list_price_minor, detail.value.currency)} · ${
+                        priceAssumed ? 'price assumed (synthetic)' : 'from the uploaded CSV'
+                      } · recovery rates and refurbish cost assumed (synthetic)`
+                    : detail.decision.synthetic_values
+                    ? 'Synthetic values'
+                    : 'Values from the product card'}
+                </small>
               </div>
             )}
             {detail?.auto_approval && (
@@ -600,6 +615,10 @@ export default function Inspection() {
             {detail?.decision?.requires_signoff && (
               <div className="functional">
                 <LockKeyhole size={14} /> Requires sign-off
+                {detail.decision.signoff_reasons.length > 0 && `: ${detail.decision.signoff_reasons.map(titleCase).join(', ')}`}
+                {priceAssumed && detail.value?.value_driven_outcomes.includes('S02_high_value') && (
+                  <small className="price-assumed"> · price assumed (synthetic)</small>
+                )}
               </div>
             )}
             <div className="decision-actions">

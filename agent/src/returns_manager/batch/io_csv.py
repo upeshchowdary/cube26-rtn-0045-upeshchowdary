@@ -1,13 +1,17 @@
 """Reads the two seller-supplied input files and joins them on `unit_id`.
 
 Before-file columns: record_id,unit_id,org_id,order_id,ordered_sku,ordered_asin,
-identity_match,parts_list,time,photo_ref[,category]
+identity_match,parts_list,time,photo_ref[,category][,list_price | ,list_price_minor]
 Returned-file columns: record_id,unit_id,org_id,order_id,ordered_sku,ordered_asin,
 returned_photo_ref,time
 
 Every listed column must be present. `record_id` and `unit_id` must also have a value on every
 row; any other blank cell stays blank. Nothing is filled in: a blank ID is reported by the
 sold-vs-returned check as "not checked", never as a match.
+
+The optional unit price is `list_price` in rupees (e.g. `1299.50`, converted to 129950 paise) or
+`list_price_minor` in paise (e.g. `129950`). A row without one uses the batch's configured default
+price, and that row is marked `value_source=synthetic_default` so it is never shown as real.
 """
 
 from __future__ import annotations
@@ -16,6 +20,7 @@ import csv
 import io
 from collections.abc import Sequence
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 REQUIRED_BEFORE_COLUMNS = {
@@ -42,6 +47,10 @@ REQUIRED_RETURNED_COLUMNS = {
 }
 # Columns that must have a value on every row: they identify the record and join the two files.
 REQUIRED_VALUE_COLUMNS = ("record_id", "unit_id")
+
+# Where a row's list price came from (output column `value_source`).
+VALUE_SOURCE_CSV = "csv_list_price"
+VALUE_SOURCE_DEFAULT = "synthetic_default"
 
 
 class CsvInputError(ValueError):
@@ -75,6 +84,7 @@ class BeforeRow:
     time: str
     photo_ref: str
     category: str | None = None
+    list_price_minor: int | None = None  # from the CSV only; None means "not supplied"
 
 
 @dataclass(frozen=True)
@@ -96,12 +106,48 @@ def check_columns(fieldnames: Sequence[str] | None, required: set[str], filename
         raise CsvInputError(filename, f"missing required column(s): {', '.join(sorted(missing))}")
 
 
-def _rows(text: str, required: set[str], filename: str) -> list[dict[str, str]]:
-    """Every non-empty data row, after checking the header and the required values. Line
-    numbers in errors are CSV lines as a spreadsheet shows them (the header is line 1)."""
+def parse_list_price(row: dict[str, str], filename: str, line: int) -> int | None:
+    """The row's list price in minor units (paise), or None when neither price column has a
+    value. `list_price` is rupees with at most 2 decimals; `list_price_minor` is whole paise."""
+    rupees = (row.get("list_price") or "").strip()
+    paise = (row.get("list_price_minor") or "").strip()
+    from_rupees: int | None = None
+    from_paise: int | None = None
+    if rupees:
+        try:
+            amount = Decimal(rupees)
+        except InvalidOperation:
+            amount = Decimal("NaN")
+        if not amount.is_finite() or amount < 0 or amount != amount.quantize(Decimal("0.01")):
+            raise CsvInputError(
+                filename,
+                f"not a price in rupees with at most 2 decimals: {rupees!r}",
+                line=line,
+                column="list_price",
+            )
+        from_rupees = int(amount * 100)
+    if paise:
+        if not paise.isdigit():
+            raise CsvInputError(
+                filename, f"not a whole number of paise: {paise!r}", line=line, column="list_price_minor"
+            )
+        from_paise = int(paise)
+    if from_rupees is not None and from_paise is not None and from_rupees != from_paise:
+        raise CsvInputError(
+            filename,
+            f"list_price {rupees} (= {from_rupees} paise) disagrees with list_price_minor {from_paise}",
+            line=line,
+            column="list_price_minor",
+        )
+    return from_paise if from_paise is not None else from_rupees
+
+
+def _rows(text: str, required: set[str], filename: str) -> list[tuple[int, dict[str, str]]]:
+    """(line, row) for every non-empty data row, after checking the header and the required
+    values. Line numbers are CSV lines as a spreadsheet shows them (the header is line 1)."""
     reader = csv.DictReader(io.StringIO(text, newline=""))
     check_columns(reader.fieldnames, required, filename)
-    rows: list[dict[str, str]] = []
+    rows: list[tuple[int, dict[str, str]]] = []
     line = reader.line_num + 1
     for raw in reader:
         row = {k: (v or "").strip() for k, v in raw.items() if isinstance(k, str) and isinstance(v, str)}
@@ -109,7 +155,7 @@ def _rows(text: str, required: set[str], filename: str) -> list[dict[str, str]]:
             for column in REQUIRED_VALUE_COLUMNS:
                 if not row.get(column):
                     raise CsvInputError(filename, "required value is blank", line=line, column=column)
-            rows.append(row)
+            rows.append((line, row))
         line = reader.line_num + 1
     return rows
 
@@ -118,7 +164,7 @@ def parse_before_csv(text: str, filename: str) -> dict[str, BeforeRow]:
     """Returns {unit_id: BeforeRow}. Later rows for the same unit_id overwrite earlier ones.
     Raises CsvInputError on a missing column or a blank record_id/unit_id."""
     by_unit: dict[str, BeforeRow] = {}
-    for row in _rows(text, REQUIRED_BEFORE_COLUMNS, filename):
+    for line, row in _rows(text, REQUIRED_BEFORE_COLUMNS, filename):
         category = row.get("category") or None
         by_unit[row["unit_id"]] = BeforeRow(
             record_id=row["record_id"],
@@ -132,6 +178,7 @@ def parse_before_csv(text: str, filename: str) -> dict[str, BeforeRow]:
             time=row.get("time", ""),
             photo_ref=row.get("photo_ref", ""),
             category=category.lower() if category else None,
+            list_price_minor=parse_list_price(row, filename, line),
         )
     return by_unit
 
@@ -139,7 +186,7 @@ def parse_before_csv(text: str, filename: str) -> dict[str, BeforeRow]:
 def parse_returned_csv(text: str, filename: str) -> list[ReturnedRow]:
     """Raises CsvInputError on a missing column or a blank record_id/unit_id."""
     rows: list[ReturnedRow] = []
-    for row in _rows(text, REQUIRED_RETURNED_COLUMNS, filename):
+    for _line, row in _rows(text, REQUIRED_RETURNED_COLUMNS, filename):
         refs = tuple(u.strip() for u in row.get("returned_photo_ref", "").split(";") if u.strip())
         rows.append(
             ReturnedRow(
@@ -184,6 +231,7 @@ OUTPUT_FIELDNAMES = [
     "captured_at",
     "sold_vs_returned_id_check",
     "failure_reason",  # why a row failed open (empty on a real model + engine result)
+    "value_source",  # csv_list_price, or synthetic_default when the CSV gave no price
 ]
 
 

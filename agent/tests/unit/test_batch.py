@@ -180,7 +180,7 @@ def test_write_output_csv_uses_fixed_column_order(tmp_path: Path) -> None:
     assert header == (
         "record_id,unit_id,org_id,order_id,ordered_sku,ordered_asin,identity_match,photo_identity_match,"
         "parts_list,parts_missing,observed_state,amazon_condition,operator_disposition,agent_disposition,"
-        "auto_approved,photo_refs,captured_at,sold_vs_returned_id_check,failure_reason"
+        "auto_approved,photo_refs,captured_at,sold_vs_returned_id_check,failure_reason,value_source"
     )
     assert "unexpected_extra" not in out.read_text(encoding="utf-8")
 
@@ -593,7 +593,7 @@ def test_render_output_csv_reflects_latest_override_not_the_stored_file(tmp_path
     assert lines[0] == (
         "record_id,unit_id,org_id,order_id,ordered_sku,ordered_asin,identity_match,photo_identity_match,"
         "parts_list,parts_missing,observed_state,amazon_condition,operator_disposition,agent_disposition,"
-        "auto_approved,photo_refs,captured_at,sold_vs_returned_id_check,failure_reason"
+        "auto_approved,photo_refs,captured_at,sold_vs_returned_id_check,failure_reason,value_source"
     )
     assert "refurbish" in lines[1]
     assert "liquidate" not in after_override.decode("utf-8")
@@ -1337,3 +1337,162 @@ async def test_progress_disk_write_failure_is_tolerated(tmp_path: Path, monkeypa
     await svc._run(job, None, 1)
     assert job.status == "done"
     assert calls["n"] == 2
+
+
+# ── honest list price (Stage 2 item 3, audit C3) ───────────────────────────────────
+# A before-row may carry list_price (rupees) or list_price_minor (paise). Without one, the
+# configured default is used and the row says value_source=synthetic_default, in the output
+# and in the row detail, so a synthetic price is never presented as real.
+
+
+def _before_csv(extra_header: str = "", extra_value: str = "") -> str:
+    return (
+        _BEFORE_HEADER
+        + extra_header
+        + "\nPCK-1,UNIT-1,org,ORD-1,SKU-A,ASIN-A,yes,x,t,https://e/ref.jpg"
+        + extra_value
+        + "\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("header", "value", "minor"),
+    [
+        (",list_price", ",1299.50", 129950),
+        (",list_price", ",1299", 129900),
+        (",list_price_minor", ",129950", 129950),
+        (",list_price,list_price_minor", ",1299.50,129950", 129950),
+        ("", "", None),
+        (",list_price", ",", None),
+    ],
+)
+def test_list_price_parsed_from_rupees_or_paise(header: str, value: str, minor: int | None) -> None:
+    from returns_manager.batch.io_csv import parse_before_csv
+
+    assert parse_before_csv(_before_csv(header, value), "b.csv")["UNIT-1"].list_price_minor == minor
+
+
+@pytest.mark.parametrize(
+    ("header", "value", "column"),
+    [
+        (",list_price", ",12.345", "list_price"),
+        (",list_price", ",-5", "list_price"),
+        (",list_price", ",abc", "list_price"),
+        (",list_price_minor", ",12.5", "list_price_minor"),
+        (",list_price,list_price_minor", ",1299.50,129900", "list_price_minor"),
+    ],
+)
+def test_bad_list_price_names_file_line_and_column(header: str, value: str, column: str) -> None:
+    from returns_manager.batch.io_csv import CsvInputError, parse_before_csv
+
+    with pytest.raises(CsvInputError) as err:
+        parse_before_csv(_before_csv(header, value), "b.csv")
+    assert (err.value.filename, err.value.line, err.value.column) == ("b.csv", 2, column)
+
+
+def test_combined_upload_bad_list_price_is_400(tmp_path: Path) -> None:
+    client = _upload_client(tmp_path)
+    body = f"{_COMBINED_HEADER},list_price\n{_COMBINED_ROW},lots\n"
+    resp = _post(client, {"file": ("c.csv", body)})
+    assert resp.status_code == 400
+    assert resp.json()["detail"].startswith("c.csv, line 2, column 'list_price':")
+
+
+def test_split_carries_the_list_price_through() -> None:
+    from returns_manager.api.routes.batch import _split_combined_csv
+    from returns_manager.batch.io_csv import parse_before_csv
+
+    body = f"{_COMBINED_HEADER},list_price\n{_COMBINED_ROW},2499.00\n"
+    b_bytes, _ = _split_combined_csv(body.encode("utf-8"), "c.csv")
+    assert parse_before_csv(b_bytes.decode("utf-8"), "b")["UNIT-1"].list_price_minor == 249900
+
+
+def test_value_record_csv_price_is_marked_as_from_the_csv() -> None:
+    from returns_manager.batch.runner import value_record
+
+    ctx = b.context(b.headphones_card())
+    result = b.run(ctx, _sealed_new(ctx))
+    rec = value_record(_before(list_price_minor=450000), 999900, result.decision)
+    assert rec["list_price_minor"] == 450000
+    assert rec["value_source"] == "csv_list_price"
+    # Recovery rates and refurbish cost are still placeholders, and say so.
+    assert rec["recovery_rates_source"] == rec["refurbish_cost_source"] == "synthetic_default"
+
+
+def test_value_record_without_csv_price_is_synthetic_default() -> None:
+    from returns_manager.batch.runner import value_record
+
+    ctx = b.context(b.headphones_card())
+    result = b.run(ctx, _sealed_new(ctx))
+    rec = value_record(_before(), 999900, result.decision)
+    assert rec["list_price_minor"] == 999900
+    assert rec["value_source"] == "synthetic_default"
+
+
+def test_value_record_names_the_value_driven_outcomes() -> None:
+    from returns_manager.batch.runner import value_record
+
+    ctx = b.context(b.headphones_card())
+    j = b.component(
+        ctx, b.judgment(ctx), "usb_cable", status="missing", visibility="observed_absent_in_clear_view"
+    )
+    r09 = b.run(ctx, b.grade(j, "used_good", ctx))
+    assert value_record(_before(), 999900, r09.decision)["value_driven_outcomes"] == ["R09"]
+
+    ctx_hv = b.context(b.headphones_card(price_minor=900000))
+    j_hv = b.component(
+        ctx_hv, b.judgment(ctx_hv), "usb_cable", status="missing", visibility="observed_absent_in_clear_view"
+    )
+    s02 = b.run(ctx_hv, _confident(b.grade(j_hv, "used_good", ctx_hv)))
+    assert "S02_high_value" in value_record(_before(), 900000, s02.decision)["value_driven_outcomes"]
+
+    clean = b.run(ctx, _sealed_new(ctx))
+    assert value_record(_before(), 999900, clean.decision)["value_driven_outcomes"] == []
+
+
+def test_output_row_records_value_source_on_both_paths() -> None:
+    assert _uncertain_row(_returned(), _before(), "x")["value_source"] == "synthetic_default"
+    assert (
+        _uncertain_row(_returned(), _before(list_price_minor=12300), "x")["value_source"] == "csv_list_price"
+    )
+    assert _uncertain_row(_returned(), None, "x")["value_source"] == ""
+
+
+async def test_the_csv_price_reaches_the_card_and_the_default_is_used_otherwise(monkeypatch: Any) -> None:
+    """process_returned_row prices the synthesized card from the CSV when given, else the default."""
+    from returns_manager.batch import runner
+
+    seen: list[int] = []
+
+    def _capture(**kwargs: Any) -> Any:
+        seen.append(kwargs["list_price_minor"])
+        raise _Stop
+
+    class _Stop(Exception):
+        pass
+
+    monkeypatch.setattr(runner, "build_card", _capture)
+    for before, expected in ((_before(list_price_minor=450000), 450000), (_before(), 999900)):
+        with pytest.raises(_Stop):
+            await runner.process_returned_row(
+                _returned(),
+                {"UNIT-1": before},
+                settings=Settings.model_construct(),
+                client=None,  # type: ignore[arg-type]
+                http_client=None,  # type: ignore[arg-type]
+                quota=runner._NoDbQuota(1),
+                default_category=None,
+                list_price_minor=999900,
+            )
+        assert seen[-1] == expected
+
+
+def test_ui_labels_an_assumed_price_from_the_backend_record_only() -> None:
+    ui = Path(__file__).resolve().parents[3] / "ui" / "src"
+    inspection = (ui / "screens" / "Inspection.tsx").read_text(encoding="utf-8")
+    assert "price assumed (synthetic)" in inspection
+    assert "detail?.value?.value_source === 'synthetic_default'" in inspection
+    assert "value_driven_outcomes.includes('S02_high_value')" in inspection
+    # No client-side copy of the value rules.
+    for rule in ("'R09'", "'R10'", "high_value_threshold"):
+        assert rule not in inspection

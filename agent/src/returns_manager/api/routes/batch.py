@@ -16,7 +16,12 @@ from fastapi import APIRouter, File, Form, Response, UploadFile
 from pydantic import BaseModel, Field
 
 from returns_manager.api.deps import PrincipalDep, ServicesDep
-from returns_manager.batch.io_csv import CsvInputError, parse_before_csv, parse_returned_csv
+from returns_manager.batch.io_csv import (
+    CsvInputError,
+    parse_before_csv,
+    parse_list_price,
+    parse_returned_csv,
+)
 from returns_manager.batch.jobs_service import BatchJob
 from returns_manager.disposition.engine import Route
 from returns_manager.errors import BadRequest, NotFound
@@ -93,6 +98,8 @@ _BEFORE_FIELDNAMES = [
     "time",
     "photo_ref",
     "category",
+    "list_price",
+    "list_price_minor",
 ]
 _RETURNED_FIELDNAMES = [
     "record_id",
@@ -164,6 +171,10 @@ def _split_combined_csv(content: bytes, filename: str = "returns.csv") -> tuple[
         unit_id = _first(r, "unit_id")
         sold_record_id = _first(r, "sold_record_id", "record_id")
         returned_record_id = _first(r, "returned_record_id", "record_id")
+        try:
+            parse_list_price(r, filename, line)  # a bad price names the uploaded file and line
+        except CsvInputError as exc:
+            raise BadRequest(str(exc)) from exc
         for column, value in (
             ("unit_id", unit_id),
             ("sold_record_id", sold_record_id),
@@ -181,6 +192,8 @@ def _split_combined_csv(content: bytes, filename: str = "returns.csv") -> tuple[
                 "time": _first(r, "sold_time"),
                 "photo_ref": _first(r, "sold_photo_url", "photo_ref"),
                 "category": _first(r, "category"),
+                "list_price": _first(r, "list_price"),
+                "list_price_minor": _first(r, "list_price_minor"),
             }
         )
         rw.writerow(

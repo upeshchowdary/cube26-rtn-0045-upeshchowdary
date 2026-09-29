@@ -1320,3 +1320,10 @@
   }
 }
 
+
+/* Stage 2: a value-driven outcome computed from an assumed (synthetic) list price. */
+.price-assumed {
+  color: #d97706;
+  font-style: normal;
+  font-weight: 600;
+}

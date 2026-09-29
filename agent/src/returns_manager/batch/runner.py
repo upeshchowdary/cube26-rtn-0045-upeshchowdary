@@ -21,9 +21,16 @@ import httpx
 import yaml
 
 from returns_manager.batch import auto_approve
-from returns_manager.batch.cards import VALID_CATEGORIES, build_card
+from returns_manager.batch.cards import DEFAULT_LIST_PRICE_MINOR, VALID_CATEGORIES, build_card
 from returns_manager.batch.images import ImageFetchError, fetch_image
-from returns_manager.batch.io_csv import BeforeRow, ReturnedRow, read_before_csv, read_returned_csv
+from returns_manager.batch.io_csv import (
+    VALUE_SOURCE_CSV,
+    VALUE_SOURCE_DEFAULT,
+    BeforeRow,
+    ReturnedRow,
+    read_before_csv,
+    read_returned_csv,
+)
 from returns_manager.batch.parts import parse_parts_list
 from returns_manager.canonical.hashing import sha256_hex
 from returns_manager.config import REPO_ROOT, Settings
@@ -201,6 +208,38 @@ def check_id_match(before: BeforeRow | None, row: ReturnedRow) -> str:
     return " | ".join(parts) if parts else "matched"
 
 
+# Engine outcomes that depend on the list price: S02 (high-value sign-off), R09 (refurbish only
+# if the net gain clears the threshold) and R10 (liquidate vs dispose by salvage value).
+VALUE_DRIVEN_RULES = ("R09", "R10")
+VALUE_DRIVEN_SIGNOFFS = ("S02_high_value",)
+
+
+def _value_source(before: BeforeRow | None) -> str:
+    if before is None:
+        return ""
+    return VALUE_SOURCE_CSV if before.list_price_minor is not None else VALUE_SOURCE_DEFAULT
+
+
+def _list_price(before: BeforeRow, default_minor: int) -> int:
+    return before.list_price_minor if before.list_price_minor is not None else default_minor
+
+
+def value_record(before: BeforeRow, default_minor: int, decision: Any) -> dict[str, Any]:
+    """Where the numbers behind a value-driven outcome came from, for the row detail. The UI shows
+    "price assumed (synthetic)" from `value_source`; it never works this out itself. Recovery
+    rates and refurbish cost are always the synthetic placeholders in batch/cards.py."""
+    outcomes = [decision.rule_id] if decision.rule_id in VALUE_DRIVEN_RULES else []
+    outcomes += [s for s in decision.signoff_reasons if s in VALUE_DRIVEN_SIGNOFFS]
+    return {
+        "list_price_minor": _list_price(before, default_minor),
+        "currency": "INR",
+        "value_source": _value_source(before),
+        "recovery_rates_source": VALUE_SOURCE_DEFAULT,
+        "refurbish_cost_source": VALUE_SOURCE_DEFAULT,
+        "value_driven_outcomes": outcomes,
+    }
+
+
 def _operator_disposition(recommended: str | None, *, auto_approved: bool) -> str:
     """`operator_disposition` before any human decision (§14.3): the engine's route only when the
     row is auto-approved (engine route, no review, no sign-off, IDs agree - see auto_approve.py);
@@ -246,6 +285,7 @@ def _uncertain_row(row: ReturnedRow, before: BeforeRow | None, reason: str) -> d
         "captured_at": row.time,
         "sold_vs_returned_id_check": id_check,
         "failure_reason": reason,
+        "value_source": _value_source(before),
     }
 
 
@@ -352,7 +392,7 @@ async def process_returned_row(
         asin=before.ordered_asin or row.ordered_asin,
         category_key=category,
         parts=parts,
-        list_price_minor=list_price_minor,
+        list_price_minor=_list_price(before, list_price_minor),
     )
 
     long_edge = settings.rm_analysis_long_edge
@@ -456,6 +496,7 @@ async def process_returned_row(
         "captured_at": row.time,
         "sold_vs_returned_id_check": id_check,
         "failure_reason": "",
+        "value_source": _value_source(before),
     }
     warning = (
         f"{len(photo_errors)} of {len(row.returned_photo_refs)} return photo(s) failed to fetch: "
@@ -465,6 +506,7 @@ async def process_returned_row(
     )
     detail = _build_row_detail(session_judgment=session.judgment, result=result, row=row, before=before)
     detail["auto_approval"] = approval.as_dict()
+    detail["value"] = value_record(before, list_price_minor, result.decision)
     return RowResult(output_row, None, True, warning, detail=detail)
 
 
@@ -475,7 +517,7 @@ async def run_batch(
     settings: Settings,
     client: ModelClient,
     default_category: str | None = None,
-    list_price_minor: int = 999900,
+    list_price_minor: int = DEFAULT_LIST_PRICE_MINOR,
     max_requests: int | None = None,
     on_progress: Any | None = None,
 ) -> tuple[list[dict[str, str]], dict[str, dict[str, Any]], BatchSummary]:
