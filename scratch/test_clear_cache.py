@@ -2,15 +2,20 @@ import os
 import sys
 
 # The API key comes from the environment; it is never committed (audit A12).
-RM_API_KEY = os.environ.get("RM_API_KEY") or sys.exit("RM_API_KEY is not set. Mint a key with `returns-manager keys create` and export RM_API_KEY.")
-import httpx
-import json
+RM_API_KEY = os.environ.get("RM_API_KEY") or sys.exit(
+    "RM_API_KEY is not set. Mint a key with `returns-manager keys create` and export RM_API_KEY."
+)
 from pathlib import Path
+
+import httpx
 
 API_URL = "http://127.0.0.1:8000/api/v1/batch"
 API_KEY = RM_API_KEY
 HEADERS = {"X-API-Key": API_KEY}
-CSV_PATH = Path(r"c:\Users\UPESH CHOWDARY\OneDrive\Desktop\cube26-rtn-0045-upeshchowdary-main\cube26-rtn-0045-upeshchowdary\agent\manual_test_images\returns_input_30.csv")
+CSV_PATH = Path(
+    r"c:\Users\UPESH CHOWDARY\OneDrive\Desktop\cube26-rtn-0045-upeshchowdary-main\cube26-rtn-0045-upeshchowdary\agent\manual_test_images\returns_input_30.csv"
+)
+
 
 def test_full_clear_cache_cycle():
     with httpx.Client(headers=HEADERS, timeout=30.0) as client:
@@ -46,6 +51,7 @@ def test_full_clear_cache_cycle():
         assert len(jobs_after) == 0, f"Expected 0 jobs, found {len(jobs_after)}"
 
         print(">>> SUCCESS: Full cache clear cycle verified successfully!")
+
 
 if __name__ == "__main__":
     test_full_clear_cache_cycle()

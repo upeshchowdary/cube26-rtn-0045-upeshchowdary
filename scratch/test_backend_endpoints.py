@@ -2,16 +2,19 @@ import os
 import sys
 
 # The API key comes from the environment; it is never committed (audit A12).
-RM_API_KEY = os.environ.get("RM_API_KEY") or sys.exit("RM_API_KEY is not set. Mint a key with `returns-manager keys create` and export RM_API_KEY.")
-import urllib.request
-import urllib.error
-import json
+RM_API_KEY = os.environ.get("RM_API_KEY") or sys.exit(
+    "RM_API_KEY is not set. Mint a key with `returns-manager keys create` and export RM_API_KEY."
+)
 import csv
 import io
+import json
 import sys
+import urllib.error
+import urllib.request
 
 API_KEY = RM_API_KEY
 BASE_URL = "http://127.0.0.1:8000"
+
 
 def req(path, method="GET", body=None):
     headers = {"X-API-Key": API_KEY}
@@ -19,7 +22,9 @@ def req(path, method="GET", body=None):
     if body is not None:
         headers["Content-Type"] = "application/json"
         data = json.dumps(body).encode("utf-8")
-    r = urllib.request.Request(f"{BASE_URL}{path}", data=data, headers=headers, method=method)
+    r = urllib.request.Request(
+        f"{BASE_URL}{path}", data=data, headers=headers, method=method
+    )
     try:
         with urllib.request.urlopen(r, timeout=10) as resp:
             content = resp.read()
@@ -34,12 +39,13 @@ def req(path, method="GET", body=None):
         err_body = e.read().decode("utf-8")
         try:
             return e.code, json.loads(err_body)
-        except Exception:
+        except ValueError:
             return e.code, err_body
+
 
 def run_tests():
     print("=== STARTING EXHAUSTIVE BACKEND API TEST SUITE ===")
-    
+
     # 1. Health
     st, res = req("/health")
     assert st == 200, f"/health failed: {st}, {res}"
@@ -55,13 +61,17 @@ def run_tests():
     assert st == 200 and isinstance(jobs, list), f"List jobs failed: {st}, {jobs}"
     print(f"[PASS] /api/v1/batch/jobs returned {len(jobs)} jobs.")
     assert len(jobs) > 0, "No batch jobs found"
-    
+
     # Find a completed job
-    completed_jobs = [j for j in jobs if j.get("status") == "done" and j.get("total_rows", 0) > 0]
+    completed_jobs = [
+        j for j in jobs if j.get("status") == "done" and j.get("total_rows", 0) > 0
+    ]
     assert len(completed_jobs) > 0, "No completed job found"
     test_job = completed_jobs[0]
     job_id = test_job["job_id"]
-    print(f"Testing with job_id={job_id} ({test_job['processed']} processed / {test_job['total_rows']} total)")
+    print(
+        f"Testing with job_id={job_id} ({test_job['processed']} processed / {test_job['total_rows']} total)"
+    )
 
     # 4. Job details
     st, job_detail = req(f"/api/v1/batch/jobs/{job_id}")
@@ -77,22 +87,34 @@ def run_tests():
 
     # 6. Row detail
     st, detail = req(f"/api/v1/batch/jobs/{job_id}/rows/{rec_id}/detail")
-    assert st == 200 and "identity" in detail and "decision" in detail, f"Get row detail failed: {st}, {detail}"
-    print(f"[PASS] /api/v1/batch/jobs/{job_id}/rows/{rec_id}/detail -> identity={detail['identity'].get('identity_match')}")
+    assert st == 200 and "identity" in detail and "decision" in detail, (
+        f"Get row detail failed: {st}, {detail}"
+    )
+    print(
+        f"[PASS] /api/v1/batch/jobs/{job_id}/rows/{rec_id}/detail -> identity={detail['identity'].get('identity_match')}"
+    )
 
     # 7. Row decisions history
     st, decisions = req(f"/api/v1/batch/jobs/{job_id}/rows/{rec_id}/decisions")
     assert st == 200 and isinstance(decisions, list), f"Get decisions failed: {st}"
-    print(f"[PASS] /api/v1/batch/jobs/{job_id}/rows/{rec_id}/decisions -> {len(decisions)} existing decisions.")
+    print(
+        f"[PASS] /api/v1/batch/jobs/{job_id}/rows/{rec_id}/decisions -> {len(decisions)} existing decisions."
+    )
 
     # 8. Post a human override decision
     override_payload = {
         "action": "override",
         "new_disposition": "refurbish",
-        "reason": "Automated verification test: verified screen has minor scratch, routing to refurbish."
+        "reason": "Automated verification test: verified screen has minor scratch, routing to refurbish.",
     }
-    st, dec_res = req(f"/api/v1/batch/jobs/{job_id}/rows/{rec_id}/decision", method="POST", body=override_payload)
-    assert st in (200, 201) and dec_res["action"] == "override", f"Post override failed: {st}, {dec_res}"
+    st, dec_res = req(
+        f"/api/v1/batch/jobs/{job_id}/rows/{rec_id}/decision",
+        method="POST",
+        body=override_payload,
+    )
+    assert st in (200, 201) and dec_res["action"] == "override", (
+        f"Post override failed: {st}, {dec_res}"
+    )
     print(f"[PASS] Post override decision -> recorded by {dec_res.get('actor')}")
 
     # 9. Verify CSV output download reflects changes
@@ -103,15 +125,23 @@ def run_tests():
     print(f"[PASS] Output CSV downloaded -> {len(csv_rows)} rows found.")
     matching_csv_row = next((r for r in csv_rows if r.get("record_id") == rec_id), None)
     assert matching_csv_row is not None, f"Record {rec_id} not found in output CSV"
-    print(f"Record {rec_id} in output CSV: operator_disposition={matching_csv_row.get('operator_disposition')}")
+    print(
+        f"Record {rec_id} in output CSV: operator_disposition={matching_csv_row.get('operator_disposition')}"
+    )
 
     # 10. Post an accept decision
     accept_payload = {
         "action": "accept",
-        "reason": "Automated test acceptance: item condition verified."
+        "reason": "Automated test acceptance: item condition verified.",
     }
-    st, acc_res = req(f"/api/v1/batch/jobs/{job_id}/rows/{rec_id}/decision", method="POST", body=accept_payload)
-    assert st in (200, 201) and acc_res["action"] == "accept", f"Post accept failed: {st}, {acc_res}"
+    st, acc_res = req(
+        f"/api/v1/batch/jobs/{job_id}/rows/{rec_id}/decision",
+        method="POST",
+        body=accept_payload,
+    )
+    assert st in (200, 201) and acc_res["action"] == "accept", (
+        f"Post accept failed: {st}, {acc_res}"
+    )
     print(f"[PASS] Post accept decision -> {acc_res.get('action')}")
 
     # 11. System controls
@@ -127,7 +157,7 @@ def run_tests():
     # 13. Metrics economics
     st, econ = req("/api/v1/metrics/economics?window=7d&volume=1000")
     assert st == 200, f"Economics metrics failed: {st}, {econ}"
-    print(f"[PASS] /api/v1/metrics/economics -> ok")
+    print("[PASS] /api/v1/metrics/economics -> ok")
 
     # 14. Cache clear
     st, clear_res = req("/api/v1/batch/cache/clear", method="POST", body={})
@@ -135,6 +165,7 @@ def run_tests():
     print(f"[PASS] /api/v1/batch/cache/clear -> {clear_res}")
 
     print("\n>>> ALL 14 BACKEND API CHECKS PASSED WITH 100% SUCCESS! <<<")
+
 
 if __name__ == "__main__":
     run_tests()
