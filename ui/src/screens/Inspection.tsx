@@ -23,7 +23,7 @@ import {
 import { ApiError } from '../lib/api'
 import { useBatchStore } from '../lib/store'
 import { moneyMinor, titleCase } from '../lib/format'
-import { dispositionLabel } from '../lib/derive'
+import { dispositionLabel, idCheckLabel } from '../lib/derive'
 import type { DecisionAction, RowDetail } from '../lib/types'
 import { Pill } from './shared'
 
@@ -308,12 +308,12 @@ export default function Inspection() {
               <button>
                 <CheckCircle2 size={15} />
                 <span>Identity carried from the before-file (not re-checked)</span>
-                <b>{(row.identity_match || 'uncertain').toUpperCase()}</b>
+                <b>{(row.identity_match || 'not given').toUpperCase()}</b>
               </button>
               <button>
                 <CheckCircle2 size={15} />
                 <span>Sold vs returned ID check</span>
-                <b>{row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') ? 'FAIL' : 'PASS'}</b>
+                <b>{idCheckLabel(row.sold_vs_returned_id_check)}</b>
               </button>
             </div>
           </section>
@@ -340,13 +340,13 @@ export default function Inspection() {
                     <b>Catalog identity match</b>
                     <small>Order {row.order_id} · Unit {row.unit_id}</small>
                   </span>
-                  <Pill value={row.identity_match.toUpperCase()} />
+                  <Pill value={(row.identity_match || 'not given').toUpperCase()} />
                 </div>
                 <div className="check-list">
                   <button>
                     <CheckCircle2 size={15} />
                     <span>Sold vs Returned ID Check</span>
-                    <b>{row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') ? 'FAIL' : 'PASS'}</b>
+                    <b>{idCheckLabel(row.sold_vs_returned_id_check)}</b>
                   </button>
                   <button>
                     <CheckCircle2 size={15} />

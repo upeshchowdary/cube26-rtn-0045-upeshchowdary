@@ -19,6 +19,14 @@ export function dispositionLabel(value: string): string {
     .join(' ')
 }
 
+/** Label for the backend's `sold_vs_returned_id_check` string. PASS only for an exact
+ * "matched" (every ID present on both records and equal); a blank ID is "not checked". */
+export function idCheckLabel(check: string | undefined): 'PASS' | 'FAIL' | 'NOT CHECKED' {
+  if (check === 'matched') return 'PASS'
+  if (check?.startsWith('NOT MATCHED')) return 'FAIL'
+  return 'NOT CHECKED'
+}
+
 export function dispositionMix(rows: DerivedRow[]): { name: string; value: number; key: string }[] {
   const counts = new Map<string, number>()
   for (const row of rows) {

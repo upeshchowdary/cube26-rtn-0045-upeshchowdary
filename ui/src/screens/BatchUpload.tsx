@@ -320,6 +320,11 @@ export default function BatchUpload() {
               <b>After-sale fields:</b> returned_record_id, returned_org_id, returned_order_id,
               returned_sku, returned_asin, returned_time, returned_photo_url. (Any other column, such as a free-text scenario note, is ignored.)
             </p>
+            <p>
+              <b>Required on every row:</b> unit_id, sold_record_id and returned_record_id (or a shared record_id).
+              A file missing one is rejected with the line and column. Nothing is filled in: a blank ID is
+              reported by the sold-vs-returned check as "not checked", never as a match.
+            </p>
           </details>
 
           <label className="spend-checkbox">

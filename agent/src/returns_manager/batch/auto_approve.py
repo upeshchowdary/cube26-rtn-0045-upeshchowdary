@@ -7,7 +7,8 @@ A row is auto-approved only when every one of these holds for its real pipeline 
   auto-approved), and the pipeline raised no review reason or escalation trigger;
 - every check passed, and every check's confidence (the model-reported confidence, in basis
   points) is at least `RM_BATCH_AUTO_APPROVE_MIN_CONFIDENCE_BP`;
-- the returned record's IDs agree with the sold record.
+- every sold-vs-returned ID field is present on both records and agrees (a blank ID is "not
+  checked", which blocks approval just like a mismatch).
 
 It never changes the route, the rule id or the grade: it only lets the engine's own route stand
 as `operator_disposition` without a person accepting it first. Everything else stays
@@ -39,7 +40,7 @@ class AutoApproval:
         }
 
 
-def evaluate(result: Any, *, id_mismatch: bool, threshold_bp: int) -> AutoApproval:
+def evaluate(result: Any, *, id_mismatch: bool, id_not_checked: bool, threshold_bp: int) -> AutoApproval:
     """`result` is a `judgment.pipeline.PipelineResult` from a real model response."""
     decision = result.decision
     blocked: list[str] = []
@@ -53,6 +54,8 @@ def evaluate(result: Any, *, id_mismatch: bool, threshold_bp: int) -> AutoApprov
         blocked.append("escalation_triggered")
     if id_mismatch:
         blocked.append("sold_vs_returned_id_mismatch")
+    if id_not_checked:
+        blocked.append("sold_vs_returned_id_not_checked")
 
     checks = tuple(result.checks)
     if not checks:

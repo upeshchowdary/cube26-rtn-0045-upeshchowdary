@@ -168,6 +168,9 @@ class BatchSummary:
     notes: list[str] = field(default_factory=list)
 
 
+ID_CHECK_FIELDS = ("org_id", "order_id", "ordered_sku", "ordered_asin")
+
+
 def check_id_match(before: BeforeRow | None, row: ReturnedRow) -> str:
     """Do the IDs on the *returned* record actually match the IDs recorded when this same
     unit was *sold*? This is a plain data check, independent of anything a photo shows -
@@ -175,21 +178,27 @@ def check_id_match(before: BeforeRow | None, row: ReturnedRow) -> str:
     photo inside it is completely genuine, and a photo-based identity match can't catch
     that. Compares every id the two records both carry; any disagreement is reported, not
     just the first one found, so a human reviewing this doesn't have to re-check by hand.
+
+    "matched" means every ID field was present on both records and agreed. A field blank on
+    either side is not evidence of a match: it is reported as "not checked: <field> missing".
     """
     if before is None:
         return "NOT MATCHED: no sold-record for this unit_id"
-    mismatches = []
-    if before.org_id != row.org_id:
-        mismatches.append(f"org_id: sold={before.org_id!r} vs returned={row.org_id!r}")
-    if before.order_id != row.order_id:
-        mismatches.append(f"order_id: sold={before.order_id!r} vs returned={row.order_id!r}")
-    if before.ordered_sku != row.ordered_sku:
-        mismatches.append(f"ordered_sku: sold={before.ordered_sku!r} vs returned={row.ordered_sku!r}")
-    if before.ordered_asin != row.ordered_asin:
-        mismatches.append(f"ordered_asin: sold={before.ordered_asin!r} vs returned={row.ordered_asin!r}")
+    mismatches: list[str] = []
+    not_checked: list[str] = []
+    for name in ID_CHECK_FIELDS:
+        sold, returned = getattr(before, name), getattr(row, name)
+        blank = [side for side, value in (("sold", sold), ("returned", returned)) if not value]
+        if blank:
+            not_checked.append(f"{name} missing ({' and '.join(blank)})")
+        elif sold != returned:
+            mismatches.append(f"{name}: sold={sold!r} vs returned={returned!r}")
+    parts: list[str] = []
     if mismatches:
-        return "NOT MATCHED: " + "; ".join(mismatches)
-    return "matched"
+        parts.append("NOT MATCHED: " + "; ".join(mismatches))
+    if not_checked:
+        parts.append("not checked: " + "; ".join(not_checked))
+    return " | ".join(parts) if parts else "matched"
 
 
 def _operator_disposition(recommended: str | None, *, auto_approved: bool) -> str:
@@ -208,6 +217,11 @@ def _id_mismatch(before: BeforeRow | None, id_check: str) -> bool:
     return before is not None and id_check.startswith("NOT MATCHED")
 
 
+def _id_not_checked(id_check: str) -> bool:
+    """At least one ID field was blank on one side, so the records were not fully compared."""
+    return "not checked:" in id_check
+
+
 def _uncertain_row(row: ReturnedRow, before: BeforeRow | None, reason: str) -> dict[str, str]:
     """The fail-open row (§3): no verdict, no grade, no confidence - just the reason. Written for
     every row that did not get a real model response run through the deterministic pipeline."""
@@ -219,7 +233,7 @@ def _uncertain_row(row: ReturnedRow, before: BeforeRow | None, reason: str) -> d
         "order_id": row.order_id,
         "ordered_sku": row.ordered_sku,
         "ordered_asin": row.ordered_asin,
-        "identity_match": before.identity_match if before else "uncertain",
+        "identity_match": before.identity_match if before else "",  # nothing to carry forward
         "photo_identity_match": "uncertain",  # no model verdict on the returned photo this run
         "parts_list": before.parts_list if before else "",
         "parts_missing": "",
@@ -414,6 +428,7 @@ async def process_returned_row(
     approval = auto_approve.evaluate(
         result,
         id_mismatch=_id_mismatch(before, id_check),
+        id_not_checked=_id_not_checked(id_check),
         threshold_bp=settings.rm_batch_auto_approve_min_confidence_bp,
     )
     disposition = _operator_disposition(

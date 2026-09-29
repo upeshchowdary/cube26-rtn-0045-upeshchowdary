@@ -16,6 +16,7 @@ from fastapi import APIRouter, File, Form, Response, UploadFile
 from pydantic import BaseModel, Field
 
 from returns_manager.api.deps import PrincipalDep, ServicesDep
+from returns_manager.batch.io_csv import CsvInputError, parse_before_csv, parse_returned_csv
 from returns_manager.batch.jobs_service import BatchJob
 from returns_manager.disposition.engine import Route
 from returns_manager.errors import BadRequest, NotFound
@@ -64,91 +65,150 @@ def _to_response(job: BatchJob) -> BatchJobResponse:
     )
 
 
-def _split_combined_csv(content: bytes, default_org_id: str) -> tuple[bytes, bytes]:
+# Single combined CSV (the returns_input_30.csv layout): one row per unit, with the
+# sold record's IDs in `sold_*` columns and the returned record's in `returned_*` columns. Each
+# side's IDs are read only from its own prefixed columns: copying one shared column to both sides
+# would make the sold-vs-returned check compare a value with itself and report a false "matched".
+_SOLD_COLUMNS = {
+    "org_id": "sold_org_id",
+    "order_id": "sold_order_id",
+    "ordered_sku": "sold_sku",
+    "ordered_asin": "sold_asin",
+}
+_RETURNED_COLUMNS = {
+    "org_id": "returned_org_id",
+    "order_id": "returned_order_id",
+    "ordered_sku": "returned_sku",
+    "ordered_asin": "returned_asin",
+}
+_BEFORE_FIELDNAMES = [
+    "record_id",
+    "unit_id",
+    "org_id",
+    "order_id",
+    "ordered_sku",
+    "ordered_asin",
+    "identity_match",
+    "parts_list",
+    "time",
+    "photo_ref",
+    "category",
+]
+_RETURNED_FIELDNAMES = [
+    "record_id",
+    "unit_id",
+    "org_id",
+    "order_id",
+    "ordered_sku",
+    "ordered_asin",
+    "returned_photo_ref",
+    "time",
+]
+
+
+def _decode_upload(content: bytes, filename: str) -> str:
+    try:
+        return content.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise BadRequest(f"{filename}: not valid UTF-8 text (byte {exc.start})") from exc
+
+
+def _first(row: dict[str, str], *columns: str) -> str:
+    for column in columns:
+        value = (row.get(column) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _split_combined_csv(content: bytes, filename: str = "returns.csv") -> tuple[bytes, bytes]:
+    """Split one combined CSV into the before-file and returned-file the batch runner reads.
+
+    Nothing is invented: `unit_id` and a record id for each side are required (400 naming the
+    file, line and column when blank); every other blank cell stays blank."""
     import csv
     import io
 
-    text = content.decode("utf-8-sig", errors="ignore")
-    reader = csv.DictReader(io.StringIO(text))
-    fieldnames = reader.fieldnames or []
-    rows = list(reader)
+    reader = csv.DictReader(io.StringIO(_decode_upload(content, filename), newline=""))
+    fieldnames = set(reader.fieldnames or [])
+    if not any(k.startswith("sold_") for k in fieldnames) or not any(
+        k.startswith("returned_") for k in fieldnames
+    ):
+        raise BadRequest(
+            f"{filename}: a single CSV needs both sold_* and returned_* columns "
+            "(e.g. sold_order_id, returned_order_id); otherwise upload separate before and returned files"
+        )
+    missing = []
+    if "unit_id" not in fieldnames:
+        missing.append("unit_id")
+    if "sold_record_id" not in fieldnames and "record_id" not in fieldnames:
+        missing.append("sold_record_id")
+    if "returned_record_id" not in fieldnames and "record_id" not in fieldnames:
+        missing.append("returned_record_id")
+    if missing:
+        raise BadRequest(f"{filename}: missing required column(s): {', '.join(missing)}")
+
+    b_out = io.StringIO()
+    r_out = io.StringIO()
+    bw = csv.DictWriter(b_out, fieldnames=_BEFORE_FIELDNAMES)
+    rw = csv.DictWriter(r_out, fieldnames=_RETURNED_FIELDNAMES)
+    bw.writeheader()
+    rw.writeheader()
+
+    rows = 0
+    line = reader.line_num + 1
+    for r in reader:
+        if not any((v or "").strip() for v in r.values() if isinstance(v, str)):
+            line = reader.line_num + 1
+            continue
+        unit_id = _first(r, "unit_id")
+        sold_record_id = _first(r, "sold_record_id", "record_id")
+        returned_record_id = _first(r, "returned_record_id", "record_id")
+        for column, value in (
+            ("unit_id", unit_id),
+            ("sold_record_id", sold_record_id),
+            ("returned_record_id", returned_record_id),
+        ):
+            if not value:
+                raise BadRequest(f"{filename}, line {line}, column {column!r}: required value is blank")
+        bw.writerow(
+            {
+                "record_id": sold_record_id,
+                "unit_id": unit_id,
+                **{field: _first(r, column) for field, column in _SOLD_COLUMNS.items()},
+                "identity_match": _first(r, "identity_match"),
+                "parts_list": _first(r, "parts_list"),
+                "time": _first(r, "sold_time"),
+                "photo_ref": _first(r, "sold_photo_url", "photo_ref"),
+                "category": _first(r, "category"),
+            }
+        )
+        rw.writerow(
+            {
+                "record_id": returned_record_id,
+                "unit_id": unit_id,
+                **{field: _first(r, column) for field, column in _RETURNED_COLUMNS.items()},
+                "returned_photo_ref": _first(r, "returned_photo_url", "returned_photo_ref"),
+                "time": _first(r, "returned_time"),
+            }
+        )
+        rows += 1
+        line = reader.line_num + 1
     if not rows:
-        raise BadRequest("uploaded CSV has no data rows")
+        raise BadRequest(f"{filename}: no data rows")
+    return b_out.getvalue().encode("utf-8"), r_out.getvalue().encode("utf-8")
 
-    has_sold = any(k.startswith("sold_") for k in fieldnames)
-    has_returned = any(k.startswith("returned_") for k in fieldnames)
 
-    if has_sold or has_returned:
-        b_out = io.StringIO()
-        r_out = io.StringIO()
-        bw = csv.DictWriter(
-            b_out,
-            fieldnames=[
-                "record_id",
-                "unit_id",
-                "org_id",
-                "order_id",
-                "ordered_sku",
-                "ordered_asin",
-                "identity_match",
-                "parts_list",
-                "time",
-                "photo_ref",
-                "category",
-            ],
-        )
-        rw = csv.DictWriter(
-            r_out,
-            fieldnames=[
-                "record_id",
-                "unit_id",
-                "org_id",
-                "order_id",
-                "ordered_sku",
-                "ordered_asin",
-                "returned_photo_ref",
-                "time",
-            ],
-        )
-        bw.writeheader()
-        rw.writeheader()
-
-        for idx, r in enumerate(rows, 1):
-            unit_id = (r.get("unit_id") or f"UNIT-{idx}").strip()
-            bw.writerow(
-                {
-                    "record_id": (r.get("sold_record_id") or r.get("record_id") or f"REC-SOLD-{idx}").strip(),
-                    "unit_id": unit_id,
-                    "org_id": (r.get("sold_org_id") or r.get("org_id") or default_org_id).strip(),
-                    "order_id": (r.get("sold_order_id") or r.get("order_id") or f"ORD-{idx}").strip(),
-                    "ordered_sku": (r.get("sold_sku") or r.get("ordered_sku") or "SKU-DEFAULT").strip(),
-                    "ordered_asin": (r.get("sold_asin") or r.get("ordered_asin") or "B0DEFAULT").strip(),
-                    "identity_match": (r.get("identity_match") or "uncertain").strip(),
-                    "parts_list": (r.get("parts_list") or "").strip(),
-                    "time": (r.get("sold_time") or r.get("time") or "2026-08-01T00:00:00Z").strip(),
-                    "photo_ref": (r.get("sold_photo_url") or r.get("photo_ref") or "").strip(),
-                    "category": (r.get("category") or "").strip(),
-                }
-            )
-            rw.writerow(
-                {
-                    "record_id": (
-                        r.get("returned_record_id") or r.get("record_id") or f"REC-RTN-{idx}"
-                    ).strip(),
-                    "unit_id": unit_id,
-                    "org_id": (r.get("returned_org_id") or r.get("org_id") or default_org_id).strip(),
-                    "order_id": (r.get("returned_order_id") or r.get("order_id") or f"ORD-{idx}").strip(),
-                    "ordered_sku": (r.get("returned_sku") or r.get("ordered_sku") or "SKU-DEFAULT").strip(),
-                    "ordered_asin": (r.get("returned_asin") or r.get("ordered_asin") or "B0DEFAULT").strip(),
-                    "returned_photo_ref": (
-                        r.get("returned_photo_url") or r.get("returned_photo_ref") or ""
-                    ).strip(),
-                    "time": (r.get("returned_time") or r.get("time") or "2026-09-01T00:00:00Z").strip(),
-                }
-            )
-
-        return b_out.getvalue().encode("utf-8"), r_out.getvalue().encode("utf-8")
-    return content, content
+def _validate_pair(before_bytes: bytes, before_fn: str, returned_bytes: bytes, returned_fn: str) -> None:
+    """Parse both files up front so a malformed upload is a 400 naming the file, line and column,
+    not a job that fails later in the background."""
+    try:
+        parse_before_csv(_decode_upload(before_bytes, before_fn), before_fn)
+        returned_rows = parse_returned_csv(_decode_upload(returned_bytes, returned_fn), returned_fn)
+    except CsvInputError as exc:
+        raise BadRequest(str(exc)) from exc
+    if not returned_rows:
+        raise BadRequest(f"{returned_fn}: no data rows")
 
 
 @router.post("/jobs", response_model=BatchJobResponse, status_code=202)
@@ -190,9 +250,8 @@ async def create_batch_job(
             raise BadRequest("uploaded file is empty")
         if len(content) > MAX_UPLOAD_BYTES:
             raise BadRequest(f"file must be under {MAX_UPLOAD_BYTES // (1024 * 1024)} MB")
-        before_bytes, returned_bytes = _split_combined_csv(content, default_org_id=principal.org_id)
-        before_fn = upload_file.filename or "returns.csv"
-        returned_fn = upload_file.filename or "returns.csv"
+        before_fn = returned_fn = upload_file.filename or "returns.csv"
+        before_bytes, returned_bytes = _split_combined_csv(content, before_fn)
     elif before is not None and returned is not None:
         # Two-file mode
         before_bytes = await before.read()
@@ -207,6 +266,8 @@ async def create_batch_job(
         raise BadRequest(
             "either a single unified returns CSV or both before and returned CSV files are required"
         )
+
+    _validate_pair(before_bytes, before_fn, returned_bytes, returned_fn)
 
     job = await svc.batch_jobs.create_job(
         org_id=principal.org_id,

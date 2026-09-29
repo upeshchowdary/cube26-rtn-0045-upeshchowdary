@@ -223,7 +223,10 @@ def test_uncertain_row_carries_forward_identity_and_parts_when_before_known() ->
     assert out["photo_identity_match"] == "uncertain"
 
 
-def test_uncertain_row_without_before_record_defaults_to_uncertain_identity() -> None:
+def test_uncertain_row_without_before_record_leaves_identity_blank() -> None:
+    """No before-record means there is no identity_match to carry forward: blank, not an invented
+    "uncertain". (Replaces test_uncertain_row_without_before_record_defaults_to_uncertain_identity,
+    which asserted that invented default.)"""
     row = ReturnedRow(
         record_id="RTN-1",
         unit_id="UNIT-404",
@@ -235,7 +238,7 @@ def test_uncertain_row_without_before_record_defaults_to_uncertain_identity() ->
         time="2026-01-01T00:00:00Z",
     )
     out = _uncertain_row(row, None, "no before-record for this unit_id")
-    assert out["identity_match"] == "uncertain"
+    assert out["identity_match"] == ""
     assert out["parts_list"] == ""
     assert out["operator_disposition"] == "pending_review"
     assert out["sold_vs_returned_id_check"] == "NOT MATCHED: no sold-record for this unit_id"
@@ -631,7 +634,7 @@ def test_split_combined_csv_returns_input_30(tmp_path: Path) -> None:
         pytest.skip("manual_test_images/returns_input_30.csv not found")
 
     content = csv_path.read_bytes()
-    b_bytes, r_bytes = _split_combined_csv(content, default_org_id="org_demo_alpha")
+    b_bytes, r_bytes = _split_combined_csv(content, csv_path.name)
 
     b_file = tmp_path / "b.csv"
     r_file = tmp_path / "r.csv"
@@ -868,7 +871,7 @@ def test_auto_approve_marks_a_clean_engine_restock_without_changing_it() -> None
         result.decision.rule_id,
         result.condition.amazon_condition,
     )
-    approval = auto_approve.evaluate(result, id_mismatch=False, threshold_bp=8500)
+    approval = auto_approve.evaluate(result, id_mismatch=False, id_not_checked=False, threshold_bp=8500)
     assert approval.approved is True
     assert approval.blocked_by == ()
     assert approval.min_confidence_bp == 9500
@@ -892,7 +895,7 @@ def test_auto_approve_threshold_comes_from_config_and_blocks_low_confidence() ->
     assert Settings.model_fields["rm_batch_auto_approve_min_confidence_bp"].default == 8500
     ctx = b.context(b.headphones_card())
     result = b.run(ctx, _sealed_new(ctx, confidence=0.84))
-    approval = auto_approve.evaluate(result, id_mismatch=False, threshold_bp=8500)
+    approval = auto_approve.evaluate(result, id_mismatch=False, id_not_checked=False, threshold_bp=8500)
     assert approval.approved is False
     assert "confidence_below_threshold" in approval.blocked_by
     assert (
@@ -910,7 +913,7 @@ def test_auto_approve_never_skips_s02_high_value_signoff() -> None:
     )
     result = b.run(ctx, _confident(b.grade(j, "used_good", ctx)))
     assert result.decision.requires_signoff is True
-    approval = auto_approve.evaluate(result, id_mismatch=False, threshold_bp=0)
+    approval = auto_approve.evaluate(result, id_mismatch=False, id_not_checked=False, threshold_bp=0)
     assert approval.approved is False
     assert "requires_signoff" in approval.blocked_by
 
@@ -924,7 +927,10 @@ def test_auto_approve_never_skips_s01_dispose_signoff() -> None:
         **{**result.decision.__dict__, "recommended_disposition": "dispose", "requires_signoff": True}
     )
     approval = auto_approve.evaluate(
-        type(result)(**{**result.__dict__, "decision": forced}), id_mismatch=False, threshold_bp=0
+        type(result)(**{**result.__dict__, "decision": forced}),
+        id_mismatch=False,
+        id_not_checked=False,
+        threshold_bp=0,
     )
     assert approval.approved is False
     assert "requires_signoff" in approval.blocked_by
@@ -938,7 +944,7 @@ def test_auto_approve_blocked_by_id_mismatch_and_by_null_recommendation() -> Non
     clean = b.run(ctx, _sealed_new(ctx))
     assert (
         "sold_vs_returned_id_mismatch"
-        in auto_approve.evaluate(clean, id_mismatch=True, threshold_bp=0).blocked_by
+        in auto_approve.evaluate(clean, id_mismatch=True, id_not_checked=False, threshold_bp=0).blocked_by
     )
 
     raw = _sealed_new(ctx).model_dump(mode="json")
@@ -946,7 +952,7 @@ def test_auto_approve_blocked_by_id_mismatch_and_by_null_recommendation() -> Non
     for fc in raw["identity"]["feature_checks"]:
         fc["result"] = "mismatch"
     wrong = b.run(ctx, JudgmentV1.model_validate(raw))
-    approval = auto_approve.evaluate(wrong, id_mismatch=False, threshold_bp=0)
+    approval = auto_approve.evaluate(wrong, id_mismatch=False, id_not_checked=False, threshold_bp=0)
     assert approval.approved is False
     assert "no_recommendation:wrong_item_returned" in approval.blocked_by
 
@@ -1052,3 +1058,205 @@ def test_accepting_a_signoff_row_over_http_needs_the_signoff_permission(tmp_path
         scopes=frozenset({Scope.RETURNS_WRITE, Scope.REVIEW_WRITE}),
     )
     assert TestClient(app).post(url, json=body).status_code == 201
+
+
+# ── no invented input data (Stage 2 item 1) ────────────────────────────────────────
+# A missing required column or a blank record_id/unit_id is a 400 naming the file, line and
+# column. Any other blank stays blank. A blank ID on either side is "not checked", never
+# "matched", and it blocks auto-approve.
+
+_COMBINED_HEADER = (
+    "unit_id,category,parts_list,identity_match,sold_record_id,sold_org_id,sold_order_id,sold_sku,"
+    "sold_asin,sold_time,sold_photo_url,returned_record_id,returned_org_id,returned_order_id,"
+    "returned_sku,returned_asin,returned_time,returned_photo_url"
+)
+_COMBINED_ROW = (
+    "UNIT-1,electronics,handset,yes,PCK-1,org_demo_alpha,ORD-1,SKU-A,ASIN-A,2026-08-01T09:00:00Z,"
+    "https://example.com/ref.jpg,RTN-1,org_demo_alpha,ORD-1,SKU-A,ASIN-A,2026-09-01T10:00:00Z,"
+    "https://example.com/a.jpg"
+)
+_BEFORE_HEADER = (
+    "record_id,unit_id,org_id,order_id,ordered_sku,ordered_asin,identity_match,parts_list,time,photo_ref"
+)
+_RETURNED_HEADER = "record_id,unit_id,org_id,order_id,ordered_sku,ordered_asin,returned_photo_ref,time"
+
+
+def _upload_client(tmp_path: Path) -> Any:
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from returns_manager.api import problems
+    from returns_manager.api.deps import Services, principal
+    from returns_manager.api.routes.batch import router
+    from returns_manager.security.roles import Principal, Scope
+
+    app = FastAPI()
+    problems.install(app)
+    app.include_router(router)
+    app.state.services = Services(
+        settings=Settings.model_construct(), db=None, jwt=None, storage=None, batch_jobs=_service(tmp_path)
+    )  # type: ignore[arg-type]
+    app.dependency_overrides[principal] = lambda: Principal(
+        kind="api_key", org_id="org_demo_alpha", actor_id="k1", scopes=frozenset({Scope.RETURNS_WRITE})
+    )
+    return TestClient(app)
+
+
+def _post(client: Any, files: dict[str, tuple[str, str]]) -> Any:
+    return client.post(
+        "/api/v1/batch/jobs",
+        data={"confirm_spend": "true"},
+        files={k: (name, body.encode("utf-8"), "text/csv") for k, (name, body) in files.items()},
+    )
+
+
+def test_upload_missing_required_column_is_400_naming_file_and_column(tmp_path: Path) -> None:
+    client = _upload_client(tmp_path)
+    before = _BEFORE_HEADER.replace(",ordered_sku", "") + "\nPCK-1,UNIT-1,org,ORD-1,ASIN-A,yes,x,t,u\n"
+    returned = _RETURNED_HEADER + "\nRTN-1,UNIT-1,org,ORD-1,SKU-A,ASIN-A,https://e/a.jpg,t\n"
+    resp = _post(client, {"before": ("my_before.csv", before), "returned": ("my_returned.csv", returned)})
+    assert resp.status_code == 400
+    detail = resp.json()["detail"]
+    assert "my_before.csv" in detail
+    assert "ordered_sku" in detail
+
+
+def test_upload_blank_required_value_is_400_naming_file_line_and_column(tmp_path: Path) -> None:
+    client = _upload_client(tmp_path)
+    before = _BEFORE_HEADER + "\nPCK-1,UNIT-1,org,ORD-1,SKU-A,ASIN-A,yes,x,t,u\n"
+    returned = (
+        _RETURNED_HEADER
+        + "\nRTN-1,UNIT-1,org,ORD-1,SKU-A,ASIN-A,https://e/a.jpg,t"
+        + "\nRTN-2,,org,ORD-2,SKU-A,ASIN-A,https://e/b.jpg,t\n"
+    )
+    resp = _post(client, {"before": ("b.csv", before), "returned": ("r.csv", returned)})
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "r.csv, line 3, column 'unit_id': required value is blank"
+
+
+def test_combined_upload_missing_required_column_is_400(tmp_path: Path) -> None:
+    client = _upload_client(tmp_path)
+    header = _COMBINED_HEADER.replace("unit_id,", "", 1)
+    row = _COMBINED_ROW.split(",", 1)[1]
+    resp = _post(client, {"file": ("combined.csv", f"{header}\n{row}\n")})
+    assert resp.status_code == 400
+    assert "combined.csv" in resp.json()["detail"]
+    assert "unit_id" in resp.json()["detail"]
+
+
+def test_combined_upload_blank_record_id_is_400_naming_line_and_column(tmp_path: Path) -> None:
+    client = _upload_client(tmp_path)
+    blank_returned_id = _COMBINED_ROW.replace("RTN-1", "")
+    body = f"{_COMBINED_HEADER}\n{_COMBINED_ROW}\n{blank_returned_id}\n"
+    resp = _post(client, {"file": ("c.csv", body)})
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "c.csv, line 3, column 'returned_record_id': required value is blank"
+
+
+def test_combined_upload_without_sold_and_returned_columns_is_rejected(tmp_path: Path) -> None:
+    """Formerly the same file was used as both the before and the returned file, so every row was
+    compared with itself and reported "matched"."""
+    client = _upload_client(tmp_path)
+    body = _RETURNED_HEADER + "\nRTN-1,UNIT-1,org,ORD-1,SKU-A,ASIN-A,https://e/a.jpg,t\n"
+    resp = _post(client, {"file": ("one.csv", body)})
+    assert resp.status_code == 400
+    assert "sold_* and returned_*" in resp.json()["detail"]
+
+
+def test_split_invents_nothing_for_blank_optional_fields() -> None:
+    from returns_manager.api.routes.batch import _split_combined_csv
+    from returns_manager.batch.io_csv import parse_before_csv, parse_returned_csv
+
+    fields = _COMBINED_HEADER.split(",")
+    values = dict(zip(fields, _COMBINED_ROW.split(","), strict=True))
+    for blank in (
+        "sold_order_id",
+        "returned_sku",
+        "returned_asin",
+        "identity_match",
+        "sold_time",
+        "sold_org_id",
+    ):
+        values[blank] = ""
+    body = _COMBINED_HEADER + "\n" + ",".join(values[f] for f in fields) + "\n"
+    b_bytes, r_bytes = _split_combined_csv(body.encode("utf-8"), "c.csv")
+
+    before = parse_before_csv(b_bytes.decode("utf-8"), "b")["UNIT-1"]
+    returned = parse_returned_csv(r_bytes.decode("utf-8"), "r")[0]
+    assert (before.order_id, before.identity_match, before.time, before.org_id) == ("", "", "", "")
+    assert (returned.ordered_sku, returned.ordered_asin) == ("", "")
+    # The other side's value is never copied across.
+    assert returned.order_id == "ORD-1"
+    assert before.ordered_sku == "SKU-A"
+    text = (b_bytes + r_bytes).decode("utf-8")
+    for invented in ("SKU-DEFAULT", "B0DEFAULT", "REC-", "UNIT-2", "2026-08-01T00:00:00Z", "uncertain"):
+        assert invented not in text
+
+
+def test_split_reads_each_side_only_from_its_own_prefixed_columns() -> None:
+    """A shared unprefixed ID column is not copied to both sides: that would compare a value with
+    itself and report a false "matched"."""
+    from returns_manager.api.routes.batch import _split_combined_csv
+    from returns_manager.batch.io_csv import parse_before_csv, parse_returned_csv
+
+    body = (
+        "unit_id,order_id,ordered_sku,sold_record_id,returned_record_id,sold_photo_url,returned_photo_url\n"
+        "UNIT-1,ORD-1,SKU-A,PCK-1,RTN-1,https://e/ref.jpg,https://e/a.jpg\n"
+    )
+    b_bytes, r_bytes = _split_combined_csv(body.encode("utf-8"), "c.csv")
+    before = parse_before_csv(b_bytes.decode("utf-8"), "b")["UNIT-1"]
+    returned = parse_returned_csv(r_bytes.decode("utf-8"), "r")[0]
+    assert (before.order_id, returned.order_id, before.ordered_sku, returned.ordered_sku) == ("", "", "", "")
+    assert check_id_match(before, returned).startswith("not checked:")
+
+
+@pytest.mark.parametrize("field", ["org_id", "order_id", "ordered_sku", "ordered_asin"])
+@pytest.mark.parametrize("side", ["sold", "returned", "both"])
+def test_blank_id_is_never_matched(field: str, side: str) -> None:
+    before = _before(**{field: ""}) if side in ("sold", "both") else _before()
+    returned = _returned(**{field: ""}) if side in ("returned", "both") else _returned()
+    result = check_id_match(before, returned)
+    assert result != "matched"
+    assert result.startswith(f"not checked: {field} missing")
+    assert not _id_mismatch(before, result)
+
+
+def test_blank_id_alongside_a_real_mismatch_reports_both() -> None:
+    result = check_id_match(_before(order_id=""), _returned(ordered_sku="SKU-B"))
+    assert result.startswith("NOT MATCHED: ordered_sku")
+    assert "not checked: order_id missing (sold)" in result
+    assert _id_mismatch(_before(), result)
+
+
+def test_uncertain_row_with_blank_ids_is_not_checked() -> None:
+    out = _uncertain_row(_returned(order_id="", ordered_asin=""), _before(), "no_return_photo")
+    assert out["sold_vs_returned_id_check"] == (
+        "not checked: order_id missing (returned); ordered_asin missing (returned)"
+    )
+
+
+def test_blank_id_blocks_auto_approve() -> None:
+    from returns_manager.batch import auto_approve
+    from returns_manager.batch.runner import _id_not_checked
+
+    ctx = b.context(b.headphones_card())
+    clean = b.run(ctx, _sealed_new(ctx))
+    id_check = check_id_match(_before(order_id=""), _returned())
+    approval = auto_approve.evaluate(
+        clean,
+        id_mismatch=_id_mismatch(_before(), id_check),
+        id_not_checked=_id_not_checked(id_check),
+        threshold_bp=0,
+    )
+    assert approval.approved is False
+    assert approval.blocked_by == ("sold_vs_returned_id_not_checked",)
+
+
+def test_ui_shows_pass_only_for_a_real_match() -> None:
+    """The UI labels the ID check from the backend string; "not checked" must never render PASS."""
+    ui = Path(__file__).resolve().parents[3] / "ui" / "src"
+    for screen in ("Inspection.tsx", "Dashboard.tsx", "Reviews.tsx"):
+        text = (ui / "screens" / screen).read_text(encoding="utf-8")
+        assert "? 'FAIL' : 'PASS'" not in text, screen
+    derive = (ui / "lib" / "derive.ts").read_text(encoding="utf-8")
+    assert "check === 'matched'" in derive
