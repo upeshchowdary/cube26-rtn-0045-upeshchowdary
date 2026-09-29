@@ -37,7 +37,8 @@ def process_command(
     max_requests: int | None = typer.Option(
         None,
         "--max-requests",
-        help="Stop making new live model calls after this many (spend guard for this run).",
+        help="Hard cap on live model requests for this run; every round trip and retry counts. "
+        "A request past the cap is refused before it is sent.",
     ),
 ) -> None:
     """Process a before/returned CSV pair and write one output row per return.

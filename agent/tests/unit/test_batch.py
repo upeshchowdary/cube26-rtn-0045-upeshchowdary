@@ -1569,3 +1569,105 @@ def test_ui_comparison_panel_reads_backend_fields_and_shows_no_score() -> None:
     assert ".reduce(" not in panel
     assert "counts.matched" in panel
     assert "InspectionComparison" in (ui / "screens" / "Inspection.tsx").read_text(encoding="utf-8")
+
+
+# ── Run request cap (Stage 3, before the live smoke run) ────────────────────────────
+# `--max-requests` caps real requests, not rows: every session round trip and retry takes one
+# from the quota right before it is sent, and "live model requests used" is that count.
+
+
+def _write_csvs(tmp_path: Path, n: int) -> tuple[Path, Path]:
+    before = tmp_path / "before.csv"
+    returned = tmp_path / "returned.csv"
+    before.write_text(
+        _BEFORE_HEADER
+        + "".join(f"\nPCK-{i},UNIT-{i},org,ORD-{i},SKU-A,ASIN-A,yes,x,t,https://e/ref.jpg" for i in range(n)),
+        encoding="utf-8",
+    )
+    returned.write_text(
+        "record_id,unit_id,org_id,order_id,ordered_sku,ordered_asin,returned_photo_ref,time"
+        + "".join(f"\nRTN-{i},UNIT-{i},org,ORD-{i},SKU-A,ASIN-A,https://e/p{i}.jpg,t" for i in range(n)),
+        encoding="utf-8",
+    )
+    return before, returned
+
+
+async def test_max_requests_caps_real_requests_not_rows(tmp_path: Path, monkeypatch: Any) -> None:
+    """Each row's session wants 2 requests (a tool round trip). With a cap of 3: row 0 sends 2,
+    row 1 sends 1 and is refused the 2nd, row 2 sends none. The old code counted one request per
+    row (reporting 2) and let row 1 send its 2nd request (4 sent)."""
+    from returns_manager.batch import runner
+    from returns_manager.llm.loop import SessionFailed, SessionTrace
+
+    attempted: list[int] = []  # every take() that got past the cap, i.e. a request that is sent
+
+    async def _two_request_row(row: Any, before_by_unit: Any, *, quota: Any, **kwargs: Any) -> Any:
+        before = before_by_unit[row.unit_id]
+        trace = SessionTrace(model="m", output_mode="x")
+        try:
+            async with quota.reserve("m", "judgment", 2) as reservation:
+                for _ in range(2):
+                    await reservation.take()
+                    attempted.append(1)
+                    trace.requests_sent += 1
+        except runner.RequestCapReached as exc:
+            failed = SessionFailed(exc, trace)
+            return runner._fail_open(
+                row, before, "max_requests_reached", attempted_model_call=failed.trace.requests_sent > 0
+            )
+        return runner._fail_open(row, before, "stub_done", attempted_model_call=True)
+
+    monkeypatch.setattr(runner, "process_returned_row", _two_request_row)
+    before, returned = _write_csvs(tmp_path, 3)
+    rows, _details, summary = await runner.run_batch(
+        before_path=before,
+        returned_path=returned,
+        settings=Settings.model_construct(rm_rpm_limit_judgment=6000),
+        client=None,  # type: ignore[arg-type]
+        max_requests=3,
+    )
+    assert len(attempted) == 3
+    assert summary.live_requests == 3
+    reasons = [r["failure_reason"] for r in rows]
+    assert reasons == ["stub_done", "max_requests_reached", "max_requests_reached"]
+
+
+async def test_request_cap_refuses_before_sending_and_counts_each_take() -> None:
+    from returns_manager.batch.runner import RequestCapReached, _NoDbQuota
+
+    quota = _NoDbQuota(rpm=6000, max_requests=2)
+    async with quota.reserve("m", "judgment", 2) as reservation:
+        await reservation.take()
+        await reservation.take()
+        with pytest.raises(RequestCapReached):
+            await reservation.take()
+    assert quota.requests_sent == 2
+    assert quota.cap_reached is True
+    with pytest.raises(RequestCapReached):
+        async with quota.reserve("m", "judgment", 1):
+            pass
+    uncapped = _NoDbQuota(rpm=6000)
+    async with uncapped.reserve("m", "judgment", 1) as reservation:
+        await reservation.take()
+    assert uncapped.requests_sent == 1
+    assert uncapped.cap_reached is False
+
+
+async def test_cap_reached_mid_session_is_not_marked_as_quota_exhausted(monkeypatch: Any) -> None:
+    """A row the cap stops mid-session says max_requests_reached, and the run's daily-quota flag
+    stays off: the provider never said the quota was used up."""
+    from returns_manager.batch import runner
+    from returns_manager.llm.loop import SessionFailed, SessionTrace
+
+    async def _cap_mid_session(*args: Any, **kwargs: Any) -> Any:
+        trace = SessionTrace(model="m", output_mode="x")
+        trace.requests_sent = 1
+        raise SessionFailed(runner.RequestCapReached("cap"), trace)
+
+    monkeypatch.setattr(runner, "_run_judgment_with_fallback", _cap_mid_session)
+    before, returned = _golden_row("RTN-WATCH-01")
+    quota = runner._NoDbQuota(rpm=60, max_requests=5)
+    res = await _process(before, returned, quota)
+    _assert_fail_open(res, "max_requests_reached")
+    assert res.attempted_model_call is True
+    assert quota.is_exhausted is False

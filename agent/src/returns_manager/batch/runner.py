@@ -34,6 +34,7 @@ from returns_manager.batch.io_csv import (
 from returns_manager.batch.parts import parse_parts_list
 from returns_manager.canonical.hashing import sha256_hex
 from returns_manager.config import REPO_ROOT, Settings
+from returns_manager.errors import QuotaExhaustedError
 from returns_manager.jobs.budget import TokenBucketRateLimiter
 from returns_manager.jobs.retry import classify_error
 from returns_manager.judgment.pipeline import PhotoGate, run_pipeline
@@ -76,26 +77,44 @@ def load_policy(category_key: str) -> EffectivePolicy:
 @dataclass
 class _NoDbReservation:
     limiter: TokenBucketRateLimiter
+    quota: _NoDbQuota
 
     async def take(self) -> None:
+        """Called by the session loop right before each request is sent: the run's request cap
+        is checked here, so a request beyond `--max-requests` is refused, never sent."""
+        if self.quota.cap_reached:
+            raise RequestCapReached(f"run request cap of {self.quota.max_requests} reached")
         await self.limiter.acquire(timeout_s=120)
+        self.quota.requests_sent += 1
+
+
+class RequestCapReached(QuotaExhaustedError):
+    """This run's `--max-requests` cap is used up. Raised before a request is sent."""
 
 
 class _NoDbQuota:
     """Same shape as llm.quota.QuotaGuard, without a database - this run is standalone.
 
     There is no daily-budget ledger here; `--max-requests` on the CLI is this run's own
-    spend guard instead. It still throttles requests per minute per model with the same
+    spend guard instead. It caps real requests (every session round trip and retry counts),
+    not rows, and `requests_sent` is the count reported as "live model requests used".
+    It still throttles requests per minute per model with the same
     `TokenBucketRateLimiter` the real QuotaGuard uses - one instance shared across the whole
     run (never per-row: a fresh limiter every row would never actually pace anything), so a
     batch of many rows on a fresh key does not immediately trip Gemini's own per-minute
     rate limit the way an unthrottled loop does.
     """
 
-    def __init__(self, rpm: float) -> None:
+    def __init__(self, rpm: float, max_requests: int | None = None) -> None:
         self._rpm = rpm
         self._limiters: dict[str, TokenBucketRateLimiter] = {}
         self.is_exhausted: bool = False
+        self.max_requests = max_requests
+        self.requests_sent = 0
+
+    @property
+    def cap_reached(self) -> bool:
+        return self.max_requests is not None and self.requests_sent >= self.max_requests
 
     def _limiter(self, model_id: str) -> TokenBucketRateLimiter:
         if model_id not in self._limiters:
@@ -107,10 +126,10 @@ class _NoDbQuota:
     @asynccontextmanager
     async def reserve(self, model_id: str, role: str, n: int) -> AsyncIterator[_NoDbReservation]:
         if self.is_exhausted:
-            from returns_manager.errors import QuotaExhaustedError
-
             raise QuotaExhaustedError("daily request quota used up")
-        yield _NoDbReservation(self._limiter(model_id))
+        if self.cap_reached:
+            raise RequestCapReached(f"run request cap of {self.max_requests} reached")
+        yield _NoDbReservation(self._limiter(model_id), self)
 
     async def mark_exhausted(self, model_id: str, role: str) -> None:
         self.is_exhausted = True
@@ -367,6 +386,8 @@ async def _run_judgment_with_fallback(
             return await run_session(client, quota, bundle, settings)  # type: ignore[arg-type]
         except SessionFailed as failed:
             last = failed
+            if isinstance(failed.cause, RequestCapReached):
+                raise  # the run's cap covers every model; a fallback or retry would be refused too
             fallback_model = settings.rm_judgment_fallback_model
             if (
                 getattr(failed.cause, "error_class", None) == "quota_exhausted"
@@ -494,10 +515,18 @@ async def process_returned_row(
     if quota.is_exhausted:
         # Quota was used up earlier in this run: no request is sent, and nothing is guessed.
         return _fail_open(row, before, "model_call_failed:quota_exhausted")
+    if quota.cap_reached:
+        return _fail_open(row, before, "max_requests_reached")
 
     try:
         session = await _run_judgment_with_fallback(client, bundle, settings, quota)
     except SessionFailed as exc:
+        if isinstance(exc.cause, RequestCapReached):
+            # The cap stopped this row mid-session (e.g. before a tool round trip); any request
+            # already sent is counted, and the row is not judged.
+            return _fail_open(
+                row, before, "max_requests_reached", attempted_model_call=exc.trace.requests_sent > 0
+            )
         error_class = classify_error(exc.cause).error_class
         if error_class == "quota_exhausted":
             await quota.mark_exhausted(settings.rm_judgment_model, "judgment")
@@ -582,12 +611,12 @@ async def run_batch(
     summary = BatchSummary(total_rows=len(returned_rows))
     output_rows: list[dict[str, str]] = []
     details_by_record_id: dict[str, dict[str, Any]] = {}
-    quota = _NoDbQuota(settings.rm_rpm_limit_judgment)
+    quota = _NoDbQuota(settings.rm_rpm_limit_judgment, max_requests=max_requests)
 
     headers = {"User-Agent": "ReturnsManagerBatchTool/1.0 (Cube Buildathon 04; standalone batch import)"}
     async with httpx.AsyncClient(timeout=30.0, headers=headers) as http_client:
         for row in returned_rows:
-            if max_requests is not None and summary.live_requests >= max_requests:
+            if quota.cap_reached:
                 unc = _uncertain_row(row, before_by_unit.get(row.unit_id), "max_requests_reached")
                 output_rows.append(unc)
                 summary.uncertain += 1
@@ -607,8 +636,7 @@ async def run_batch(
             output_rows.append(result.output_row)
             if result.detail is not None:
                 details_by_record_id[row.record_id] = result.detail
-            if result.attempted_model_call:
-                summary.live_requests += 1
+            summary.live_requests = quota.requests_sent  # real requests, not rows
             if result.note is None:
                 summary.processed += 1
                 if result.warning:
