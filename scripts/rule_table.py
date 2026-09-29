@@ -19,7 +19,12 @@ import sys
 from pathlib import Path
 
 ENGINE = (
-    Path(__file__).resolve().parents[1] / "agent" / "src" / "returns_manager" / "disposition" / "engine.py"
+    Path(__file__).resolve().parents[1]
+    / "agent"
+    / "src"
+    / "returns_manager"
+    / "disposition"
+    / "engine.py"
 )
 
 
@@ -50,14 +55,20 @@ def _conditions(parents: dict[ast.AST, ast.AST], node: ast.AST) -> str:
 def rows() -> list[tuple[str, str, str, str, str, int]]:
     source = ENGINE.read_text(encoding="utf-8")
     tree = ast.parse(source)
-    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    parents = {
+        child: parent
+        for parent in ast.walk(tree)
+        for child in ast.iter_child_nodes(parent)
+    }
     out: list[tuple[str, str, str, str, str, int]] = []
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign) and any(
             isinstance(t, ast.Name) and t.id == "gate" for t in node.targets
         ):
-            if isinstance(node.value, ast.Tuple) and isinstance(node.value.elts[0], ast.Constant):
+            if isinstance(node.value, ast.Tuple) and isinstance(
+                node.value.elts[0], ast.Constant
+            ):
                 rule, reason = node.value.elts
                 out.append(
                     (
@@ -87,7 +98,9 @@ def rows() -> list[tuple[str, str, str, str, str, int]]:
                         node.lineno,
                     )
                 )
-            elif node.func.id == "_salvage_route" and isinstance(node.args[1], ast.Constant):
+            elif node.func.id == "_salvage_route" and isinstance(
+                node.args[1], ast.Constant
+            ):
                 out.append(
                     (
                         _text(node.args[1]),
@@ -124,8 +137,21 @@ def rows() -> list[tuple[str, str, str, str, str, int]]:
         if m and "review" in line:
             stmt = line.split("#")[0].strip()
             prev = lines[lineno - 2].strip() if lineno >= 2 else ""
-            when = prev.removeprefix("if ").rstrip(":") if prev.startswith("if ") else "always"
-            out.append((m.group(1), "2 flag", "review flag (route unchanged)", when, stmt, lineno))
+            when = (
+                prev.removeprefix("if ").rstrip(":")
+                if prev.startswith("if ")
+                else "always"
+            )
+            out.append(
+                (
+                    m.group(1),
+                    "2 flag",
+                    "review flag (route unchanged)",
+                    when,
+                    stmt,
+                    lineno,
+                )
+            )
             continue
         if m and line.strip().startswith("if "):
             nxt = lines[lineno].strip() if lineno < len(lines) else ""
