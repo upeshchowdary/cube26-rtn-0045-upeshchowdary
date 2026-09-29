@@ -26,6 +26,7 @@ import { moneyMinor, titleCase } from '../lib/format'
 import { dispositionLabel, idCheckLabel } from '../lib/derive'
 import type { DecisionAction, RowDetail } from '../lib/types'
 import { Pill } from './shared'
+import { InspectionComparison } from './InspectionComparison'
 
 function verdictOf(detail: RowDetail, key: string) {
   return detail.checks.find((c) => c.check_key === key)
@@ -319,6 +320,8 @@ export default function Inspection() {
               </button>
             </div>
           </section>
+
+          <InspectionComparison detail={detail} loading={detailLoading} failureReason={row.failure_reason} detailError={detailError} />
 
           {detailLoading && <section className="panel finding-panel"><div className="no-data-note">Loading inspection detail...</div></section>}
           {!detailLoading && !detail && (

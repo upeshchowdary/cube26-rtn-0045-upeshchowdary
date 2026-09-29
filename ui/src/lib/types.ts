@@ -238,6 +238,20 @@ export interface RowDetail {
     refurbish_cost_source: string
     value_driven_outcomes: string[] // e.g. ['R09'], ['S02_high_value'] - backend-computed
   }
+  // batch/runner.py:comparison_record - what the Inspection comparison panel shows.
+  comparison?: {
+    photo_aliases: Record<string, string> // 'ref_before' | 'P1'... -> the URL the model saw
+    unfetched_photo_refs: string[]
+    features: Array<{
+      feature_id: string
+      description: string
+      importance: string
+      location: string
+      result: 'match' | 'mismatch' | 'not_visible' | 'not_reported'
+      photo: string | null
+    }>
+    critical_features: { total: number; matched: number; mismatched: number; not_visible: number; not_reported: number }
+  }
 }
 
 export interface MetricEnvelope {

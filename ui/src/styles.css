@@ -1327,3 +1327,45 @@
   font-style: normal;
   font-weight: 600;
 }
+
+/* Stage 2: Inspection comparison panel (screens/InspectionComparison.tsx). */
+.compare-photos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 8px 0 12px;
+}
+.compare-photo {
+  margin: 0;
+}
+.compare-photo-frame {
+  position: relative;
+}
+.compare-photo-frame img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+.compare-photo figcaption {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.defect-box {
+  position: absolute;
+  border: 2px solid #d97706;
+  border-radius: 2px;
+  pointer-events: auto;
+}
+.defect-box.severe {
+  border-color: #dc2626;
+}
+.defect-box.minor {
+  border-color: #eab308;
+}
+.compare-heading {
+  font-size: 12.5px;
+  font-weight: 600;
+  margin: 14px 0 6px;
+}

@@ -240,6 +240,53 @@ def value_record(before: BeforeRow, default_minor: int, decision: Any) -> dict[s
     }
 
 
+REFERENCE_ALIAS = "ref_before"
+
+
+def photo_aliases(reference_url: str, fetched_return_urls: list[str]) -> dict[str, str]:
+    """The photo alias the model saw -> the URL it came from. Return photos are numbered P1, P2...
+    in the order they were *fetched*, so a URL that failed to download shifts the numbering; the
+    UI must use this map and never assume Pn is the n-th URL in the CSV."""
+    aliases = {REFERENCE_ALIAS: reference_url}
+    aliases.update({f"P{i + 1}": url for i, url in enumerate(fetched_return_urls)})
+    return aliases
+
+
+def comparison_record(
+    card: Any, judgment: Any, aliases: dict[str, str], unfetched: list[str]
+) -> dict[str, Any]:
+    """Everything the Inspection comparison panel shows beyond the fused results already in the
+    detail: the card's distinguishing features joined with the model's own check for each, and
+    plain counts of the critical ones. No score or percentage: the model reports none."""
+    checks = {fc.feature_id: fc for fc in judgment.identity.feature_checks}
+    features: list[dict[str, Any]] = []
+    for f in card.distinguishing_features:
+        fc = checks.get(f.id)
+        features.append(
+            {
+                "feature_id": f.id,
+                "description": f.description,
+                "importance": f.importance,
+                "location": f.location,
+                "result": fc.result if fc else "not_reported",
+                "photo": fc.photo if fc else None,
+            }
+        )
+    critical = [f for f in features if f["importance"] == "critical"]
+    return {
+        "photo_aliases": aliases,
+        "unfetched_photo_refs": list(unfetched),
+        "features": features,
+        "critical_features": {
+            "total": len(critical),
+            "matched": sum(1 for f in critical if f["result"] == "match"),
+            "mismatched": sum(1 for f in critical if f["result"] == "mismatch"),
+            "not_visible": sum(1 for f in critical if f["result"] == "not_visible"),
+            "not_reported": sum(1 for f in critical if f["result"] == "not_reported"),
+        },
+    }
+
+
 def _operator_disposition(recommended: str | None, *, auto_approved: bool) -> str:
     """`operator_disposition` before any human decision (§14.3): the engine's route only when the
     row is auto-approved (engine route, no review, no sign-off, IDs agree - see auto_approve.py);
@@ -405,12 +452,16 @@ async def process_returned_row(
     # open: preserve the available information). Only if literally none of them fetch does
     # the whole row fail open.
     return_bytes: list[bytes] = []
+    fetched_urls: list[str] = []
+    unfetched_urls: list[str] = []
     photo_errors: list[str] = []
     for url in row.returned_photo_refs:
         try:
             return_bytes.append(await fetch_image(url, http_client, long_edge=long_edge))
+            fetched_urls.append(url)
         except ImageFetchError as exc:
             photo_errors.append(str(exc))
+            unfetched_urls.append(url)
     if not return_bytes:
         return _fail_open(row, before, f"image_fetch_failed:{'; '.join(photo_errors)}")
 
@@ -427,7 +478,7 @@ async def process_returned_row(
         )
         for i, data in enumerate(return_bytes)
     ]
-    refs = [("ref_before", "front", sha256_hex(ref_bytes), ref_bytes)]
+    refs = [(REFERENCE_ALIAS, "front", sha256_hex(ref_bytes), ref_bytes)]
 
     bundle = assemble(
         settings=settings,
@@ -507,6 +558,9 @@ async def process_returned_row(
     detail = _build_row_detail(session_judgment=session.judgment, result=result, row=row, before=before)
     detail["auto_approval"] = approval.as_dict()
     detail["value"] = value_record(before, list_price_minor, result.decision)
+    detail["comparison"] = comparison_record(
+        card, result.judgment, photo_aliases(before.photo_ref, fetched_urls), unfetched_urls
+    )
     return RowResult(output_row, None, True, warning, detail=detail)
 
 

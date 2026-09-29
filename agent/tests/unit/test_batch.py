@@ -8,6 +8,7 @@ cassettes do not exist for this ad hoc path.
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -1496,3 +1497,75 @@ def test_ui_labels_an_assumed_price_from_the_backend_record_only() -> None:
     # No client-side copy of the value rules.
     for rule in ("'R09'", "'R10'", "high_value_threshold"):
         assert rule not in inspection
+
+
+# ── Inspection comparison record (Stage 2 item 4) ──────────────────────────────────
+# The panel reads only backend fields: the card's features joined with the model's own
+# check for each, plain counts of the critical ones, and alias -> URL for every photo.
+
+
+def test_photo_aliases_follow_the_fetched_photos_not_the_csv_order() -> None:
+    from returns_manager.batch.runner import photo_aliases
+
+    # b.jpg failed to fetch, so the model saw a.jpg as P1 and c.jpg as P2.
+    aliases = photo_aliases("https://e/ref.jpg", ["https://e/a.jpg", "https://e/c.jpg"])
+    assert aliases == {"ref_before": "https://e/ref.jpg", "P1": "https://e/a.jpg", "P2": "https://e/c.jpg"}
+
+
+def test_comparison_record_counts_critical_features_from_the_model_checks() -> None:
+    from returns_manager.batch.runner import comparison_record
+
+    ctx = b.context(b.headphones_card())
+    j = b.judgment(ctx)
+    critical = [f for f in ctx.card.distinguishing_features if f.importance == "critical"]
+    rec = comparison_record(ctx.card, j, {"ref_before": "r", "P1": "a"}, ["https://e/b.jpg"])
+    by_id = {f["feature_id"]: f for f in rec["features"]}
+    assert set(by_id) == {f.id for f in ctx.card.distinguishing_features}
+    for fc in j.identity.feature_checks:
+        assert by_id[fc.feature_id]["result"] == fc.result
+        assert by_id[fc.feature_id]["photo"] == fc.photo
+    counts = rec["critical_features"]
+    assert counts["total"] == len(critical)
+    assert counts["matched"] == sum(1 for f in critical if by_id[f.id]["result"] == "match")
+    assert (
+        counts["matched"] + counts["mismatched"] + counts["not_visible"] + counts["not_reported"]
+        == counts["total"]
+    )
+    assert rec["unfetched_photo_refs"] == ["https://e/b.jpg"]
+    json.dumps(rec)
+
+
+def test_comparison_record_reports_mismatch_and_unreported_features() -> None:
+    from returns_manager.batch.runner import comparison_record
+
+    ctx = b.context(b.headphones_card())
+    raw = b.judgment(ctx).model_dump(mode="json")
+    checks = raw["identity"]["feature_checks"]
+    assert len(checks) >= 2
+    checks[0]["result"] = "mismatch"
+    dropped = checks.pop()
+    j = type(b.judgment(ctx)).model_validate(raw)
+    rec = comparison_record(ctx.card, j, {}, [])
+    by_id = {f["feature_id"]: f for f in rec["features"]}
+    assert by_id[checks[0]["feature_id"]]["result"] == "mismatch"
+    assert by_id[dropped["feature_id"]]["result"] == "not_reported"
+    assert by_id[dropped["feature_id"]]["photo"] is None
+    assert rec["critical_features"]["mismatched"] >= 1
+    assert rec["critical_features"]["not_reported"] >= 1
+    assert "similarity" not in json.dumps(rec)
+
+
+def test_ui_comparison_panel_reads_backend_fields_and_shows_no_score() -> None:
+    ui = Path(__file__).resolve().parents[3] / "ui" / "src"
+    panel = (ui / "screens" / "InspectionComparison.tsx").read_text(encoding="utf-8")
+    assert "detail.comparison" in panel
+    assert "Not inspected: " in panel
+    assert "model-reported, not calibrated" in panel
+    assert "critical features matched" in panel
+    lowered = panel.lower()
+    assert "similarity" not in lowered
+    # Counts come from the backend record; the panel never tallies results itself.
+    assert re.search(r"\.filter\([^)]*\)\.length", panel) is None
+    assert ".reduce(" not in panel
+    assert "counts.matched" in panel
+    assert "InspectionComparison" in (ui / "screens" / "Inspection.tsx").read_text(encoding="utf-8")
