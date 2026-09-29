@@ -1426,6 +1426,33 @@ a real, specific disposition end to end (e.g. `RTN-WATCH-A` reaching `refurbish`
 - blocked by the third key's quota exhausting mid-verification. Full 12-row output and the diagnostic script
 kept at `agent/manual_test_images/batch4/`.
 
+### 2026-09-28 · Wiring UI Frontend to Backend Batch Pipeline
+
+- **Goal**: Full end-to-end integration of the frontend (`ui/`) with the real FastAPI backend batch system (`/api/v1/batch/`):
+  - Batch CSV Upload wizard (`/returns/new`) replacing manual single-item form with before/returned CSV upload and explicit spend-guard confirmation.
+  - Live dynamic product images sourced strictly from uploaded CSV `photo_refs` and reference photos, replacing mock placeholder images across the whole interface (Dashboard, Returns, Inspection, Catalogue, Passport).
+  - Row decision recording (Accept / Override / Retake / Review) persisted to `decisions.json` and reflected in live downloaded output CSVs.
+  - Dynamic aggregation of charts/metrics across actual batch rows via `derive.ts`.
+  - Seamless navigation, Cmd-K search over real return records, real-time review queue counters, and dark theme support.
+- **Backend changes**:
+  - Implemented `agent/src/returns_manager/batch/jobs_service.py` with `BatchJobsService`: disk-backed storage of batch jobs, `_build_row_detail` rich serialization, append-only `record_decision` and `get_decisions`, and dynamically rendered `render_output_csv` applying latest overrides.
+  - Implemented `agent/src/returns_manager/api/routes/batch.py` mounted at `/api/v1/batch`.
+  - Added 29 unit tests in `agent/tests/unit/test_batch.py` testing row detail serialization, append-only decision logs, cross-org isolation, and CSV override rendering. All 29 pass.
+- **Frontend changes**:
+  - Rewrote `ui/src/App.tsx` cleanly wrapping `<SessionProvider>`, `<Connect />` gate (pre-filled with `VITE_API_KEY`), `<BatchStoreProvider>`, and modular routes.
+  - Wired `Shell` navigation, real `useBatchStore().rows` search, and review queue counts.
+  - Updated `ui/.gitignore` to ignore video assets (`*.mp4`, `*.webm`) and `agent/.gitignore` to ignore runtime `.data/` directory, resolving the 5 MB boundary check (`scripts/check_boundary.py`).
+- **Evidence & Verification**:
+  - `python scripts/check_boundary.py`: ok (branch 'upeshchowdary', 0 violations).
+  - `.\.venv\Scripts\python.exe -m ruff check .`: all checks passed.
+  - `.\.venv\Scripts\python.exe -m ruff format --check .`: 197 files formatted.
+  - `.\.venv\Scripts\python.exe -m mypy`: Success (no issues in 161 source files).
+  - `.\.venv\Scripts\python.exe -m pytest tests/unit/ -q`: 439 passed, 0 failures.
+  - `node node_modules/typescript/bin/tsc -p tsconfig.app.json`: 0 errors.
+  - `npm run build`: built in 1.78s with 0 errors.
+  - Live API testing (`uvicorn` on port 8000): `/health` (200), `/api/v1/batch/jobs` (200), `/api/v1/batch/jobs/{id}/rows` (200, 30 rows returned), `/api/v1/batch/jobs/{id}/rows/{record_id}/decision` (201 Created), `/api/v1/batch/jobs/{id}/output.csv` (200 text/csv with Content-Disposition).
+  - Live Frontend testing (`vite` on port 5175): all 11 screens transform and serve with HTTP 200.
+
 ---
 
 ## Findings

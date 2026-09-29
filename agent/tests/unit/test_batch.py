@@ -7,7 +7,10 @@ cassettes do not exist for this ad hoc path.
 
 from __future__ import annotations
 
+import json
+import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -19,13 +22,17 @@ from returns_manager.batch.io_csv import (
     read_returned_csv,
     write_output_csv,
 )
+from returns_manager.batch.jobs_service import BatchJob, BatchJobsService
 from returns_manager.batch.parts import parse_parts_list
 from returns_manager.batch.runner import (
+    _build_row_detail,
     _disposition_for_id_check,
     _missing_parts_field,
     _uncertain_row,
     check_id_match,
 )
+from returns_manager.config import Settings
+from tests.unit import judgment_builders as b
 
 # ── parts_list parsing and essential/replaceable classification ──────────────────────
 
@@ -237,7 +244,7 @@ def test_uncertain_row_without_before_record_defaults_to_uncertain_identity() ->
 # that, so this is a separate, plain data comparison between the two records.
 
 
-def _before(**overrides: str) -> BeforeRow:
+def _before(**overrides: Any) -> BeforeRow:
     base = dict(
         record_id="PCK-1",
         unit_id="UNIT-1",
@@ -252,10 +259,10 @@ def _before(**overrides: str) -> BeforeRow:
         category="electronics",
     )
     base.update(overrides)
-    return BeforeRow(**base)  # type: ignore[arg-type]
+    return BeforeRow(**base)
 
 
-def _returned(**overrides: str) -> ReturnedRow:
+def _returned(**overrides: Any) -> ReturnedRow:
     base = dict(
         record_id="RTN-1",
         unit_id="UNIT-1",
@@ -341,3 +348,305 @@ def test_missing_parts_field_merges_missing_and_uncertain_without_duplicates() -
     assert merged == "battery;battery cover"
     assert _missing_parts_field(_FakeCompleteness("", "")) == ""
     assert _missing_parts_field(_FakeCompleteness("lid", "")) == "lid"
+
+
+# ── rich per-row detail (§14.2 checks + identity/completeness/condition/decision) ──
+# The UI's inspection detail view reads this JSON directly - it must not silently
+# discard the pydantic `judgment` field the way a bare `dataclasses.asdict(result)`
+# would (asdict does not know how to flatten a nested pydantic BaseModel).
+
+
+def test_build_row_detail_is_json_serializable_and_carries_real_pipeline_fields() -> None:
+    ctx = b.context(b.headphones_card())
+    j = b.component(
+        ctx, b.judgment(ctx), "usb_cable", status="missing", visibility="observed_absent_in_clear_view"
+    )
+    j = b.grade(j, "used_good", ctx)
+    result = b.run(ctx, j)
+    row = _returned(returned_photo_refs=("https://example.com/a.jpg", "https://example.com/b.jpg"))
+    before = _before(photo_ref="https://example.com/ref.jpg")
+
+    detail = _build_row_detail(session_judgment=j, result=result, row=row, before=before)
+    # Must round-trip through the exact encoder the API route uses (plain json.dumps, no
+    # custom default=) - a live pydantic object anywhere in the tree would raise here.
+    decoded = json.loads(json.dumps(detail))
+
+    assert decoded["decision"]["rule_id"] == result.decision.rule_id
+    assert decoded["decision"]["recommended_disposition"] == "refurbish"
+    assert {c["check_key"] for c in decoded["checks"]} >= {"identity", "completeness", "condition_grade"}
+    assert decoded["identity"]["identity_match"] == "yes"
+    assert decoded["completeness"]["parts_missing"] == "usb cable"
+    assert decoded["condition"]["amazon_condition"] == "Used - Good"
+    assert decoded["judgment"]["schema_version"] == "judgment/v1"
+    assert decoded["judgment_raw"]["schema_version"] == "judgment/v1"
+    assert decoded["returned_photo_refs"] == ["https://example.com/a.jpg", "https://example.com/b.jpg"]
+    assert decoded["reference_photo_ref"] == "https://example.com/ref.jpg"
+
+
+# ── filesystem-backed job store: detail lookup and row-level decisions ─────────────
+
+
+def _service(tmp_path: Path) -> BatchJobsService:
+    return BatchJobsService(root=tmp_path / "jobs", settings=Settings.model_construct(), client=None)  # type: ignore[arg-type]
+
+
+def _done_job(svc: BatchJobsService, org_id: str, job_id: str) -> None:
+    job = BatchJob(
+        job_id=job_id,
+        org_id=org_id,
+        status="done",
+        created_at=time.time(),
+        before_filename="before.csv",
+        returned_filename="returned.csv",
+    )
+    svc._jobs[job_id] = job
+    svc._job_dir(org_id, job_id).mkdir(parents=True, exist_ok=True)
+
+
+def test_output_row_detail_returns_none_for_unknown_row_or_job(tmp_path: Path) -> None:
+    svc = _service(tmp_path)
+    _done_job(svc, "org_demo_alpha", "job-1")
+    job_dir = svc._job_dir("org_demo_alpha", "job-1")
+    job_dir.mkdir(parents=True, exist_ok=True)
+    (job_dir / "rows_detail.json").write_text(json.dumps({"RTN-1": {"decision": {"rule_id": "R09"}}}))
+
+    assert svc.output_row_detail("org_demo_alpha", "job-1", "RTN-1") == {"decision": {"rule_id": "R09"}}
+    assert svc.output_row_detail("org_demo_alpha", "job-1", "RTN-404") is None
+    assert svc.output_row_detail("org_demo_alpha", "no-such-job", "RTN-1") is None
+    assert svc.output_row_detail("org_demo_bravo", "job-1", "RTN-1") is None  # cross-org
+
+
+def test_record_decision_appends_and_get_decisions_reads_history_in_order(tmp_path: Path) -> None:
+    svc = _service(tmp_path)
+    _done_job(svc, "org_demo_alpha", "job-1")
+
+    assert svc.get_decisions("org_demo_alpha", "job-1", "RTN-1") == []  # real answer: no decisions yet
+    assert svc.get_decisions("org_demo_alpha", "no-such-job", "RTN-1") is None  # vs. job doesn't exist
+
+    first = svc.record_decision(
+        "org_demo_alpha",
+        "job-1",
+        "RTN-1",
+        action="review_request",
+        new_disposition=None,
+        reason="label is blurry",
+        actor="user:op_alex",
+    )
+    second = svc.record_decision(
+        "org_demo_alpha",
+        "job-1",
+        "RTN-1",
+        action="override",
+        new_disposition="refurbish",
+        reason="found the missing cable in a second photo",
+        actor="user:rev_priya",
+    )
+    assert first is not None
+    assert second is not None
+
+    history = svc.get_decisions("org_demo_alpha", "job-1", "RTN-1")
+    assert history is not None
+    assert [d["action"] for d in history] == ["review_request", "override"]
+    assert history[1]["new_disposition"] == "refurbish"
+
+    # A decision on a different row of the same job must not appear here.
+    svc.record_decision(
+        "org_demo_alpha",
+        "job-1",
+        "RTN-2",
+        action="accept",
+        new_disposition=None,
+        reason="looks right",
+        actor="user:op_alex",
+    )
+    unchanged = svc.get_decisions("org_demo_alpha", "job-1", "RTN-1")
+    assert unchanged is not None
+    assert len(unchanged) == 2
+
+
+def test_record_decision_on_missing_job_returns_none(tmp_path: Path) -> None:
+    svc = _service(tmp_path)
+    assert (
+        svc.record_decision(
+            "org_demo_alpha",
+            "no-such-job",
+            "RTN-1",
+            action="accept",
+            new_disposition=None,
+            reason="ok",
+            actor="user:op_alex",
+        )
+        is None
+    )
+
+
+def test_render_output_csv_reflects_latest_override_not_the_stored_file(tmp_path: Path) -> None:
+    svc = _service(tmp_path)
+    _done_job(svc, "org_demo_alpha", "job-1")
+    write_output_csv(
+        svc._job_dir("org_demo_alpha", "job-1") / "output.csv",
+        [
+            {
+                "record_id": "RTN-1",
+                "unit_id": "UNIT-1",
+                "org_id": "org_demo_alpha",
+                "order_id": "ORD-1",
+                "ordered_sku": "SKU-A",
+                "ordered_asin": "ASIN-A",
+                "identity_match": "yes",
+                "parts_list": "cable",
+                "parts_missing": "cable",
+                "observed_state": "signs_of_use",
+                "amazon_condition": "Used - Good",
+                "operator_disposition": "liquidate",
+                "photo_refs": "https://example.com/a.jpg",
+                "captured_at": "2026-01-01T00:00:00Z",
+                "sold_vs_returned_id_check": "matched",
+            }
+        ],
+    )
+
+    # Before any decision: the download reflects the engine's own original route.
+    before_decision = svc.render_output_csv("org_demo_alpha", "job-1")
+    assert before_decision is not None
+    assert "liquidate" in before_decision.decode("utf-8")
+
+    svc.record_decision(
+        "org_demo_alpha",
+        "job-1",
+        "RTN-1",
+        action="override",
+        new_disposition="refurbish",
+        reason="cable was found",
+        actor="user:rev_priya",
+    )
+    after_override = svc.render_output_csv("org_demo_alpha", "job-1")
+    assert after_override is not None
+    lines = after_override.decode("utf-8").splitlines()
+    assert lines[0] == (
+        "record_id,unit_id,org_id,order_id,ordered_sku,ordered_asin,identity_match,parts_list,"
+        "parts_missing,observed_state,amazon_condition,operator_disposition,photo_refs,captured_at,"
+        "sold_vs_returned_id_check"
+    )
+    assert "refurbish" in lines[1]
+    assert "liquidate" not in after_override.decode("utf-8")
+
+    # A later `accept` confirms the route; it must not silently revert the override.
+    svc.record_decision(
+        "org_demo_alpha",
+        "job-1",
+        "RTN-1",
+        action="accept",
+        new_disposition=None,
+        reason="approved",
+        actor="user:rev_priya",
+    )
+    still_refurbish = svc.render_output_csv("org_demo_alpha", "job-1")
+    assert still_refurbish is not None
+    assert "refurbish" in still_refurbish.decode("utf-8")
+
+
+def test_render_output_csv_none_when_job_not_done(tmp_path: Path) -> None:
+    svc = _service(tmp_path)
+    svc._jobs["job-1"] = BatchJob(
+        job_id="job-1",
+        org_id="org_demo_alpha",
+        status="processing",
+        created_at=time.time(),
+        before_filename="before.csv",
+        returned_filename="returned.csv",
+    )
+    assert svc.render_output_csv("org_demo_alpha", "job-1") is None
+
+
+def test_split_combined_csv_returns_input_30(tmp_path: Path) -> None:
+    from returns_manager.api.routes.batch import _split_combined_csv
+
+    csv_path = Path(__file__).resolve().parents[2] / "manual_test_images" / "returns_input_30.csv"
+    if not csv_path.exists():
+        pytest.skip("manual_test_images/returns_input_30.csv not found")
+
+    content = csv_path.read_bytes()
+    b_bytes, r_bytes = _split_combined_csv(content, default_org_id="org_demo_alpha")
+
+    b_file = tmp_path / "b.csv"
+    r_file = tmp_path / "r.csv"
+    b_file.write_bytes(b_bytes)
+    r_file.write_bytes(r_bytes)
+
+    before_units = read_before_csv(b_file)
+    returned_rows = read_returned_csv(r_file)
+
+    assert len(before_units) == 30
+    assert len(returned_rows) == 30
+    assert "UNIT-WATCH-01" in before_units
+    assert returned_rows[0].unit_id == "UNIT-WATCH-01"
+    assert returned_rows[0].ordered_sku == "SKU-WATCH-A"
+    assert before_units["UNIT-WATCH-01"].photo_ref.startswith("https://")
+    assert len(returned_rows[0].returned_photo_refs) >= 1
+
+
+def test_similarity_confidence_auto_restocks_complete_return() -> None:
+    from returns_manager.batch.similarity import compute_before_after_similarity
+    from returns_manager.batch.runner import _build_synthetic_row_detail
+
+    before = BeforeRow(
+        record_id="PCK-EDGE-01",
+        unit_id="UNIT-EDGE-01",
+        org_id="org_demo_alpha",
+        order_id="ORD-EDGE-01",
+        ordered_sku="SKU-PHONE-A",
+        ordered_asin="B0PHONE01",
+        identity_match="uncertain",
+        parts_list="handset;battery;battery cover",
+        time="2026-08-02T10:15:00Z",
+        photo_ref="https://thumb.wikimedia.org/wikipedia/commons/thumb/d/d7/Samsung_Galaxy_S_2_and_its_removable_parts.jpg/1280px-Samsung_Galaxy_S_2_and_its_removable_parts.jpg",
+        category="electronics",
+    )
+    returned = ReturnedRow(
+        record_id="RTN-EDGE-01",
+        unit_id="UNIT-EDGE-01",
+        org_id="org_demo_alpha",
+        order_id="ORD-EDGE-01",
+        ordered_sku="SKU-PHONE-A",
+        ordered_asin="B0PHONE01",
+        time="2026-09-02T11:15:00Z",
+        returned_photo_refs=(
+            "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/d7/Samsung_Galaxy_S_2_and_its_removable_parts.jpg/1280px-Samsung_Galaxy_S_2_and_its_removable_parts.jpg",
+        ),
+    )
+
+    sim = compute_before_after_similarity(before, returned)
+    assert sim["confidence"] >= 85
+    assert sim["is_auto_approved"] is True
+    assert sim["recommended_disposition"] == "restock"
+    assert sim["resolved_condition"] == "Used - Like New"
+    assert sim["completeness_pct"] == 100
+    assert sim["visual_match_pct"] == 100
+
+    out_row = {
+        "record_id": returned.record_id,
+        "unit_id": returned.unit_id,
+        "org_id": returned.org_id,
+        "order_id": returned.order_id,
+        "ordered_sku": returned.ordered_sku,
+        "ordered_asin": returned.ordered_asin,
+        "identity_match": "uncertain",
+        "parts_list": before.parts_list,
+        "parts_missing": "",
+        "observed_state": "uncertain",
+        "amazon_condition": "uncertain",
+        "operator_disposition": "pending_review",
+        "photo_refs": ";".join(returned.returned_photo_refs),
+        "captured_at": returned.time,
+        "sold_vs_returned_id_check": "matched",
+    }
+    detail = _build_synthetic_row_detail(out_row, before, returned)
+    assert out_row["operator_disposition"] == "restock"
+    assert out_row["amazon_condition"] == "Used - Like New"
+    assert detail["decision"]["recommended_disposition"] == "restock"
+    assert detail["decision"]["auto_approved"] is True
+    assert detail["decision"]["requires_review"] is False
+    assert detail["similarity"]["confidence"] >= 85
+
+

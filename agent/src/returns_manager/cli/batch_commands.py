@@ -49,7 +49,7 @@ def process_command(
     assert settings.gemini_api_key is not None
     client = GeminiModelClient(settings.gemini_api_key.get_secret_value(), settings.rm_model_timeout_s)
 
-    rows, summary = run_batch_sync(
+    rows, _details_by_record_id, summary = run_batch_sync(
         before_path=before,
         returned_path=returned,
         settings=settings,

@@ -1,0 +1,329 @@
+/* Additive styles for the real-backend wiring (Connect screen, upload flow, decision
+   history, system controls). Kept in a separate file on purpose - styles.css is a large
+   generated stylesheet and editing it directly risks corrupting it. Colors are sampled
+   from the existing dark theme (App.tsx / CinematicOverview.tsx inline values) so these
+   blend in rather than introducing a new palette. */
+
+.connect-screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #05070699;
+  z-index: 50;
+}
+
+.connect-dialog {
+  width: min(420px, 92vw);
+}
+
+.connect-dialog p {
+  color: #8da296;
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 4px 0 14px;
+}
+
+.connect-dialog code {
+  color: #caa255;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 12px;
+}
+
+.connect-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #f2867a;
+  font-size: 12.5px;
+  margin-top: 8px;
+}
+
+.connect-footnote {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #6f8579;
+  font-size: 11.5px;
+  margin-top: 14px;
+  line-height: 1.5;
+}
+
+.connect-footnote code {
+  color: #8da296;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+/* Batch upload wizard */
+.upload-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.upload-progress-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.upload-progress-bar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #2fa866, #caa255);
+  transition: width 0.4s ease;
+}
+
+.upload-progress-stats {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.upload-progress-stats span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: #8da296;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.upload-progress-stats b {
+  font-size: 18px;
+  color: #f3f7f4;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.upload-notes {
+  max-height: 140px;
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: #8da296;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.upload-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: #f2867a;
+  background: rgba(242, 134, 122, 0.08);
+  border: 1px solid rgba(242, 134, 122, 0.25);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.spend-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  color: #cdd7d1;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.spend-checkbox input {
+  margin-top: 2px;
+}
+
+.spend-checkbox small {
+  display: block;
+  color: #8da296;
+  margin-top: 3px;
+}
+
+/* Decision history (Inspection page) */
+.decision-history {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.decision-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 12.5px;
+}
+
+.decision-entry b {
+  color: #f3f7f4;
+  text-transform: capitalize;
+}
+
+.decision-entry small {
+  color: #8da296;
+}
+
+/* System controls (Settings) */
+.controls-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.control-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.control-row b {
+  font-size: 13px;
+  color: #f3f7f4;
+  text-transform: capitalize;
+}
+
+.control-row small {
+  display: block;
+  color: #8da296;
+  margin-top: 2px;
+}
+
+.no-data-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #8da296;
+  font-size: 12.5px;
+  padding: 12px 14px;
+}
+
+.inline-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #f2867a;
+  font-size: 12.5px;
+  padding: 10px 12px;
+  background: rgba(242, 134, 122, 0.08);
+  border: 1px solid rgba(242, 134, 122, 0.22);
+  border-radius: 8px;
+}
+
+/* Single unified returns CSV dropzone */
+.single-upload-slot {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.single-upload-area {
+  min-height: 190px;
+  border: 1.5px dashed rgba(87, 227, 137, 0.38);
+  border-radius: 10px;
+  background: rgba(18, 58, 37, 0.12);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px 20px;
+  text-align: center;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.single-upload-area:hover,
+.single-upload-area.dragging {
+  border-color: #57e389;
+  background: rgba(18, 58, 37, 0.24);
+  box-shadow: 0 0 24px rgba(87, 227, 137, 0.18);
+}
+
+.single-upload-area strong {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #e4ece6;
+}
+
+.single-upload-area span {
+  font-size: 11.5px;
+  color: #8da296;
+  max-width: 520px;
+  line-height: 1.5;
+}
+
+.single-upload-area input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.single-upload-badges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 8px;
+}
+
+.single-upload-badge {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  color: #caa255;
+}
+
+.timestamp-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  color: #a1b5a8;
+  white-space: nowrap;
+}
+
+/* Auto-disapproved / Rejected status pills */
+.pill.auto-disapproved,
+.pill.rejected,
+.pill.disapproved {
+  background: #351b1d !important;
+  color: #fca5a5 !important;
+  border: 1px solid rgba(239, 68, 68, 0.35) !important;
+}
+
+.dashboard-shell .pill.auto-disapproved,
+.dashboard-shell .pill.rejected,
+.dashboard-shell .pill.disapproved {
+  background: #351b1d !important;
+  color: #fca5a5 !important;
+  border-color: rgba(239, 68, 68, 0.35) !important;
+}
+
+

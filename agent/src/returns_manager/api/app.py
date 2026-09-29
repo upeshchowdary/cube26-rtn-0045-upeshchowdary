@@ -12,11 +12,13 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from returns_manager import __version__
 from returns_manager.api import problems
 from returns_manager.api.deps import Services, ServicesDep
+from returns_manager.api.routes import batch as batch_routes
 from returns_manager.api.routes import chain as chain_routes
 from returns_manager.api.routes import evidence as evidence_routes
 from returns_manager.api.routes import explainer as explainer_routes
@@ -27,7 +29,8 @@ from returns_manager.api.routes import review as review_routes
 from returns_manager.api.routes import security as security_routes
 from returns_manager.api.routes import simulate as simulate_routes
 from returns_manager.api.routes import webhooks as webhooks_routes
-from returns_manager.config import Settings, get_settings
+from returns_manager.batch.jobs_service import BatchJobsService
+from returns_manager.config import AGENT_ROOT, Settings, get_settings
 from returns_manager.db.pool import Database
 from returns_manager.ids import new_id
 from returns_manager.security.auth_jwt import JwtVerifier
@@ -51,7 +54,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await db.open()  # runs the boot check; raises UnsafeDatabaseRole under a bypass role
         jwt = JwtVerifier(settings) if (settings.supabase_jwks_url or settings.supabase_jwt_secret) else None
         storage = PhotoStorage(settings) if settings.supabase_url else None
-        app.state.services = Services(settings=settings, db=db, jwt=jwt, storage=storage)
+        batch_jobs: BatchJobsService | None = None
+        if settings.gemini_api_key is not None:
+            from returns_manager.llm.gemini_client import GeminiModelClient
+
+            gemini_client = GeminiModelClient(
+                settings.gemini_api_key.get_secret_value(), settings.rm_model_timeout_s
+            )
+            batch_jobs = BatchJobsService(
+                root=AGENT_ROOT / ".data" / "batch_jobs",
+                settings=settings,
+                client=gemini_client,
+            )
+        app.state.services = Services(
+            settings=settings, db=db, jwt=jwt, storage=storage, batch_jobs=batch_jobs
+        )
         try:
             yield
         finally:
@@ -65,6 +82,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url=None,
     )
     problems.install(app)
+
+    # The static frontend (served separately, e.g. `python -m http.server` under
+    # frontend/) calls this API from a different origin/port. Every route still
+    # requires a real API key (api/deps.py:principal) regardless of origin, so this
+    # only widens *which pages* may attempt a call, never who is allowed to succeed.
+    # Scoped to localhost/127.0.0.1 on any port - this API is not deployed publicly.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     @app.middleware("http")
     async def request_id(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
@@ -105,6 +135,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(security_routes.router)
     app.include_router(intake_routes.router)
+    app.include_router(batch_routes.router)
     app.include_router(jobs_routes.router)
     app.include_router(simulate_routes.router)
     app.include_router(review_routes.router)

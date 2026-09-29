@@ -5,7 +5,8 @@ few phone photos, the seller's own catalogue and Amazon's published condition gu
 disposition (`restock` / `refurbish` / `liquidate` / `dispose` / `pending_review`) is always
 computed by a deterministic rules engine from the model's structured observations — the model
 itself never decides it. See [`../ARCHITECTURE.md`](../ARCHITECTURE.md) for the full data flow
-and design decisions.
+and design decisions, and [`../frontend/`](../frontend/) for the operator console UI (static
+site, real evidence data from this pipeline, not yet wired to the live API).
 
 ## Setup
 
