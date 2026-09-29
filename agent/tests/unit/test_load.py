@@ -259,6 +259,7 @@ async def test_t_lod_09_resilience_drills_suite(db: Database, quiet_queue: set[s
     assert budget_rep.details["quota_denied_when_budget_exhausted"] is True
 
 
+@pytest.mark.db  # `load-test --mode replay` opens the database pool
 def test_t_lod_10_cli_load_test_json_export(tmp_path: Any) -> None:
     """CLI load-test command with --out writes valid JSON report."""
     out_file = tmp_path / "load_report.json"

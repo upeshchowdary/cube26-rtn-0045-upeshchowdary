@@ -10,12 +10,12 @@ guesses a verdict - that row is written as `observed_state=uncertain`,
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
-import logging
 
 import httpx
 import yaml
@@ -101,6 +101,7 @@ class _NoDbQuota:
     async def reserve(self, model_id: str, role: str, n: int) -> AsyncIterator[_NoDbReservation]:
         if self.is_exhausted:
             from returns_manager.errors import QuotaExhaustedError
+
             raise QuotaExhaustedError("daily request quota used up")
         yield _NoDbReservation(self._limiter(model_id))
 
@@ -415,7 +416,9 @@ async def process_returned_row(
         id_mismatch=_id_mismatch(before, id_check),
         threshold_bp=settings.rm_batch_auto_approve_min_confidence_bp,
     )
-    disposition = _operator_disposition(result.decision.recommended_disposition, auto_approved=approval.approved)
+    disposition = _operator_disposition(
+        result.decision.recommended_disposition, auto_approved=approval.approved
+    )
 
     output_row = {
         "record_id": row.record_id,
@@ -502,7 +505,9 @@ async def run_batch(
             else:
                 summary.uncertain += 1
                 summary.notes.append(f"{row.record_id}: {result.note}")
-            _report_progress(on_progress, result.output_row, result.detail, summary, output_rows, details_by_record_id)
+            _report_progress(
+                on_progress, result.output_row, result.detail, summary, output_rows, details_by_record_id
+            )
     return output_rows, details_by_record_id, summary
 
 

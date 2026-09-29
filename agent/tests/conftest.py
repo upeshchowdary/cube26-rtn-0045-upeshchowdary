@@ -8,6 +8,7 @@ import sys
 from collections.abc import AsyncIterator, Callable, Mapping
 from typing import Any
 
+import psycopg
 import pytest
 import pytest_asyncio
 from psycopg import AsyncConnection
@@ -24,6 +25,44 @@ def pytest_asyncio_loop_factories(
     if sys.platform == "win32":
         return {"selector": asyncio.SelectorEventLoop}
     return None
+
+
+DB_PROBE_TIMEOUT_S = 2
+_db_unreachable: str | None = None
+_db_probed = False
+
+
+def _db_unreachable_reason() -> str | None:
+    """Probe the app DSN once per session with a short connect timeout. A configured but
+    unreachable database (e.g. `.env` points at 127.0.0.1:54322 and Supabase is not running)
+    must skip the `db` tests, not hang each one on a connect/pool timeout (A9)."""
+    global _db_probed, _db_unreachable
+    if _db_probed:
+        return _db_unreachable
+    _db_probed = True
+    settings = get_settings()
+    dsn = (
+        (settings.database_url.get_secret_value() if settings.database_url else None)
+        or os.environ.get("DATABASE_URL")
+        or ""
+    )
+    if not dsn:
+        _db_unreachable = "DATABASE_URL not set; run `npx supabase start` first"
+        return _db_unreachable
+    try:
+        with psycopg.connect(dsn, connect_timeout=DB_PROBE_TIMEOUT_S):
+            pass
+    except psycopg.OperationalError as exc:
+        # Only the exception class: the message can echo connection details.
+        _db_unreachable = f"database unreachable ({type(exc).__name__}); run `npx supabase start` first"
+    return _db_unreachable
+
+
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    if item.get_closest_marker("db") is not None:
+        reason = _db_unreachable_reason()
+        if reason:
+            pytest.skip(reason)
 
 
 def migrator_dsn() -> str:

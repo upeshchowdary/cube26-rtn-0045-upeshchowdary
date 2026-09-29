@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any, Annotated
+from typing import Annotated, Any
 
 import pytest
 from fastapi import Depends, FastAPI

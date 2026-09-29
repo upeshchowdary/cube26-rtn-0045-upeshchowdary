@@ -115,29 +115,37 @@ def _split_combined_csv(content: bytes, default_org_id: str) -> tuple[bytes, byt
 
         for idx, r in enumerate(rows, 1):
             unit_id = (r.get("unit_id") or f"UNIT-{idx}").strip()
-            bw.writerow({
-                "record_id": (r.get("sold_record_id") or r.get("record_id") or f"REC-SOLD-{idx}").strip(),
-                "unit_id": unit_id,
-                "org_id": (r.get("sold_org_id") or r.get("org_id") or default_org_id).strip(),
-                "order_id": (r.get("sold_order_id") or r.get("order_id") or f"ORD-{idx}").strip(),
-                "ordered_sku": (r.get("sold_sku") or r.get("ordered_sku") or "SKU-DEFAULT").strip(),
-                "ordered_asin": (r.get("sold_asin") or r.get("ordered_asin") or "B0DEFAULT").strip(),
-                "identity_match": (r.get("identity_match") or "uncertain").strip(),
-                "parts_list": (r.get("parts_list") or "").strip(),
-                "time": (r.get("sold_time") or r.get("time") or "2026-08-01T00:00:00Z").strip(),
-                "photo_ref": (r.get("sold_photo_url") or r.get("photo_ref") or "").strip(),
-                "category": (r.get("category") or "").strip(),
-            })
-            rw.writerow({
-                "record_id": (r.get("returned_record_id") or r.get("record_id") or f"REC-RTN-{idx}").strip(),
-                "unit_id": unit_id,
-                "org_id": (r.get("returned_org_id") or r.get("org_id") or default_org_id).strip(),
-                "order_id": (r.get("returned_order_id") or r.get("order_id") or f"ORD-{idx}").strip(),
-                "ordered_sku": (r.get("returned_sku") or r.get("ordered_sku") or "SKU-DEFAULT").strip(),
-                "ordered_asin": (r.get("returned_asin") or r.get("ordered_asin") or "B0DEFAULT").strip(),
-                "returned_photo_ref": (r.get("returned_photo_url") or r.get("returned_photo_ref") or "").strip(),
-                "time": (r.get("returned_time") or r.get("time") or "2026-09-01T00:00:00Z").strip(),
-            })
+            bw.writerow(
+                {
+                    "record_id": (r.get("sold_record_id") or r.get("record_id") or f"REC-SOLD-{idx}").strip(),
+                    "unit_id": unit_id,
+                    "org_id": (r.get("sold_org_id") or r.get("org_id") or default_org_id).strip(),
+                    "order_id": (r.get("sold_order_id") or r.get("order_id") or f"ORD-{idx}").strip(),
+                    "ordered_sku": (r.get("sold_sku") or r.get("ordered_sku") or "SKU-DEFAULT").strip(),
+                    "ordered_asin": (r.get("sold_asin") or r.get("ordered_asin") or "B0DEFAULT").strip(),
+                    "identity_match": (r.get("identity_match") or "uncertain").strip(),
+                    "parts_list": (r.get("parts_list") or "").strip(),
+                    "time": (r.get("sold_time") or r.get("time") or "2026-08-01T00:00:00Z").strip(),
+                    "photo_ref": (r.get("sold_photo_url") or r.get("photo_ref") or "").strip(),
+                    "category": (r.get("category") or "").strip(),
+                }
+            )
+            rw.writerow(
+                {
+                    "record_id": (
+                        r.get("returned_record_id") or r.get("record_id") or f"REC-RTN-{idx}"
+                    ).strip(),
+                    "unit_id": unit_id,
+                    "org_id": (r.get("returned_org_id") or r.get("org_id") or default_org_id).strip(),
+                    "order_id": (r.get("returned_order_id") or r.get("order_id") or f"ORD-{idx}").strip(),
+                    "ordered_sku": (r.get("returned_sku") or r.get("ordered_sku") or "SKU-DEFAULT").strip(),
+                    "ordered_asin": (r.get("returned_asin") or r.get("ordered_asin") or "B0DEFAULT").strip(),
+                    "returned_photo_ref": (
+                        r.get("returned_photo_url") or r.get("returned_photo_ref") or ""
+                    ).strip(),
+                    "time": (r.get("returned_time") or r.get("time") or "2026-09-01T00:00:00Z").strip(),
+                }
+            )
 
         return b_out.getvalue().encode("utf-8"), r_out.getvalue().encode("utf-8")
     return content, content
@@ -148,9 +156,15 @@ async def create_batch_job(
     principal: PrincipalDep,
     svc: ServicesDep,
     confirm_spend: Annotated[bool, Form()],
-    file: Annotated[UploadFile | None, File(description="Single combined CSV (unit_id,sold_*,returned_*)")] = None,
-    before: Annotated[UploadFile | None, File(description="Before-sale CSV (record_id,unit_id,org_id,...)")] = None,
-    returned: Annotated[UploadFile | None, File(description="Returned-item CSV (record_id,unit_id,org_id,...)")] = None,
+    file: Annotated[
+        UploadFile | None, File(description="Single combined CSV (unit_id,sold_*,returned_*)")
+    ] = None,
+    before: Annotated[
+        UploadFile | None, File(description="Before-sale CSV (record_id,unit_id,org_id,...)")
+    ] = None,
+    returned: Annotated[
+        UploadFile | None, File(description="Returned-item CSV (record_id,unit_id,org_id,...)")
+    ] = None,
     default_category: Annotated[str | None, Form()] = None,
     max_requests: Annotated[int, Form(ge=1, le=MAX_MAX_REQUESTS)] = DEFAULT_MAX_REQUESTS,
 ) -> BatchJobResponse:
@@ -190,7 +204,9 @@ async def create_batch_job(
         before_fn = before.filename or "before.csv"
         returned_fn = returned.filename or "returned.csv"
     else:
-        raise BadRequest("either a single unified returns CSV or both before and returned CSV files are required")
+        raise BadRequest(
+            "either a single unified returns CSV or both before and returned CSV files are required"
+        )
 
     job = await svc.batch_jobs.create_job(
         org_id=principal.org_id,
@@ -344,4 +360,3 @@ async def list_batch_row_decisions(
     if decisions is None:
         raise NotFound(f"no batch job {job_id!r}")
     return [RowDecisionEntry.model_validate(d) for d in decisions]
-

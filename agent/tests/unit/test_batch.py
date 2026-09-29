@@ -27,8 +27,8 @@ from returns_manager.batch.parts import parse_parts_list
 from returns_manager.batch.runner import (
     _build_row_detail,
     _id_mismatch,
-    _operator_disposition,
     _missing_parts_field,
+    _operator_disposition,
     _uncertain_row,
     check_id_match,
 )
@@ -359,7 +359,9 @@ def test_wrong_item_is_r03_null_recommendation_and_pending_review() -> None:
     assert result.decision.recommended_disposition is None
     assert result.decision.no_recommendation_reason == "wrong_item_returned"
     assert result.claims.wrong_item_returned.value == "yes"
-    assert _operator_disposition(result.decision.recommended_disposition, auto_approved=True) == "pending_review"
+    assert (
+        _operator_disposition(result.decision.recommended_disposition, auto_approved=True) == "pending_review"
+    )
 
 
 @pytest.mark.parametrize("value", ["wrong_product", "pending_review", "RESTOCK", "return_to_vendor"])
@@ -371,7 +373,9 @@ def test_decision_request_rejects_anything_but_the_four_dispositions(value: str)
     with pytest.raises(ValidationError):
         RowDecisionRequest(action="override", new_disposition=value, reason="r")  # type: ignore[arg-type]
     for route in DISPOSITIONS:
-        assert RowDecisionRequest(action="override", new_disposition=route, reason="r").new_disposition == route  # type: ignore[arg-type]
+        assert (
+            RowDecisionRequest(action="override", new_disposition=route, reason="r").new_disposition == route
+        )  # type: ignore[arg-type]
 
 
 def test_flat_contract_enumerates_only_the_four_dispositions() -> None:
@@ -759,7 +763,9 @@ async def test_model_call_failure_is_pending_review_and_answer_key_is_ignored(mo
     from returns_manager.llm.loop import SessionFailed, SessionTrace
 
     async def _quota_fails(*args: Any, **kwargs: Any) -> Any:
-        raise SessionFailed(QuotaExhaustedError("429 RESOURCE_EXHAUSTED"), SessionTrace(model="m", output_mode="x"))
+        raise SessionFailed(
+            QuotaExhaustedError("429 RESOURCE_EXHAUSTED"), SessionTrace(model="m", output_mode="x")
+        )
 
     monkeypatch.setattr(runner, "_run_judgment_with_fallback", _quota_fails)
     for record_id in ("RTN-WATCH-01", "RTN-AIR-02"):  # answer key says restock / wrong_product
@@ -779,7 +785,9 @@ async def test_invalid_model_output_with_identical_photo_urls_never_restocks(mon
     from returns_manager.llm.loop import SessionFailed, SessionTrace
 
     async def _schema_error(*args: Any, **kwargs: Any) -> Any:
-        raise SessionFailed(SchemaError("judgment did not validate"), SessionTrace(model="m", output_mode="x"))
+        raise SessionFailed(
+            SchemaError("judgment did not validate"), SessionTrace(model="m", output_mode="x")
+        )
 
     monkeypatch.setattr(runner, "_run_judgment_with_fallback", _schema_error)
     before, returned = _golden_row("RTN-WATCH-01")
@@ -855,15 +863,26 @@ def test_auto_approve_marks_a_clean_engine_restock_without_changing_it() -> None
 
     ctx = b.context(b.headphones_card())
     result = b.run(ctx, _sealed_new(ctx))
-    before = (result.decision.recommended_disposition, result.decision.rule_id, result.condition.amazon_condition)
+    before = (
+        result.decision.recommended_disposition,
+        result.decision.rule_id,
+        result.condition.amazon_condition,
+    )
     approval = auto_approve.evaluate(result, id_mismatch=False, threshold_bp=8500)
     assert approval.approved is True
     assert approval.blocked_by == ()
     assert approval.min_confidence_bp == 9500
     # Nothing about the engine's decision moved.
-    assert (result.decision.recommended_disposition, result.decision.rule_id, result.condition.amazon_condition) == before
+    assert (
+        result.decision.recommended_disposition,
+        result.decision.rule_id,
+        result.condition.amazon_condition,
+    ) == before
     assert before[:2] == ("restock", "R12")
-    assert _operator_disposition(result.decision.recommended_disposition, auto_approved=approval.approved) == "restock"
+    assert (
+        _operator_disposition(result.decision.recommended_disposition, auto_approved=approval.approved)
+        == "restock"
+    )
 
 
 def test_auto_approve_threshold_comes_from_config_and_blocks_low_confidence() -> None:
@@ -876,14 +895,19 @@ def test_auto_approve_threshold_comes_from_config_and_blocks_low_confidence() ->
     approval = auto_approve.evaluate(result, id_mismatch=False, threshold_bp=8500)
     assert approval.approved is False
     assert "confidence_below_threshold" in approval.blocked_by
-    assert _operator_disposition(result.decision.recommended_disposition, auto_approved=approval.approved) == "pending_review"
+    assert (
+        _operator_disposition(result.decision.recommended_disposition, auto_approved=approval.approved)
+        == "pending_review"
+    )
 
 
 def test_auto_approve_never_skips_s02_high_value_signoff() -> None:
     from returns_manager.batch import auto_approve
 
     ctx = b.context(b.headphones_card(price_minor=900000))
-    j = b.component(ctx, b.judgment(ctx), "usb_cable", status="missing", visibility="observed_absent_in_clear_view")
+    j = b.component(
+        ctx, b.judgment(ctx), "usb_cable", status="missing", visibility="observed_absent_in_clear_view"
+    )
     result = b.run(ctx, _confident(b.grade(j, "used_good", ctx)))
     assert result.decision.requires_signoff is True
     approval = auto_approve.evaluate(result, id_mismatch=False, threshold_bp=0)
@@ -896,8 +920,12 @@ def test_auto_approve_never_skips_s01_dispose_signoff() -> None:
 
     ctx = b.context(b.headphones_card())
     result = b.run(ctx, _sealed_new(ctx))
-    forced = type(result.decision)(**{**result.decision.__dict__, "recommended_disposition": "dispose", "requires_signoff": True})
-    approval = auto_approve.evaluate(type(result)(**{**result.__dict__, "decision": forced}), id_mismatch=False, threshold_bp=0)
+    forced = type(result.decision)(
+        **{**result.decision.__dict__, "recommended_disposition": "dispose", "requires_signoff": True}
+    )
+    approval = auto_approve.evaluate(
+        type(result)(**{**result.__dict__, "decision": forced}), id_mismatch=False, threshold_bp=0
+    )
     assert approval.approved is False
     assert "requires_signoff" in approval.blocked_by
 
@@ -908,7 +936,10 @@ def test_auto_approve_blocked_by_id_mismatch_and_by_null_recommendation() -> Non
 
     ctx = b.context(b.headphones_card())
     clean = b.run(ctx, _sealed_new(ctx))
-    assert "sold_vs_returned_id_mismatch" in auto_approve.evaluate(clean, id_mismatch=True, threshold_bp=0).blocked_by
+    assert (
+        "sold_vs_returned_id_mismatch"
+        in auto_approve.evaluate(clean, id_mismatch=True, threshold_bp=0).blocked_by
+    )
 
     raw = _sealed_new(ctx).model_dump(mode="json")
     raw["identity"]["identity_match"] = "no"
@@ -923,7 +954,9 @@ def test_auto_approve_blocked_by_id_mismatch_and_by_null_recommendation() -> Non
 def test_row_detail_keeps_the_engine_rule_id_and_route() -> None:
     """A2: the detail's decision is the engine's, never a heuristic rewrite (e.g. R06_AUTO_RESTOCK)."""
     ctx = b.context(b.headphones_card())
-    j = b.component(ctx, b.judgment(ctx), "usb_cable", status="missing", visibility="observed_absent_in_clear_view")
+    j = b.component(
+        ctx, b.judgment(ctx), "usb_cable", status="missing", visibility="observed_absent_in_clear_view"
+    )
     result = b.run(ctx, b.grade(j, "used_good", ctx))
     detail = _build_row_detail(session_judgment=j, result=result, row=_returned(), before=_before())
     assert detail["decision"]["rule_id"] == result.decision.rule_id == "R09"
@@ -948,15 +981,32 @@ def test_uploader_cannot_sign_off_a_row_that_requires_signoff(tmp_path: Path) ->
     for action in ("accept", "override"):
         with pytest.raises(Forbidden):
             svc.record_decision(
-                "org_demo_alpha", "job-1", "RTN-1", action=action,  # type: ignore[arg-type]
-                new_disposition="dispose", reason="ok", actor="user:op_alex",
+                "org_demo_alpha",
+                "job-1",
+                "RTN-1",
+                action=action,  # type: ignore[arg-type]
+                new_disposition="dispose",
+                reason="ok",
+                actor="user:op_alex",
             )
     # A review request by the uploader is fine; a different person may sign off.
     assert svc.record_decision(
-        "org_demo_alpha", "job-1", "RTN-1", action="review_request", new_disposition=None, reason="look", actor="user:op_alex"
+        "org_demo_alpha",
+        "job-1",
+        "RTN-1",
+        action="review_request",
+        new_disposition=None,
+        reason="look",
+        actor="user:op_alex",
     )
     assert svc.record_decision(
-        "org_demo_alpha", "job-1", "RTN-1", action="accept", new_disposition=None, reason="ok", actor="user:rev_priya"
+        "org_demo_alpha",
+        "job-1",
+        "RTN-1",
+        action="accept",
+        new_disposition=None,
+        reason="ok",
+        actor="user:rev_priya",
     )
 
 
@@ -984,7 +1034,9 @@ def test_accepting_a_signoff_row_over_http_needs_the_signoff_permission(tmp_path
     app = FastAPI()
     problems.install(app)
     app.include_router(router)
-    app.state.services = Services(settings=Settings.model_construct(), db=None, jwt=None, storage=None, batch_jobs=svc)  # type: ignore[arg-type]
+    app.state.services = Services(
+        settings=Settings.model_construct(), db=None, jwt=None, storage=None, batch_jobs=svc
+    )  # type: ignore[arg-type]
     url = "/api/v1/batch/jobs/job-1/rows/RTN-1/decision"
     body = {"action": "accept", "reason": "ok"}
 
@@ -994,6 +1046,9 @@ def test_accepting_a_signoff_row_over_http_needs_the_signoff_permission(tmp_path
     assert TestClient(app).post(url, json=body).status_code == 403
 
     app.dependency_overrides[principal] = lambda: Principal(
-        kind="api_key", org_id="org_demo_alpha", actor_id="k2", scopes=frozenset({Scope.RETURNS_WRITE, Scope.REVIEW_WRITE})
+        kind="api_key",
+        org_id="org_demo_alpha",
+        actor_id="k2",
+        scopes=frozenset({Scope.RETURNS_WRITE, Scope.REVIEW_WRITE}),
     )
     assert TestClient(app).post(url, json=body).status_code == 201

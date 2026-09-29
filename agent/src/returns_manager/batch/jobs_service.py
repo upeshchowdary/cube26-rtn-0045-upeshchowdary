@@ -147,8 +147,15 @@ class BatchJobsService:
         self._save(job)
         job_dir = self._job_dir(job.org_id, job.job_id)
 
-        def _on_progress(row_out: Any, det: Any, summary: Any, current_rows: list[dict[str, str]], current_details: dict[str, Any]) -> None:
+        def _on_progress(
+            row_out: Any,
+            det: Any,
+            summary: Any,
+            current_rows: list[dict[str, str]],
+            current_details: dict[str, Any],
+        ) -> None:
             from returns_manager.batch.io_csv import write_output_csv
+
             job.processed = summary.processed
             job.uncertain = summary.uncertain
             job.live_requests = summary.live_requests
@@ -156,8 +163,8 @@ class BatchJobsService:
                 write_output_csv(job_dir / "output.csv", current_rows)
                 (job_dir / "rows_detail.json").write_text(json.dumps(current_details), encoding="utf-8")
                 self._save(job)
-            except Exception:
-                pass
+            except (OSError, TypeError, ValueError):  # a partial-progress write failing must not stop the run
+                logger.warning("could not write progress for batch job %s", job.job_id, exc_info=True)
 
         try:
             rows, details_by_record_id, summary = await run_batch(
@@ -223,7 +230,6 @@ class BatchJobsService:
 
     def _decisions_path(self, org_id: str, job_id: str) -> Path:
         return self._job_dir(org_id, job_id) / "decisions.json"
-
 
     def output_row_detail(self, org_id: str, job_id: str, record_id: str) -> dict[str, Any] | None:
         """The rich per-row detail (§14.2 checks, identity, completeness, condition, decision,
@@ -308,6 +314,7 @@ class BatchJobsService:
         output_p = self._job_dir(org_id, job_id) / "output.csv"
         if output_p.exists():
             from returns_manager.batch.io_csv import write_output_csv
+
             rows = self.output_rows(org_id, job_id) or []
             updated = False
             for r in rows:
@@ -321,7 +328,9 @@ class BatchJobsService:
                             updated = True
                         elif r.get("operator_disposition") == "pending_review":
                             detail = self.output_row_detail(org_id, job_id, record_id)
-                            rec = detail.get("decision", {}).get("recommended_disposition") if detail else None
+                            rec = (
+                                detail.get("decision", {}).get("recommended_disposition") if detail else None
+                            )
                             if rec and rec != "pending_review":
                                 r["operator_disposition"] = rec
                                 updated = True
