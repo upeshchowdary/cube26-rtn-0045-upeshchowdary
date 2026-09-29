@@ -318,7 +318,7 @@ export default function BatchUpload() {
             </p>
             <p>
               <b>After-sale fields:</b> returned_record_id, returned_org_id, returned_order_id,
-              returned_sku, returned_asin, returned_time, returned_photo_url, scenario.
+              returned_sku, returned_asin, returned_time, returned_photo_url. (Any other column, such as a free-text scenario note, is ignored.)
             </p>
           </details>
 

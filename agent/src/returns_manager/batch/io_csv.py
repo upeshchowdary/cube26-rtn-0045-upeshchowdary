@@ -50,8 +50,6 @@ class BeforeRow:
     time: str
     photo_ref: str
     category: str | None = None
-    scenario: str | None = None
-    parts_missing: str | None = None
 
 
 @dataclass(frozen=True)
@@ -64,8 +62,6 @@ class ReturnedRow:
     ordered_asin: str
     returned_photo_refs: tuple[str, ...]
     time: str
-    scenario: str | None = None
-    parts_missing: str | None = None
 
 
 def _check_columns(fieldnames: Sequence[str] | None, required: set[str], path: Path) -> None:
@@ -86,8 +82,6 @@ def read_before_csv(path: Path) -> dict[str, BeforeRow]:
             if not unit_id:
                 continue
             category = (row.get("category") or "").strip() or None
-            scenario = (row.get("scenario") or "").strip() or None
-            parts_missing = (row.get("parts_missing") or "").strip() or None
             by_unit[unit_id] = BeforeRow(
                 record_id=(row.get("record_id") or "").strip(),
                 unit_id=unit_id,
@@ -100,8 +94,6 @@ def read_before_csv(path: Path) -> dict[str, BeforeRow]:
                 time=(row.get("time") or "").strip(),
                 photo_ref=(row.get("photo_ref") or "").strip(),
                 category=category.lower() if category else None,
-                scenario=scenario,
-                parts_missing=parts_missing,
             )
     return by_unit
 
@@ -116,8 +108,6 @@ def read_returned_csv(path: Path) -> list[ReturnedRow]:
             if not unit_id:
                 continue
             refs = tuple(u.strip() for u in (row.get("returned_photo_ref") or "").split(";") if u.strip())
-            scenario = (row.get("scenario") or "").strip() or None
-            parts_missing = (row.get("parts_missing") or "").strip() or None
             rows.append(
                 ReturnedRow(
                     record_id=(row.get("record_id") or "").strip(),
@@ -128,8 +118,6 @@ def read_returned_csv(path: Path) -> list[ReturnedRow]:
                     ordered_asin=(row.get("ordered_asin") or "").strip(),
                     returned_photo_refs=refs,
                     time=(row.get("time") or "").strip(),
-                    scenario=scenario,
-                    parts_missing=parts_missing,
                 )
             )
     return rows
@@ -142,7 +130,8 @@ OUTPUT_FIELDNAMES = [
     "order_id",
     "ordered_sku",
     "ordered_asin",
-    "identity_match",
+    "identity_match",  # carried forward from the before-file, never re-derived (F-024)
+    "photo_identity_match",  # the model's own verdict on the returned photo(s); uncertain if none
     "parts_list",
     "parts_missing",
     "observed_state",
@@ -151,6 +140,7 @@ OUTPUT_FIELDNAMES = [
     "photo_refs",
     "captured_at",
     "sold_vs_returned_id_check",
+    "failure_reason",  # why a row failed open (empty on a real model + engine result)
 ]
 
 

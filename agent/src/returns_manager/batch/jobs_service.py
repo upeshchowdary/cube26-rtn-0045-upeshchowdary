@@ -206,54 +206,12 @@ class BatchJobsService:
         return path if path.exists() else None
 
     def output_rows(self, org_id: str, job_id: str) -> list[dict[str, str]] | None:
+        """The run's output rows exactly as written - never recomputed or filled in on read."""
         path = self.output_path(org_id, job_id)
         if path is None:
             return None
         with path.open(newline="", encoding="utf-8") as f:
-            rows = list(csv.DictReader(f))
-
-        from returns_manager.batch.io_csv import read_before_csv, ReturnedRow
-        from returns_manager.batch.similarity import compute_before_after_similarity
-
-        job_dir = self._job_dir(org_id, job_id)
-        before_path = job_dir / "before.csv"
-        raw_before = read_before_csv(before_path) if before_path.exists() else {}
-        before_by_unit = {k.strip(): v for k, v in raw_before.items()}
-
-        for r in rows:
-            unit_id = (r.get("unit_id") or "").strip()
-            before = before_by_unit.get(unit_id) or raw_before.get(unit_id)
-            scenario = r.get("scenario") or (before.scenario if before else None)
-            parts_missing = r.get("parts_missing") or (before.parts_missing if before else None)
-            ret_row = ReturnedRow(
-                record_id=r.get("record_id", ""),
-                unit_id=unit_id,
-                org_id=r.get("org_id", org_id),
-                order_id=r.get("order_id", ""),
-                ordered_sku=r.get("ordered_sku", ""),
-                ordered_asin=r.get("ordered_asin", ""),
-                returned_photo_refs=tuple(p for p in (r.get("photo_refs") or "").split(";") if p),
-                time=r.get("captured_at", ""),
-                scenario=scenario,
-                parts_missing=parts_missing,
-            )
-            sim = compute_before_after_similarity(before, ret_row, r)
-            if not r.get("parts_missing") and sim.get("parts_missing_detected"):
-                r["parts_missing"] = sim["parts_missing_detected"]
-            if sim.get("is_auto_approved"):
-                r["operator_disposition"] = sim["recommended_disposition"]
-                r["amazon_condition"] = sim["resolved_condition"]
-                r["observed_state"] = sim["resolved_state"]
-                r["identity_match"] = "yes"
-            else:
-                if r.get("operator_disposition") in ("uncertain", "", None):
-                    r["operator_disposition"] = sim["recommended_disposition"]
-                if r.get("amazon_condition") in ("uncertain", "", None):
-                    r["amazon_condition"] = sim["resolved_condition"]
-                if r.get("observed_state") in ("uncertain", "", None):
-                    r["observed_state"] = sim["resolved_state"]
-        return rows
-
+            return list(csv.DictReader(f))
 
     def _detail_path(self, org_id: str, job_id: str) -> Path:
         return self._job_dir(org_id, job_id) / "rows_detail.json"
@@ -264,147 +222,22 @@ class BatchJobsService:
 
     def output_row_detail(self, org_id: str, job_id: str, record_id: str) -> dict[str, Any] | None:
         """The rich per-row detail (§14.2 checks, identity, completeness, condition, decision,
-        raw judgment) for one row of a batch job - see `runner._build_row_detail`. If not
-        cached in rows_detail.json, synthesizes it from output.csv and before.csv/returned.csv."""
+        raw judgment) for one row of a batch job - see `runner._build_row_detail`. Only rows that
+        got a real model response run through the pipeline have one; a fail-open row has none, and
+        nothing is synthesized in its place."""
         job = self.get_job(org_id, job_id)
         if job is None:
             return None
-
-        from returns_manager.batch.io_csv import read_before_csv, ReturnedRow
-        from returns_manager.batch.similarity import compute_before_after_similarity
-
-        job_dir = self._job_dir(org_id, job_id)
-        before_path = job_dir / "before.csv"
-        before_by_unit = read_before_csv(before_path) if before_path.exists() else {}
-
         path = self._detail_path(org_id, job_id)
-        detail: dict[str, Any] | None = None
-        if path.exists():
-            try:
-                all_detail: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
-                if record_id in all_detail and all_detail[record_id]:
-                    detail = all_detail[record_id]
-            except Exception:
-                pass
-
-        rows = self.output_rows(org_id, job_id) or []
-        matched_row = next((r for r in rows if r.get("record_id") == record_id), None)
-
-        if detail is None:
-            if not matched_row:
-                return None
-            from returns_manager.batch.runner import _build_synthetic_row_detail
-            before = before_by_unit.get(matched_row.get("unit_id", ""))
-            scenario = matched_row.get("scenario") or (before.scenario if before else None)
-            parts_missing = matched_row.get("parts_missing") or (before.parts_missing if before else None)
-            ret_row = ReturnedRow(
-                record_id=matched_row.get("record_id", ""),
-                unit_id=matched_row.get("unit_id", ""),
-                org_id=matched_row.get("org_id", org_id),
-                order_id=matched_row.get("order_id", ""),
-                ordered_sku=matched_row.get("ordered_sku", ""),
-                ordered_asin=matched_row.get("ordered_asin", ""),
-                returned_photo_refs=tuple(p for p in (matched_row.get("photo_refs") or "").split(";") if p),
-                time=matched_row.get("captured_at", ""),
-                scenario=scenario,
-                parts_missing=parts_missing,
-            )
-            detail = _build_synthetic_row_detail(matched_row, before, ret_row)
-
-        if not detail:
+        if not path.exists():
             return None
-
-        # If neither before data nor matched row exists, return detail as stored
-        unit_id = (matched_row.get("unit_id") if matched_row else None) or detail.get("unit_id", "")
-        before = before_by_unit.get(unit_id)
-        if not before and not matched_row:
-            return detail
-
-        # Dynamically enrich with before-sell vs after-sell product similarity confidence
-        ret_photos = (
-            [p for p in (matched_row.get("photo_refs") or "").split(";") if p]
-            if matched_row
-            else detail.get("returned_photo_refs")
-            or [p.get("url", "") for p in detail.get("photos", []) if p.get("url")]
-        )
-        if not isinstance(ret_photos, (list, tuple)):
-            ret_photos = [str(ret_photos)]
-
-        ret_row = ReturnedRow(
-            record_id=record_id,
-            unit_id=unit_id,
-            org_id=org_id,
-            order_id=(matched_row.get("order_id") if matched_row else None) or detail.get("order_id", ""),
-            ordered_sku=(matched_row.get("ordered_sku") if matched_row else None) or detail.get("sku", ""),
-            ordered_asin=(matched_row.get("ordered_asin") if matched_row else None) or detail.get("asin", ""),
-            returned_photo_refs=tuple(ret_photos),
-            time=(matched_row.get("captured_at") if matched_row else None) or detail.get("captured_at", ""),
-        )
-
-        parts_comp = detail.get("completeness", {})
-        comp_items = parts_comp.get("components", [])
-        expected_parts = [c.get("name", "") for c in comp_items]
-        missing_parts = [c.get("name", "") for c in comp_items if c.get("status") == "missing"]
-
-        cond_info = detail.get("condition", {})
-        out_repr = {
-            "parts_list": ";".join(expected_parts),
-            "parts_missing": ";".join(missing_parts),
-            "amazon_condition": cond_info.get("amazon_condition", "")
-            or (matched_row.get("amazon_condition") if matched_row else ""),
-            "observed_state": cond_info.get("state", "")
-            or (matched_row.get("observed_state") if matched_row else ""),
-            "operator_disposition": detail.get("decision", {}).get("recommended_disposition", "")
-            or (matched_row.get("operator_disposition") if matched_row else ""),
-            "sold_vs_returned_id_check": matched_row.get("sold_vs_returned_id_check", "") if matched_row else "",
-        }
-        sim = compute_before_after_similarity(before, ret_row, out_repr)
-        detail["similarity"] = sim
-
-        if sim.get("is_auto_approved"):
-            detail["requires_review"] = False
-            dec = detail.setdefault("decision", {})
-            dec["recommended_disposition"] = sim["recommended_disposition"]
-            dec["confidence"] = sim["confidence"]
-            dec["requires_review"] = False
-            dec["requires_sign_off"] = False
-            dec["requires_signoff"] = False
-            dec["auto_approved"] = True
-            dec["rationale"] = (
-                f"Auto-approved via high-confidence before-vs-after product similarity ({sim['confidence']}% >= 85%). "
-                f"All components verified present, no damage observed, paperwork matched. "
-                f"Pushed to {sim['recommended_disposition'].upper()}."
-            )
-            cond = detail.setdefault("condition", {})
-            cond["relistable_as_is"] = True
-            cond["grade"] = "A"
-            cond["cosmetic_grade"] = "A"
-            cond["state"] = sim["resolved_state"]
-            cond["amazon_condition"] = sim["resolved_condition"]
-            ident = detail.setdefault("identity", {})
-            ident["status"] = "PASS"
-            ident["fused_verdict"] = "PASS"
-            for check in detail.get("checks", []):
-                check_name = (check.get("name") or check.get("check_key") or "").lower()
-                if any(k in check_name for k in ("identity", "condition", "paperwork", "completeness")):
-                    if check.get("verdict") in ("UNCERTAIN", "uncertain"):
-                        check["verdict"] = "PASS"
-                        check["detail"] = (
-                            f"Verified pass via before-vs-after product comparison (Confidence: {sim['confidence']}%)"
-                        )
-        else:
-            dec = detail.setdefault("decision", {})
-            cond = detail.setdefault("condition", {})
-            if dec.get("recommended_disposition") in ("pending_review", "uncertain", "", None):
-                dec["recommended_disposition"] = sim["recommended_disposition"]
-            dec["confidence"] = sim["confidence"]
-            dec["reason"] = sim["summary"]
-            dec["rule_id"] = sim.get("rule_id", dec.get("rule_id", "INSPECT"))
-            if cond.get("amazon_condition") in ("uncertain", "", None):
-                cond["amazon_condition"] = sim["resolved_condition"]
-            if cond.get("state") in ("uncertain", "", None):
-                cond["state"] = sim["resolved_state"]
-        return detail
+        try:
+            all_detail: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            logger.warning("unreadable rows_detail.json for job %s", job_id, exc_info=True)
+            return None
+        detail = all_detail.get(record_id)
+        return detail if isinstance(detail, dict) and detail else None
 
     def _load_decisions(self, org_id: str, job_id: str) -> list[dict[str, Any]]:
         path = self._decisions_path(org_id, job_id)

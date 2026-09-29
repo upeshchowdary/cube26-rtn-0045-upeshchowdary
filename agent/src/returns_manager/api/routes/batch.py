@@ -94,8 +94,6 @@ def _split_combined_csv(content: bytes, default_org_id: str) -> tuple[bytes, byt
                 "time",
                 "photo_ref",
                 "category",
-                "scenario",
-                "parts_missing",
             ],
         )
         rw = csv.DictWriter(
@@ -109,8 +107,6 @@ def _split_combined_csv(content: bytes, default_org_id: str) -> tuple[bytes, byt
                 "ordered_asin",
                 "returned_photo_ref",
                 "time",
-                "scenario",
-                "parts_missing",
             ],
         )
         bw.writeheader()
@@ -118,8 +114,6 @@ def _split_combined_csv(content: bytes, default_org_id: str) -> tuple[bytes, byt
 
         for idx, r in enumerate(rows, 1):
             unit_id = (r.get("unit_id") or f"UNIT-{idx}").strip()
-            scenario_val = (r.get("scenario") or "").strip()
-            parts_missing_val = (r.get("parts_missing") or "").strip()
             bw.writerow({
                 "record_id": (r.get("sold_record_id") or r.get("record_id") or f"REC-SOLD-{idx}").strip(),
                 "unit_id": unit_id,
@@ -132,8 +126,6 @@ def _split_combined_csv(content: bytes, default_org_id: str) -> tuple[bytes, byt
                 "time": (r.get("sold_time") or r.get("time") or "2026-08-01T00:00:00Z").strip(),
                 "photo_ref": (r.get("sold_photo_url") or r.get("photo_ref") or "").strip(),
                 "category": (r.get("category") or "").strip(),
-                "scenario": scenario_val,
-                "parts_missing": parts_missing_val,
             })
             rw.writerow({
                 "record_id": (r.get("returned_record_id") or r.get("record_id") or f"REC-RTN-{idx}").strip(),
@@ -144,8 +136,6 @@ def _split_combined_csv(content: bytes, default_org_id: str) -> tuple[bytes, byt
                 "ordered_asin": (r.get("returned_asin") or r.get("ordered_asin") or "B0DEFAULT").strip(),
                 "returned_photo_ref": (r.get("returned_photo_url") or r.get("returned_photo_ref") or "").strip(),
                 "time": (r.get("returned_time") or r.get("time") or "2026-09-01T00:00:00Z").strip(),
-                "scenario": scenario_val,
-                "parts_missing": parts_missing_val,
             })
 
         return b_out.getvalue().encode("utf-8"), r_out.getvalue().encode("utf-8")

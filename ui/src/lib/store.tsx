@@ -1,8 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import * as api from './api'
-import { computeRowSimilarity } from './similarity'
 import { useSession } from './session'
-import type { BatchJob, BatchRowFlat, DecisionAction, DerivedRow, RowDecisionEntry, RowDetail, SimilarityResult } from './types'
+import type { BatchJob, BatchRowFlat, DecisionAction, DerivedRow, RowDecisionEntry, RowDetail } from './types'
 
 const IN_FLIGHT: BatchJob['status'][] = ['queued', 'processing']
 
@@ -13,36 +12,19 @@ function firstPhoto(photoRefs: string): string[] {
     .filter(Boolean)
 }
 
-export function getRowConfidence(row: BatchRowFlat): number {
-  return computeRowSimilarity(row).confidence
-}
-
-// The row's real status as a person would describe it, derived from before vs after product comparison:
-// If confidence is >= 85% and conditions fulfilled, the row is auto-approved and immediately Finalized.
-// If the return is definitively wrong (ID/visual photo mismatch, wrong product), it is Auto-disapproved.
-// If confidence is below 85% or uncertain/flagged, human review is required (Awaiting review / Needs attention).
-function deriveStatus(row: BatchRowFlat, latest: RowDecisionEntry | null, similarity?: SimilarityResult): string {
+// The row's status as a person would describe it, from what the backend actually recorded:
+// a human decision if there is one, otherwise the batch run's own result. Nothing here infers
+// a disposition, grade or identity - the row is shown exactly as the backend wrote it.
+function deriveStatus(row: BatchRowFlat, latest: RowDecisionEntry | null): string {
   if (latest) {
     if (latest.action === 'accept' || latest.action === 'override') return 'Finalized'
     if (latest.action === 'retake_request') return 'Awaiting operator'
     if (latest.action === 'review_request') return 'Awaiting review'
   }
-  const sim = similarity || computeRowSimilarity(row)
-  if (
-    sim.is_auto_rejected ||
-    sim.is_auto_disapproved ||
-    row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') ||
-    sim.recommended_disposition === 'wrong_product' ||
-    row.operator_disposition === 'wrong_product'
-  ) {
-    // Definitive ID/visual mismatch: auto-disapproved without manual review
+  if (row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') || row.operator_disposition === 'wrong_product') {
     return 'Auto-disapproved'
   }
-  if (sim.is_auto_approved) {
-    // High-confidence match: auto-approved rows are immediately finalized without human sign-off
-    return 'Finalized'
-  }
-  if (row.observed_state === 'damaged' || row.amazon_condition === 'uncertain') {
+  if (row.failure_reason || row.observed_state === 'damaged' || row.amazon_condition === 'uncertain') {
     return 'Needs attention'
   }
   return 'Awaiting review'
@@ -50,48 +32,17 @@ function deriveStatus(row: BatchRowFlat, latest: RowDecisionEntry | null, simila
 
 function toDerived(job: BatchJob, row: BatchRowFlat, latest: RowDecisionEntry | null): DerivedRow {
   const photos = firstPhoto(row.photo_refs)
-  const similarity = computeRowSimilarity(row)
-  let disposition = latest && latest.new_disposition ? latest.new_disposition : row.operator_disposition
-  let amazonCondition = row.amazon_condition
-  let observedState = row.observed_state
-  let identityMatch = row.identity_match
-
-  if (!latest && (disposition === 'pending_review' || disposition === 'uncertain' || !disposition)) {
-    disposition = similarity.recommended_disposition
-  }
-  if (amazonCondition === 'uncertain' || !amazonCondition) {
-    amazonCondition = similarity.resolved_condition
-  }
-  if (observedState === 'uncertain' || !observedState) {
-    observedState = similarity.resolved_state
-  }
-  if (similarity.is_auto_approved && (identityMatch === 'uncertain' || !identityMatch)) {
-    identityMatch = 'yes'
-  }
-  if (
-    (similarity.is_auto_rejected || similarity.is_auto_disapproved || row.operator_disposition === 'wrong_product' || row.sold_vs_returned_id_check?.startsWith('NOT MATCHED'))
-  ) {
-    disposition = 'wrong_product'
-    identityMatch = 'no'
-  }
-
-  const status = deriveStatus(row, latest, similarity)
-
+  const disposition = latest && latest.new_disposition ? latest.new_disposition : row.operator_disposition
   return {
     ...row,
     operator_disposition: disposition,
-    amazon_condition: amazonCondition,
-    observed_state: observedState,
-    identity_match: identityMatch,
     job_id: job.job_id,
     job_status: job.status,
     job_created_at: job.created_at,
     image: photos[0] ?? null,
     reference_image: null,
     photos,
-    status,
-    confidence: similarity.confidence,
-    similarity,
+    status: deriveStatus(row, latest),
     latest_decision: latest,
   }
 }

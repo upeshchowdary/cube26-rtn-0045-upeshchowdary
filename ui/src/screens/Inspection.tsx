@@ -17,12 +17,10 @@ import {
   Sparkles,
   Wrench,
   X,
-  XCircle,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
 import { ApiError } from '../lib/api'
-import { computeRowSimilarity } from '../lib/similarity'
 import { useBatchStore } from '../lib/store'
 import { moneyMinor, titleCase } from '../lib/format'
 import { dispositionLabel } from '../lib/derive'
@@ -158,7 +156,6 @@ export default function Inspection() {
     )
   }
 
-  const similarity = detail?.similarity ?? row.similarity ?? computeRowSimilarity(row, detail)
   const photos = row.photos.length ? row.photos : row.image ? [row.image] : []
   const currentPhoto = photos[photoIndex] ?? photos[0]
 
@@ -283,205 +280,42 @@ export default function Inspection() {
             </section>
           )}
 
-          {/* Before-Sell vs After-Sell Product Comparison & Confidence Panel */}
-          <section className="panel finding-panel similarity-panel" style={{ border: similarity.confidence >= 85 ? '1px solid rgba(52, 211, 153, 0.35)' : '1px solid rgba(245, 158, 11, 0.3)', background: 'linear-gradient(180deg, rgba(16, 185, 129, 0.06) 0%, rgba(15, 23, 42, 0.6) 100%)' }}>
+          {/* What this batch run actually produced for the row - no derived score, no guess. */}
+          <section className="panel finding-panel">
             <div className="panel-head">
               <div>
-                <small className="kicker" style={{ color: '#34d399', letterSpacing: '0.08em' }}>BEFORE-SELL VS AFTER-SELL PRODUCT MATCH</small>
-                <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-                  Visual & Condition Similarity: <span style={{ color: similarity.confidence >= 85 ? '#34d399' : '#f59e0b' }}>{similarity.confidence}%</span>
-                </h2>
+                <small className="kicker">BATCH RUN RESULT</small>
+                <h2>{row.failure_reason ? 'No model result for this row' : 'Model inspection + rules engine'}</h2>
               </div>
-              <div style={{
-                background: similarity.confidence >= 85 ? 'rgba(52, 211, 153, 0.18)' : 'rgba(245, 158, 11, 0.18)',
-                color: similarity.confidence >= 85 ? '#34d399' : '#f59e0b',
-                border: `1px solid ${similarity.confidence >= 85 ? 'rgba(52, 211, 153, 0.4)' : 'rgba(245, 158, 11, 0.4)'}`,
-                padding: '4px 10px',
-                borderRadius: '999px',
-                fontSize: '12px',
-                fontWeight: 700,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px'
-              }}>
-                {similarity.confidence >= 85 ? <CheckCircle2 size={14} /> : <CircleAlert size={14} />}
-                {similarity.confidence >= 85 ? 'HIGH CONFIDENCE (>= 85%)' : 'NEEDS REVIEW (< 85%)'}
-              </div>
+              <Pill value={row.failure_reason ? 'Needs attention' : 'Inspected'} />
             </div>
-
-            {/* 4-Pillar Agent Determination Card (Product Identity, Completeness, Condition, Disposition) */}
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
-              gap: '10px',
-              padding: '12px 14px',
-              background: 'rgba(0, 0, 0, 0.28)',
-              borderRadius: '8px',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              margin: '14px 0 10px'
-            }}>
-              <div>
-                <small style={{ fontSize: '9.5px', color: 'var(--muted)', display: 'block', textTransform: 'uppercase', letterSpacing: '0.06em' }}>1. Product Identity</small>
-                <b style={{ fontSize: '13.5px', color: (!row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') && similarity.recommended_disposition !== 'wrong_product') ? '#34d399' : '#f87171', display: 'flex', alignItems: 'center', gap: 5, marginTop: 4 }}>
-                  {(!row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') && similarity.recommended_disposition !== 'wrong_product') ? <Check size={14} /> : <X size={14} />} {(!row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') && similarity.recommended_disposition !== 'wrong_product') ? 'PASS' : 'FAIL'}
-                </b>
-                <small style={{ fontSize: '9.5px', color: 'var(--muted)', display: 'block', marginTop: 3 }}>
-                  {(!row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') && similarity.recommended_disposition !== 'wrong_product') ? 'Matches ordered product' : 'Product mismatch'}
-                </small>
-              </div>
-
-              <div>
-                <small style={{ fontSize: '9.5px', color: 'var(--muted)', display: 'block', textTransform: 'uppercase', letterSpacing: '0.06em' }}>2. Completeness</small>
-                <b style={{ fontSize: '13.5px', color: (!row.parts_missing || row.parts_missing.trim() === '') ? '#34d399' : '#f59e0b', display: 'flex', alignItems: 'center', gap: 5, marginTop: 4 }}>
-                  {(!row.parts_missing || row.parts_missing.trim() === '') ? <Check size={14} /> : <CircleAlert size={14} />} {(!row.parts_missing || row.parts_missing.trim() === '') ? 'PASS' : 'FAIL'}
-                </b>
-                <small style={{ fontSize: '9.5px', color: (!row.parts_missing || row.parts_missing.trim() === '') ? 'var(--muted)' : '#fcd34d', display: 'block', marginTop: 3 }}>
-                  {(!row.parts_missing || row.parts_missing.trim() === '') ? 'All accessories present' : `Missing: ${row.parts_missing}`}
-                </small>
-              </div>
-
-              <div>
-                <small style={{ fontSize: '9.5px', color: 'var(--muted)', display: 'block', textTransform: 'uppercase', letterSpacing: '0.06em' }}>3. Condition Scale</small>
-                <b style={{ fontSize: '13.5px', color: '#f3f7f4', display: 'block', marginTop: 4 }}>
-                  {similarity.is_auto_approved ? similarity.resolved_condition : (detail?.condition?.amazon_condition || row.amazon_condition || similarity.resolved_condition || 'Used - Acceptable')}
-                </b>
-                <small style={{ fontSize: '9.5px', color: 'var(--muted)', display: 'block', marginTop: 3 }}>
-                  Standard defined scale
-                </small>
-              </div>
-
-              <div>
-                <small style={{ fontSize: '9.5px', color: 'var(--muted)', display: 'block', textTransform: 'uppercase', letterSpacing: '0.06em' }}>4. Disposition</small>
-                <b style={{
-                  fontSize: '13.5px',
-                  color: (similarity.is_auto_approved ? similarity.recommended_disposition : (detail?.decision?.recommended_disposition || row.operator_disposition || similarity.recommended_disposition)) === 'restock'
-                    ? '#34d399'
-                    : (similarity.is_auto_approved ? similarity.recommended_disposition : (detail?.decision?.recommended_disposition || row.operator_disposition || similarity.recommended_disposition)) === 'refurbish'
-                    ? '#60a5fa'
-                    : (similarity.is_auto_approved ? similarity.recommended_disposition : (detail?.decision?.recommended_disposition || row.operator_disposition || similarity.recommended_disposition)) === 'liquidate'
-                    ? '#f59e0b'
-                    : '#f87171',
-                  display: 'block',
-                  marginTop: 4
-                }}>
-                  {(similarity.is_auto_approved ? similarity.recommended_disposition : (detail?.decision?.recommended_disposition || row.operator_disposition || similarity.recommended_disposition || 'pending_review')).toUpperCase()}
-                </b>
-                <small style={{ fontSize: '9.5px', color: 'var(--muted)', display: 'block', marginTop: 3 }}>
-                  {(() => {
-                    const disp = similarity.is_auto_approved ? similarity.recommended_disposition : (detail?.decision?.recommended_disposition || row.operator_disposition || similarity.recommended_disposition)
-                    if (disp === 'restock') return 'Item can go back on shelf'
-                    if (disp === 'refurbish') return 'Item needs repair or repackaging'
-                    if (disp === 'liquidate') return 'Sell at reduced value'
-                    if (disp === 'dispose') return 'Item has no recoverable value'
-                    if (disp === 'wrong_product') return 'Returned item differs from ordered catalog SKU'
-                    return 'Requires operator review'
-                  })()}
-                </small>
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px', margin: '14px 0 12px' }}>
-              <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '8px', padding: '10px 12px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px', color: 'var(--muted)', marginBottom: '4px' }}>
-                  <span>Visual Photo Match</span>
-                  <b style={{ color: similarity.visual_match_pct >= 85 ? '#34d399' : '#f87171' }}>{similarity.visual_match_pct}%</b>
-                </div>
-                <div style={{ width: '100%', height: '5px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden' }}>
-                  <div style={{ width: `${similarity.visual_match_pct}%`, height: '100%', background: similarity.visual_match_pct >= 85 ? '#34d399' : '#f87171' }} />
-                </div>
-                <small style={{ fontSize: '10.5px', color: 'var(--muted)', marginTop: '4px', display: 'block' }}>
-                  {similarity.photo_match_reason || 'Catalog photo match'}
-                </small>
-              </div>
-
-              <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '8px', padding: '10px 12px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px', color: 'var(--muted)', marginBottom: '4px' }}>
-                  <span>Component Completeness</span>
-                  <b style={{ color: similarity.completeness_pct === 100 ? '#34d399' : '#f59e0b' }}>{similarity.completeness_pct}%</b>
-                </div>
-                <div style={{ width: '100%', height: '5px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden' }}>
-                  <div style={{ width: `${similarity.completeness_pct}%`, height: '100%', background: similarity.completeness_pct === 100 ? '#34d399' : '#f59e0b' }} />
-                </div>
-                <small style={{ fontSize: '10.5px', color: 'var(--muted)', marginTop: '4px', display: 'block' }}>
-                  {similarity.comp_reason || 'Catalog parts verified'}
-                </small>
-              </div>
-
-              <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '8px', padding: '10px 12px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px', color: 'var(--muted)', marginBottom: '4px' }}>
-                  <span>Surface Condition</span>
-                  <b style={{ color: similarity.condition_pct >= 85 ? '#34d399' : '#f87171' }}>{similarity.condition_pct}%</b>
-                </div>
-                <div style={{ width: '100%', height: '5px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden' }}>
-                  <div style={{ width: `${similarity.condition_pct}%`, height: '100%', background: similarity.condition_pct >= 85 ? '#34d399' : '#f87171' }} />
-                </div>
-                <small style={{ fontSize: '10.5px', color: 'var(--muted)', marginTop: '4px', display: 'block' }}>
-                  {similarity.cond_reason || 'Physical grade verified'}
-                </small>
-              </div>
-
-              <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '8px', padding: '10px 12px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px', color: 'var(--muted)', marginBottom: '4px' }}>
-                  <span>Paperwork & ID Match</span>
-                  <b style={{ color: similarity.identity_pct === 100 ? '#34d399' : '#f87171' }}>{similarity.identity_pct}%</b>
-                </div>
-                <div style={{ width: '100%', height: '5px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden' }}>
-                  <div style={{ width: `${similarity.identity_pct}%`, height: '100%', background: similarity.identity_pct === 100 ? '#34d399' : '#f87171' }} />
-                </div>
-                <small style={{ fontSize: '10.5px', color: 'var(--muted)', marginTop: '4px', display: 'block' }}>
-                  {similarity.id_reason || 'Order, SKU, and ASIN match'}
-                </small>
-              </div>
-            </div>
-
-            {similarity.is_auto_approved ? (
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '8px 12px',
-                borderRadius: '6px',
-                background: 'rgba(52, 211, 153, 0.12)',
-                border: '1px solid rgba(52, 211, 153, 0.3)',
-                color: '#6ee7b7',
-                fontSize: '12.5px',
-                fontWeight: 600,
-              }}>
-                <CheckCircle2 size={16} style={{ color: '#34d399', flexShrink: 0 }} />
-                <span>Auto-approved &middot; Confidence {similarity.confidence}% &ge; 85% &middot; All conditions fulfilled &middot; Pushed to <b>{similarity.recommended_disposition.toUpperCase()}</b></span>
-              </div>
-            ) : (similarity.is_auto_rejected || similarity.is_auto_disapproved || row.status === 'Auto-disapproved' || row.operator_disposition === 'wrong_product') ? (
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '8px 12px',
-                borderRadius: '6px',
-                background: 'rgba(239, 68, 68, 0.12)',
-                border: '1px solid rgba(239, 68, 68, 0.3)',
-                color: '#fca5a5',
-                fontSize: '12.5px',
-                fontWeight: 600,
-              }}>
-                <XCircle size={16} style={{ color: '#ef4444', flexShrink: 0 }} />
-                <span>Auto-disapproved &middot; {similarity.summary} &middot; Automatically rejected without manual sign-off</span>
+            {row.failure_reason ? (
+              <div className="functional" style={{ color: '#d97706' }}>
+                <CircleAlert size={14} /> Failed open: <code>{row.failure_reason}</code>. The row stays pending review with no grade and no
+                disposition; nothing was inferred in its place.
               </div>
             ) : (
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '8px 12px',
-                borderRadius: '6px',
-                background: 'rgba(245, 158, 11, 0.1)',
-                border: '1px solid rgba(245, 158, 11, 0.25)',
-                color: '#fcd34d',
-                fontSize: '12px',
-              }}>
-                <CircleAlert size={15} style={{ color: '#f59e0b', flexShrink: 0 }} />
-                <span>Manual verification required &middot; Confidence below 85% threshold ({similarity.confidence}%)</span>
+              <div className="functional">
+                <ShieldCheck size={14} /> The disposition shown is the rules engine&apos;s, computed from the model&apos;s inspection evidence.
               </div>
             )}
+            <div className="check-list">
+              <button>
+                <CheckCircle2 size={15} />
+                <span>Identity on the returned photo (model)</span>
+                <b>{(row.photo_identity_match || 'uncertain').toUpperCase()}</b>
+              </button>
+              <button>
+                <CheckCircle2 size={15} />
+                <span>Identity carried from the before-file (not re-checked)</span>
+                <b>{(row.identity_match || 'uncertain').toUpperCase()}</b>
+              </button>
+              <button>
+                <CheckCircle2 size={15} />
+                <span>Sold vs returned ID check</span>
+                <b>{row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') ? 'FAIL' : 'PASS'}</b>
+              </button>
+            </div>
           </section>
 
           {detailLoading && <section className="panel finding-panel"><div className="no-data-note">Loading inspection detail...</div></section>}
@@ -506,7 +340,7 @@ export default function Inspection() {
                     <b>Catalog identity match</b>
                     <small>Order {row.order_id} · Unit {row.unit_id}</small>
                   </span>
-                  <Pill value={similarity.is_auto_approved ? 'PASS' : row.identity_match.toUpperCase()} />
+                  <Pill value={row.identity_match.toUpperCase()} />
                 </div>
                 <div className="check-list">
                   <button>
@@ -552,15 +386,15 @@ export default function Inspection() {
                 <div className="panel-head">
                   <div>
                     <small className="kicker">PHYSICAL CONDITION</small>
-                    <h2>{similarity.is_auto_approved ? similarity.resolved_condition : (row.amazon_condition || 'Uncertain')}</h2>
+                    <h2>{row.amazon_condition || 'Uncertain'}</h2>
                   </div>
-                  <span className="grade">{similarity.is_auto_approved ? 'A' : (row.amazon_condition || '?').slice(0, 1).toUpperCase()}</span>
+                  <span className="grade">{(row.amazon_condition || '?').slice(0, 1).toUpperCase()}</span>
                 </div>
                 <div className="defect">
-                  <span>{similarity.is_auto_approved ? <CheckCircle2 size={15} style={{ color: '#34d399' }} /> : <CircleAlert size={15} />}</span>
+                  <span><CircleAlert size={15} /></span>
                   <b>
-                    {titleCase(similarity.is_auto_approved ? similarity.resolved_state : (row.observed_state || 'uncertain'))}
-                    <small>Disposition: {similarity.is_auto_approved ? similarity.recommended_disposition : (row.operator_disposition || 'pending_review')}</small>
+                    {titleCase(row.observed_state || 'uncertain')}
+                    <small>Disposition: {row.operator_disposition || 'pending_review'}</small>
                   </b>
                 </div>
               </section>
@@ -581,11 +415,11 @@ export default function Inspection() {
                   <BadgeCheck size={19} />
                   <span>
                     <b>Fused identity match</b>
-                    <small>{similarity.is_auto_approved ? 'high strength · barcode verified' : `${detail.identity?.strength || 'standard'} strength · barcode ${detail.identity?.barcode_status || 'verified'}`}</small>
+                    <small>{`${detail.identity?.strength || 'unknown'} strength · barcode ${detail.identity?.barcode_status || 'not read'}`}</small>
                   </span>
-                  <Pill value={similarity.is_auto_approved ? 'PASS' : (verdictOf(detail, 'identity')?.verdict ?? detail.identity?.identity_match?.toUpperCase() ?? row.identity_match.toUpperCase())} />
+                  <Pill value={verdictOf(detail, 'identity')?.verdict ?? detail.identity?.identity_match?.toUpperCase() ?? row.identity_match.toUpperCase()} />
                 </div>
-                {(detail.identity?.risk_flags || []).length > 0 && !similarity.is_auto_approved && (
+                {(detail.identity?.risk_flags || []).length > 0 && (
                   <div className="compare-mini">
                     <span>
                       RISK FLAGS<b>{detail.identity.risk_flags.map(titleCase).join(', ')}</b>
@@ -599,7 +433,7 @@ export default function Inspection() {
                       <button key={c.check_key}>
                         <CheckCircle2 size={15} />
                         <span>{c.check_key.startsWith('component:') ? titleCase(c.check_key.slice(10)) : titleCase(c.check_key)}</span>
-                        <b>{similarity.is_auto_approved && (c.check_key === 'identity' || c.check_key === 'condition') ? 'PASS' : c.verdict}</b>
+                        <b>{c.verdict}</b>
                       </button>
                     ))}
                 </div>
@@ -635,13 +469,13 @@ export default function Inspection() {
                 <div className="panel-head">
                   <div>
                     <small className="kicker">PHYSICAL CONDITION</small>
-                    <h2>{similarity.is_auto_approved ? similarity.resolved_condition : (detail.condition?.amazon_condition || row.amazon_condition || 'Uncertain')}</h2>
+                    <h2>{detail.condition?.amazon_condition || row.amazon_condition || 'Uncertain'}</h2>
                   </div>
-                  <span className="grade">{similarity.is_auto_approved ? 'A' : (((detail.condition?.cosmetic_grade ?? row.amazon_condition ?? '?')).slice(0, 1).toUpperCase())}</span>
+                  <span className="grade">{(detail.condition?.cosmetic_grade ?? row.amazon_condition ?? '?').slice(0, 1).toUpperCase()}</span>
                 </div>
-                {similarity.is_auto_approved || (detail.judgment?.condition?.observations || []).length === 0 ? (
+                {(detail.judgment?.condition?.observations || []).length === 0 ? (
                   <div className="functional" style={{ color: '#34d399', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <CheckCircle2 size={14} /> No defects observed &middot; Verified clean surface
+                    <CheckCircle2 size={14} /> No damage observed in the provided photos
                   </div>
                 ) : (
                   (detail.judgment?.condition?.observations || []).map((defect, i) => (
@@ -651,12 +485,12 @@ export default function Inspection() {
                       </span>
                       <b>
                         {titleCase(defect.defect_type)}
-                        <small>{defect.location_note} · {defect.severity} · confidence {defect.confidence ? defect.confidence.toFixed(2) : '1.0'}</small>
+                        <small>{defect.location_note} · {defect.severity}{typeof defect.confidence === 'number' ? ` · model-reported confidence ${defect.confidence.toFixed(2)}` : ''}</small>
                       </b>
                     </div>
                   ))
                 )}
-                {(detail.condition?.listing_blockers || []).length > 0 && !similarity.is_auto_approved && (
+                {(detail.condition?.listing_blockers || []).length > 0 && (
                   <div className="functional">
                     <LockKeyhole size={14} /> Listing blockers: {(detail.condition?.listing_blockers || []).map(titleCase).join(', ')}
                   </div>
@@ -679,9 +513,7 @@ export default function Inspection() {
               <div>
                 <small>Disposition recommendation</small>
                 <b>
-                  {similarity.is_auto_approved
-                    ? similarity.recommended_disposition.toUpperCase()
-                    : detail?.decision?.recommended_disposition
+                  {detail?.decision?.recommended_disposition
                     ? dispositionLabel(detail.decision.recommended_disposition).toUpperCase()
                     : row.operator_disposition
                     ? dispositionLabel(row.operator_disposition).toUpperCase()
@@ -689,9 +521,7 @@ export default function Inspection() {
                 </b>
                 <small style={{ color: 'var(--muted)', display: 'block', marginTop: 2, fontSize: '10px' }}>
                   {(() => {
-                    const disp = similarity.is_auto_approved
-                      ? similarity.recommended_disposition
-                      : detail?.decision?.recommended_disposition || row.operator_disposition || similarity.recommended_disposition
+                    const disp = detail?.decision?.recommended_disposition || row.operator_disposition
                     if (disp === 'restock') return 'Item can go back on shelf'
                     if (disp === 'refurbish') return 'Item needs repair or repackaging'
                     if (disp === 'liquidate') return 'Sell at reduced value'
@@ -701,12 +531,12 @@ export default function Inspection() {
                   })()}
                 </small>
               </div>
-              <i>{similarity.is_auto_approved ? (similarity.recommended_disposition === 'restock' ? 'AUTO-RESTOCK' : 'AUTO-APPROVED') : (detail?.decision?.rule_id || (row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') ? 'R03-MISMATCH' : 'INSPECT'))}</i>
+              <i>{detail?.decision?.rule_id || (row.failure_reason ? 'FAILED OPEN' : 'NO DETAIL')}</i>
             </div>
             <div className="decision-facts">
               <div>
                 <span>Identity</span>
-                <Pill value={similarity.is_auto_approved ? 'PASS' : (detail?.identity?.identity_match ?? row.identity_match)} />
+                <Pill value={detail?.identity?.identity_match ?? row.photo_identity_match ?? 'uncertain'} />
               </div>
               <div>
                 <span>Completeness</span>
@@ -714,12 +544,12 @@ export default function Inspection() {
               </div>
               <div>
                 <span>Condition</span>
-                <b>{similarity.is_auto_approved ? similarity.resolved_condition : (detail?.condition?.amazon_condition ?? row.amazon_condition)}</b>
+                <b>{detail?.condition?.amazon_condition ?? row.amazon_condition}</b>
               </div>
               <div>
                 <span>Listing eligibility</span>
-                <b className={similarity.is_auto_approved && similarity.recommended_disposition === 'restock' ? '' : ((detail?.condition?.relistable_as_is ?? row.operator_disposition === 'restock') ? '' : 'negative')}>
-                  {(similarity.is_auto_approved && similarity.recommended_disposition === 'restock') || (detail ? detail.condition.relistable_as_is : row.operator_disposition === 'restock') ? 'Relistable as-is' : 'Not relistable as-is'}
+                <b className={(detail?.condition?.relistable_as_is ?? false) ? '' : 'negative'}>
+                  {detail?.condition?.relistable_as_is ? 'Relistable as-is' : detail ? 'Not relistable as-is' : 'Not assessed'}
                 </b>
               </div>
             </div>
@@ -728,18 +558,16 @@ export default function Inspection() {
                 <Sparkles size={14} /> Why this recommendation
               </b>
               <p>
-                {similarity.is_auto_approved
-                  ? similarity.summary
-                  : (detail?.decision?.reasons?.join('; ') ||
-                    detail?.decision?.no_recommendation_reason ||
-                    (row.sold_vs_returned_id_check?.startsWith('NOT MATCHED')
-                      ? row.sold_vs_returned_id_check
-                      : `Evaluated disposition for ${row.ordered_sku} (Condition: ${row.amazon_condition}, State: ${row.observed_state}).`))}
+                {detail?.decision?.reasons?.join('; ') ||
+                  detail?.decision?.no_recommendation_reason ||
+                  (row.failure_reason
+                    ? `No recommendation: the row failed open (${row.failure_reason}).`
+                    : row.sold_vs_returned_id_check?.startsWith('NOT MATCHED')
+                    ? row.sold_vs_returned_id_check
+                    : 'No inspection detail is stored for this row.')}
               </p>
               <small>
-                {similarity.is_auto_approved
-                  ? `Before vs After Product Evaluation · Confidence ${similarity.confidence}% >= 85%`
-                  : `Rules engine · ${detail?.decision?.rules_version ?? 'batch-import-v1'} · confidence ${similarity.confidence}%`}
+                {`Rules engine · ${detail?.decision?.rules_version ?? 'batch-import-v1'}`}
               </small>
             </div>
             {detail && Array.isArray(detail.decision?.expected_recovery_minor) && detail.decision.expected_recovery_minor.length > 0 && (
@@ -753,23 +581,15 @@ export default function Inspection() {
                 <small>{detail.decision.synthetic_values ? 'Synthetic values' : 'Real values'}</small>
               </div>
             )}
-            {similarity.is_auto_approved || ((row.confidence ?? 92) >= 85 && !row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') && row.operator_disposition !== 'pending_review' && row.observed_state !== 'uncertain') ? (
-              <div className="functional" style={{ color: '#2fa866', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
-                <CheckCircle2 size={14} /> Auto-approved (Confidence: {similarity.confidence}% &ge; 85% &middot; No human approval required &middot; Pushed to {similarity.recommended_disposition.toUpperCase()})
+            {(detail?.decision?.requires_review || !detail || row.operator_disposition === 'wrong_product' || row.operator_disposition === 'pending_review') && (
+              <div className="functional" style={{ color: '#d97706' }}>
+                <CircleAlert size={14} /> Requires review: {detail?.decision?.review_reasons?.map(titleCase).join(', ') || (row.failure_reason ? titleCase(row.failure_reason) : row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') ? 'Paperwork mismatch' : 'No inspection detail')}
               </div>
-            ) : (
-              <>
-                {(detail?.decision?.requires_review || row.operator_disposition === 'wrong_product' || row.operator_disposition === 'pending_review' || similarity.confidence < 85) && (
-                  <div className="functional" style={{ color: '#d97706' }}>
-                    <CircleAlert size={14} /> Requires review: {detail?.decision?.review_reasons?.map(titleCase).join(', ') || (row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') ? 'Paperwork mismatch' : `Low confidence (${similarity.confidence}% < 85%)`)}
-                  </div>
-                )}
-                {(detail?.decision?.requires_signoff || row.operator_disposition === 'wrong_product') && (
-                  <div className="functional">
-                    <LockKeyhole size={14} /> Requires sign-off
-                  </div>
-                )}
-              </>
+            )}
+            {(detail?.decision?.requires_signoff || row.operator_disposition === 'wrong_product') && (
+              <div className="functional">
+                <LockKeyhole size={14} /> Requires sign-off
+              </div>
             )}
             <div className="decision-actions">
               <button className="button primary" onClick={() => setModal('accept')}>

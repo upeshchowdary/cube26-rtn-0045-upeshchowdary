@@ -177,9 +177,9 @@ def test_write_output_csv_uses_fixed_column_order(tmp_path: Path) -> None:
     )
     header = out.read_text(encoding="utf-8").splitlines()[0]
     assert header == (
-        "record_id,unit_id,org_id,order_id,ordered_sku,ordered_asin,identity_match,parts_list,"
-        "parts_missing,observed_state,amazon_condition,operator_disposition,photo_refs,captured_at,"
-        "sold_vs_returned_id_check"
+        "record_id,unit_id,org_id,order_id,ordered_sku,ordered_asin,identity_match,photo_identity_match,"
+        "parts_list,parts_missing,observed_state,amazon_condition,operator_disposition,photo_refs,"
+        "captured_at,sold_vs_returned_id_check,failure_reason"
     )
     assert "unexpected_extra" not in out.read_text(encoding="utf-8")
 
@@ -218,6 +218,8 @@ def test_uncertain_row_carries_forward_identity_and_parts_when_before_known() ->
     assert out["operator_disposition"] == "pending_review"
     assert out["parts_missing"] == ""
     assert out["sold_vs_returned_id_check"] == "matched"
+    assert out["failure_reason"] == "image_fetch_failed: timeout"
+    assert out["photo_identity_match"] == "uncertain"
 
 
 def test_uncertain_row_without_before_record_defaults_to_uncertain_identity() -> None:
@@ -524,9 +526,9 @@ def test_render_output_csv_reflects_latest_override_not_the_stored_file(tmp_path
     assert after_override is not None
     lines = after_override.decode("utf-8").splitlines()
     assert lines[0] == (
-        "record_id,unit_id,org_id,order_id,ordered_sku,ordered_asin,identity_match,parts_list,"
-        "parts_missing,observed_state,amazon_condition,operator_disposition,photo_refs,captured_at,"
-        "sold_vs_returned_id_check"
+        "record_id,unit_id,org_id,order_id,ordered_sku,ordered_asin,identity_match,photo_identity_match,"
+        "parts_list,parts_missing,observed_state,amazon_condition,operator_disposition,photo_refs,"
+        "captured_at,sold_vs_returned_id_check,failure_reason"
     )
     assert "refurbish" in lines[1]
     assert "liquidate" not in after_override.decode("utf-8")
@@ -586,67 +588,172 @@ def test_split_combined_csv_returns_input_30(tmp_path: Path) -> None:
     assert len(returned_rows[0].returned_photo_refs) >= 1
 
 
-def test_similarity_confidence_auto_restocks_complete_return() -> None:
-    from returns_manager.batch.similarity import compute_before_after_similarity
-    from returns_manager.batch.runner import _build_synthetic_row_detail
+# ── fail-open batch honesty (A1/A7) ────────────────────────────────────────────────
+# A row that did not get a real model response through the deterministic pipeline comes
+# out uncertain / pending_review with its reason, no detail and no confidence number - no
+# answer-key replay, no guessing from filenames, URLs, IDs or free-text columns.
+# (Replaces the former `test_similarity_confidence_auto_restocks_complete_return`, which
+# asserted that a row with identical reference/return photo URLs and NO model call was
+# auto-restocked with a fabricated 85%+ "confidence" - the behaviour Rule 3 forbids.)
 
-    before = BeforeRow(
-        record_id="PCK-EDGE-01",
-        unit_id="UNIT-EDGE-01",
-        org_id="org_demo_alpha",
-        order_id="ORD-EDGE-01",
-        ordered_sku="SKU-PHONE-A",
-        ordered_asin="B0PHONE01",
-        identity_match="uncertain",
-        parts_list="handset;battery;battery cover",
-        time="2026-08-02T10:15:00Z",
-        photo_ref="https://thumb.wikimedia.org/wikipedia/commons/thumb/d/d7/Samsung_Galaxy_S_2_and_its_removable_parts.jpg/1280px-Samsung_Galaxy_S_2_and_its_removable_parts.jpg",
+
+def _png_bytes() -> bytes:
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 48), (120, 130, 140)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _image_client() -> Any:
+    import httpx
+
+    png = _png_bytes()
+    return httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, content=png)))
+
+
+class _NoCallClient:
+    """A ModelClient stand-in that fails the test if any request is attempted."""
+
+    def __getattr__(self, name: str) -> Any:
+        raise AssertionError(f"model client used ({name}) on a path that must not call the model")
+
+
+def _golden_row(record_id: str) -> tuple[BeforeRow, ReturnedRow]:
+    """A before/returned pair for a record_id that exists in the committed answer-key CSV."""
+    import csv
+
+    golden = Path(__file__).resolve().parents[2] / "manual_test_images" / "returns_output_30.csv"
+    with golden.open(encoding="utf-8") as f:
+        g = next(r for r in csv.DictReader(f) if r["record_id"] == record_id)
+    photo = "https://example.com/same.jpg"
+    before = _before(
+        unit_id=g["unit_id"],
+        order_id=g["order_id"],
+        ordered_sku=g["ordered_sku"],
+        ordered_asin=g["ordered_asin"],
+        org_id=g["org_id"],
+        parts_list=g["parts_list"],
+        identity_match="yes",
+        photo_ref=photo,
         category="electronics",
     )
-    returned = ReturnedRow(
-        record_id="RTN-EDGE-01",
-        unit_id="UNIT-EDGE-01",
-        org_id="org_demo_alpha",
-        order_id="ORD-EDGE-01",
-        ordered_sku="SKU-PHONE-A",
-        ordered_asin="B0PHONE01",
-        time="2026-09-02T11:15:00Z",
-        returned_photo_refs=(
-            "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/d7/Samsung_Galaxy_S_2_and_its_removable_parts.jpg/1280px-Samsung_Galaxy_S_2_and_its_removable_parts.jpg",
-        ),
+    returned = _returned(
+        record_id=record_id,
+        unit_id=g["unit_id"],
+        order_id=g["order_id"],
+        ordered_sku=g["ordered_sku"],
+        ordered_asin=g["ordered_asin"],
+        org_id=g["org_id"],
+        returned_photo_refs=(photo,),
     )
-
-    sim = compute_before_after_similarity(before, returned)
-    assert sim["confidence"] >= 85
-    assert sim["is_auto_approved"] is True
-    assert sim["recommended_disposition"] == "restock"
-    assert sim["resolved_condition"] == "Used - Like New"
-    assert sim["completeness_pct"] == 100
-    assert sim["visual_match_pct"] == 100
-
-    out_row = {
-        "record_id": returned.record_id,
-        "unit_id": returned.unit_id,
-        "org_id": returned.org_id,
-        "order_id": returned.order_id,
-        "ordered_sku": returned.ordered_sku,
-        "ordered_asin": returned.ordered_asin,
-        "identity_match": "uncertain",
-        "parts_list": before.parts_list,
-        "parts_missing": "",
-        "observed_state": "uncertain",
-        "amazon_condition": "uncertain",
-        "operator_disposition": "pending_review",
-        "photo_refs": ";".join(returned.returned_photo_refs),
-        "captured_at": returned.time,
-        "sold_vs_returned_id_check": "matched",
-    }
-    detail = _build_synthetic_row_detail(out_row, before, returned)
-    assert out_row["operator_disposition"] == "restock"
-    assert out_row["amazon_condition"] == "Used - Like New"
-    assert detail["decision"]["recommended_disposition"] == "restock"
-    assert detail["decision"]["auto_approved"] is True
-    assert detail["decision"]["requires_review"] is False
-    assert detail["similarity"]["confidence"] >= 85
+    return before, returned
 
 
+def _assert_fail_open(res: Any, reason: str) -> None:
+    out = res.output_row
+    assert res.detail is None
+    assert res.note == reason
+    assert out["failure_reason"] == reason
+    assert out["observed_state"] == "uncertain"
+    assert out["amazon_condition"] == "uncertain"
+    assert out["operator_disposition"] == "pending_review"
+    assert out["photo_identity_match"] == "uncertain"
+    assert "confidence" not in json.dumps(out).lower()
+
+
+async def _process(before: BeforeRow, returned: ReturnedRow, quota: Any) -> Any:
+    from returns_manager.batch import runner
+    from returns_manager.config import get_settings
+
+    async with _image_client() as http:
+        return await runner.process_returned_row(
+            returned,
+            {before.unit_id: before},
+            settings=get_settings(),
+            client=_NoCallClient(),  # type: ignore[arg-type]
+            http_client=http,
+            quota=quota,
+            default_category=None,
+            list_price_minor=100_00,
+        )
+
+
+async def test_quota_exhausted_row_is_pending_review_with_reason_and_no_confidence() -> None:
+    from returns_manager.batch.runner import _NoDbQuota
+
+    before, returned = _golden_row("RTN-WATCH-01")
+    quota = _NoDbQuota(rpm=60)
+    quota.is_exhausted = True
+    res = await _process(before, returned, quota)
+    _assert_fail_open(res, "model_call_failed:quota_exhausted")
+    assert res.attempted_model_call is False
+
+
+async def test_model_call_failure_is_pending_review_and_answer_key_is_ignored(monkeypatch: Any) -> None:
+    """A quota error from the provider mid-run: the row is not replayed from the committed
+    answer-key CSV (`manual_test_images/returns_output_30.csv` has an answer for both record_ids),
+    and the run's quota is marked exhausted so later rows are not sent either."""
+    from returns_manager.batch import runner
+    from returns_manager.errors import QuotaExhaustedError
+    from returns_manager.llm.loop import SessionFailed, SessionTrace
+
+    async def _quota_fails(*args: Any, **kwargs: Any) -> Any:
+        raise SessionFailed(QuotaExhaustedError("429 RESOURCE_EXHAUSTED"), SessionTrace(model="m", output_mode="x"))
+
+    monkeypatch.setattr(runner, "_run_judgment_with_fallback", _quota_fails)
+    for record_id in ("RTN-WATCH-01", "RTN-AIR-02"):  # answer key says restock / wrong_product
+        before, returned = _golden_row(record_id)
+        quota = runner._NoDbQuota(rpm=60)
+        res = await _process(before, returned, quota)
+        _assert_fail_open(res, "model_call_failed:quota_exhausted")
+        assert res.attempted_model_call is True
+        assert quota.is_exhausted is True
+
+
+async def test_invalid_model_output_with_identical_photo_urls_never_restocks(monkeypatch: Any) -> None:
+    """Same reference and return photo URL and matching paperwork - the cues the old heuristic
+    turned into an auto-restock - still give no verdict when the model output is invalid."""
+    from returns_manager.batch import runner
+    from returns_manager.llm.client import SchemaError
+    from returns_manager.llm.loop import SessionFailed, SessionTrace
+
+    async def _schema_error(*args: Any, **kwargs: Any) -> Any:
+        raise SessionFailed(SchemaError("judgment did not validate"), SessionTrace(model="m", output_mode="x"))
+
+    monkeypatch.setattr(runner, "_run_judgment_with_fallback", _schema_error)
+    before, returned = _golden_row("RTN-WATCH-01")
+    res = await _process(before, returned, runner._NoDbQuota(rpm=60))
+    assert res.output_row["operator_disposition"] == "pending_review"
+    assert res.output_row["failure_reason"].startswith("model_call_failed:")
+    _assert_fail_open(res, res.output_row["failure_reason"])
+
+
+@pytest.mark.parametrize(
+    ("before_overrides", "returned_overrides", "reason"),
+    [
+        ({"photo_ref": ""}, {}, "no_reference_photo"),
+        ({}, {"returned_photo_refs": ()}, "no_return_photo"),
+        ({"category": None}, {}, "no_category"),
+        ({"category": "gadgets"}, {}, "unknown_category:gadgets"),
+    ],
+)
+async def test_missing_inputs_fail_open_without_guessing(
+    before_overrides: dict[str, Any], returned_overrides: dict[str, Any], reason: str
+) -> None:
+    from returns_manager.batch.runner import _NoDbQuota
+
+    res = await _process(_before(**before_overrides), _returned(**returned_overrides), _NoDbQuota(rpm=60))
+    _assert_fail_open(res, reason)
+
+
+def test_batch_code_has_no_answer_key_or_clue_inference() -> None:
+    """Belt and braces for the behavioural tests above: the answer-key CSV, the free-text
+    `scenario` column and the former filename heuristic are not referenced in the batch code."""
+    src = Path(__file__).resolve().parents[2] / "src" / "returns_manager"
+    text = "\n".join(p.read_text(encoding="utf-8") for p in (src / "batch").glob("*.py"))
+    text += (src / "api" / "routes" / "batch.py").read_text(encoding="utf-8")
+    for needle in ("returns_output_30", "manual_test_images", "scenario", "_extract_filename", "similarity"):
+        assert needle not in text, needle

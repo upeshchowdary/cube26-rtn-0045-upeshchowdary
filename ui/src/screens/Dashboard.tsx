@@ -37,8 +37,8 @@ export default function Dashboard() {
   const { jobs, rows, loading, error, refresh } = useBatchStore()
 
   const attention = needsAttention(rows)
-  const autoApprovedCount = rows.filter((r) => r.similarity?.is_auto_approved).length
-  const autoDisapprovedCount = rows.filter((r) => r.similarity?.is_auto_rejected || r.similarity?.is_auto_disapproved || r.status === 'Auto-disapproved' || r.operator_disposition === 'wrong_product').length
+  const autoApprovedCount = rows.filter((r) => r.status === 'Auto-approved').length
+  const autoDisapprovedCount = rows.filter((r) => r.status === 'Auto-disapproved' || r.operator_disposition === 'wrong_product').length
   const restockCount = rows.filter((r) => r.operator_disposition === 'restock').length
   const liveRequests = jobs.reduce((sum, j) => sum + j.live_requests, 0)
   const activity = rowsPerJob(jobs)

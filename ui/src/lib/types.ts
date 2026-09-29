@@ -18,7 +18,7 @@ export interface BatchJob {
   notes: string[]
 }
 
-// The 15 flat columns written by batch/io_csv.py:OUTPUT_FIELDNAMES.
+// The 17 flat columns written by batch/io_csv.py:OUTPUT_FIELDNAMES.
 export interface BatchRowFlat {
   record_id: string
   unit_id: string
@@ -26,7 +26,8 @@ export interface BatchRowFlat {
   order_id: string
   ordered_sku: string
   ordered_asin: string
-  identity_match: string
+  identity_match: string // carried forward from the before-file (F-024)
+  photo_identity_match: string // the model's own verdict on the returned photo(s)
   parts_list: string
   parts_missing: string
   observed_state: string
@@ -35,7 +36,7 @@ export interface BatchRowFlat {
   photo_refs: string
   captured_at: string
   sold_vs_returned_id_check: string
-  scenario?: string
+  failure_reason: string // why the row failed open; empty on a real model + engine result
 }
 
 export type DecisionAction = 'accept' | 'override' | 'retake_request' | 'review_request'
@@ -218,27 +219,6 @@ export interface RowDetail {
   review_reasons: string[]
   returned_photo_refs: string[]
   reference_photo_ref: string
-  similarity?: SimilarityResult
-}
-
-export interface SimilarityResult {
-  confidence: number
-  visual_match_pct: number
-  completeness_pct: number
-  condition_pct: number
-  identity_pct: number
-  is_auto_approved: boolean
-  is_auto_rejected: boolean
-  is_auto_disapproved?: boolean
-  recommended_disposition: string
-  resolved_condition: string
-  resolved_state: string
-  rule_id?: string
-  photo_match_reason?: string
-  comp_reason?: string
-  cond_reason?: string
-  id_reason?: string
-  summary?: string
 }
 
 export interface MetricEnvelope {
@@ -312,7 +292,5 @@ export interface DerivedRow extends BatchRowFlat {
   reference_image: string | null // the before-row's own catalogue/reference photo URL
   photos: string[] // every returned photo URL for this row
   status: string // display status derived from job status + decisions
-  confidence?: number // confidence percentage (e.g. 92)
-  similarity?: SimilarityResult
   latest_decision: RowDecisionEntry | null
 }

@@ -15,8 +15,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
-import csv
-import json
+import logging
 
 import httpx
 import yaml
@@ -25,7 +24,6 @@ from returns_manager.batch.cards import VALID_CATEGORIES, build_card
 from returns_manager.batch.images import ImageFetchError, fetch_image
 from returns_manager.batch.io_csv import BeforeRow, ReturnedRow, read_before_csv, read_returned_csv
 from returns_manager.batch.parts import parse_parts_list
-from returns_manager.batch.similarity import compute_before_after_similarity
 from returns_manager.canonical.hashing import sha256_hex
 from returns_manager.config import REPO_ROOT, Settings
 from returns_manager.jobs.budget import TokenBucketRateLimiter
@@ -41,6 +39,8 @@ RETRYABLE_ATTEMPTS = 2  # this row's own retry budget for transient provider err
 RETRY_DELAY_S = 5.0
 
 REF_DIR = REPO_ROOT / "reference"
+
+logger = logging.getLogger(__name__)
 
 
 def load_rubric(category_key: str) -> ConditionRubricV1:
@@ -126,7 +126,6 @@ def _build_row_detail(
     result: Any,
     row: ReturnedRow,
     before: BeforeRow,
-    output_row: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Everything `process_returned_row` already computes in memory but the flat CSV row
     discards - the exact §14.2 fixed check list, the fused/gated deterministic results, and the
@@ -135,275 +134,26 @@ def _build_row_detail(
     because `result.judgment` is a pydantic `JudgmentV1`, not a dataclass; `asdict()` would leave a
     live pydantic instance sitting in the tree instead of raising, and `json.dumps` would only fail
     on it later, further from the cause.
+
+    Only ever built from a real model response plus the deterministic pipeline: nothing here is
+    inferred from filenames, URLs, IDs or free-text columns, and nothing overrides the engine.
     """
-    similarity = compute_before_after_similarity(before, row, output_row)
-    decision_dict = asdict(result.decision)
-    identity_dict = asdict(result.identity)
-    condition_dict = asdict(result.condition)
-    requires_review = result.requires_review
-    review_reasons = list(result.review_reasons)
-
-    if similarity["is_auto_approved"]:
-        decision_dict["recommended_disposition"] = similarity["recommended_disposition"]
-        decision_dict["auto_approved"] = True
-        decision_dict["requires_review"] = False
-        decision_dict["requires_signoff"] = False
-        decision_dict["confidence"] = similarity["confidence"]
-        decision_dict["reason"] = similarity["summary"]
-        decision_dict["rule_id"] = "R06_AUTO_RESTOCK"
-        identity_dict["identity_match"] = "yes"
-        condition_dict["relistable_as_is"] = True
-        condition_dict["amazon_condition"] = similarity["resolved_condition"]
-        requires_review = False
-        review_reasons = []
-    elif similarity.get("is_auto_rejected"):
-        decision_dict["recommended_disposition"] = "wrong_product"
-        decision_dict["auto_approved"] = False
-        decision_dict["auto_rejected"] = True
-        decision_dict["auto_disapproved"] = True
-        decision_dict["requires_review"] = False
-        decision_dict["requires_signoff"] = False
-        decision_dict["confidence"] = similarity["confidence"]
-        decision_dict["reason"] = similarity["summary"]
-        decision_dict["rule_id"] = similarity.get("rule_id", "R03_MISMATCH")
-        identity_dict["identity_match"] = "no"
-        condition_dict["relistable_as_is"] = False
-        requires_review = False
-        review_reasons = []
-
     return {
         "judgment": result.judgment.model_dump(mode="json"),
         "judgment_raw": session_judgment.model_dump(mode="json"),
         "validator_actions": [asdict(a) for a in result.report.actions],
         "checks": [asdict(c) for c in result.checks],
         "presence": asdict(result.presence),
-        "identity": identity_dict,
+        "identity": asdict(result.identity),
         "completeness": asdict(result.completeness),
-        "condition": condition_dict,
+        "condition": asdict(result.condition),
         "claims": asdict(result.claims),
-        "decision": decision_dict,
-        "escalation_triggers": list(result.escalation_triggers) if not similarity["is_auto_approved"] else [],
-        "requires_review": requires_review,
-        "review_reasons": review_reasons,
+        "decision": asdict(result.decision),
+        "escalation_triggers": list(result.escalation_triggers),
+        "requires_review": result.requires_review,
+        "review_reasons": list(result.review_reasons),
         "returned_photo_refs": list(row.returned_photo_refs),
         "reference_photo_ref": before.photo_ref,
-        "similarity": similarity,
-    }
-
-
-def _load_golden_returns_30() -> dict[str, dict[str, str]]:
-    path = REPO_ROOT / "agent" / "manual_test_images" / "returns_output_30.csv"
-    if not path.is_file():
-        return {}
-    with path.open(encoding="utf-8") as f:
-        return {r["record_id"]: r for r in csv.DictReader(f) if "record_id" in r}
-
-
-def _build_synthetic_row_detail(
-    output_row: dict[str, str],
-    before: BeforeRow | None,
-    row: ReturnedRow,
-) -> dict[str, Any]:
-    similarity = compute_before_after_similarity(before, row, output_row)
-    if similarity["is_auto_approved"]:
-        output_row["operator_disposition"] = similarity["recommended_disposition"]
-        output_row["amazon_condition"] = similarity["resolved_condition"]
-        output_row["observed_state"] = similarity["resolved_state"]
-        output_row["identity_match"] = "yes"
-    elif similarity.get("is_auto_rejected"):
-        output_row["operator_disposition"] = "wrong_product"
-        output_row["identity_match"] = "no"
-
-    id_check = output_row.get("sold_vs_returned_id_check", "")
-    parts_list = output_row.get("parts_list", "")
-    parts_missing_str = output_row.get("parts_missing", "")
-    parts = [p.strip() for p in parts_list.split(";") if p.strip()]
-    missing_set = set(p.strip() for p in parts_missing_str.split(";") if p.strip())
-    observed_state = output_row.get("observed_state", "uncertain")
-    amazon_condition = output_row.get("amazon_condition", "uncertain")
-    disposition = output_row.get("operator_disposition", "pending_review")
-    identity_match = output_row.get("identity_match", "uncertain")
-    photos = list(row.returned_photo_refs)
-    ref_photo = before.photo_ref if before else ""
-
-    is_mismatch = id_check.startswith("NOT MATCHED")
-    mismatch_reason = id_check if is_mismatch else ""
-
-    comp_results = []
-    for i, c in enumerate(parts):
-        is_missing = c in missing_set
-        comp_results.append({
-            "component_id": f"comp-{i + 1}",
-            "name": c,
-            "expected": 1,
-            "observed": 0 if is_missing else 1,
-            "status": "missing" if is_missing else "present",
-            "essential": True,
-            "replaceable": False,
-            "verifiable_by_photo": True,
-            "missing_quantity": 1 if is_missing else 0,
-            "photos": photos[:1],
-            "confidence_bp": 9000,
-            "reason": "Not visible or absent in returned photo" if is_missing else "Observed present",
-        })
-
-    defects = []
-    if observed_state == "damaged":
-        defects.append({
-            "defect_type": "physical_damage",
-            "severity": "severe",
-            "location_note": "Outer surface damaged / fractured",
-            "photo": photos[0] if photos else "",
-            "box_2d": None,
-            "confidence": 0.95,
-        })
-    elif observed_state == "signs_of_use":
-        defects.append({
-            "defect_type": "surface_wear",
-            "severity": "minor",
-            "location_note": "Handling wear visible on product",
-            "photo": photos[0] if photos else "",
-            "box_2d": None,
-            "confidence": 0.85,
-        })
-
-    checks = [
-        {
-            "check_key": "identity",
-            "verdict": "FAIL" if is_mismatch else "PASS" if (identity_match == "yes" or similarity["is_auto_approved"]) else "UNCERTAIN",
-            "confidence_bp": 9500,
-            "detail": mismatch_reason or "Catalog identity verified against reference.",
-            "source": "deterministic" if is_mismatch else "model",
-        },
-        {
-            "check_key": "paperwork_verification",
-            "verdict": "FAIL" if is_mismatch else "PASS",
-            "confidence_bp": 10000,
-            "detail": id_check or "Order, SKU, and ASIN paperwork matched.",
-            "source": "deterministic",
-        },
-        {
-            "check_key": "completeness",
-            "verdict": "FAIL" if missing_set else "PASS",
-            "confidence_bp": 9000,
-            "detail": f"Missing components: {parts_missing_str}" if missing_set else "All catalog components present.",
-            "source": "deterministic",
-        },
-        {
-            "check_key": "condition",
-            "verdict": "PASS" if (amazon_condition in ("New", "Used - Like New", "Used - Very Good", "Used - Acceptable") or similarity["is_auto_approved"]) else "UNCERTAIN",
-            "confidence_bp": 8500,
-            "detail": f"Condition evaluated as {amazon_condition}",
-            "source": "model",
-        },
-    ]
-
-    judgment_dict = {
-        "schema_version": "v1",
-        "photo_reports": [{"photo": p, "usable": True, "views": ["front"], "visible_regions": ["all"], "issues": []} for p in photos],
-        "unit_presence": {"status": "present", "evidence": []},
-        "identity": {
-            "identity_match": identity_match,
-            "observed_identifiers": [{"kind": "sku", "value": output_row.get("ordered_sku", ""), "photo": photos[0] if photos else "", "location": "package label"}],
-            "feature_checks": [],
-            "risk_flags": ["paperwork_mismatch"] if is_mismatch else [],
-            "likely_actual_sku": None,
-            "uncertainty_reason": mismatch_reason or None,
-            "confidence": 0.95,
-            "evidence": [],
-        },
-        "completeness": {
-            "components": [
-                {
-                    "component_id": f"comp-{i + 1}",
-                    "observed_quantity": 0 if c in missing_set else 1,
-                    "visibility": "observed_absent_in_clear_view" if c in missing_set else "observed_present",
-                    "status": "missing" if c in missing_set else "present",
-                    "photos": photos[:1],
-                    "confidence": 0.9,
-                }
-                for i, c in enumerate(parts)
-            ],
-            "unexpected_items": [],
-            "uncertainty_reason": None,
-        },
-        "condition": {
-            "packaging_state": "opened" if "opened" in observed_state else "factory_sealed" if "sealed" in observed_state else "unknown",
-            "observations": defects,
-            "signs_of_use": "signs_of_use" if observed_state == "signs_of_use" else "none",
-            "cleanliness": "clean",
-            "outer_shipping_damage_observed": False,
-            "functional_check": "not_performed",
-            "proposed_grade": {
-                "grade_code": amazon_condition,
-                "rubric_phrases_matched": [amazon_condition] if amazon_condition != "uncertain" else [],
-                "uncertainty_reason": None,
-                "confidence": 0.9,
-            },
-        },
-        "model_observed_state": observed_state,
-        "retake_requests": [],
-        "uncertainties": [],
-        "untrusted_text_observed": [],
-    }
-
-    cosmetic = "A" if amazon_condition in ("New", "Used - Like New") else "B" if amazon_condition == "Used - Very Good" else "C" if amazon_condition == "Used - Acceptable" else "X"
-
-    return {
-        "judgment": judgment_dict,
-        "judgment_raw": judgment_dict,
-        "validator_actions": [],
-        "checks": checks,
-        "presence": {"status": "present", "clearly_evidenced": True, "evidence_photos": photos},
-        "identity": {
-            "identity_match": identity_match,
-            "strength": "mismatch" if is_mismatch else "high",
-            "barcode_status": "mismatch" if is_mismatch else "verified",
-            "risk_flags": ["paperwork_mismatch"] if is_mismatch else [],
-            "reasons": [id_check] if is_mismatch else ["Catalog identifiers match sold record."],
-            "actual_sku": output_row.get("ordered_sku"),
-            "confidence_bp": 9500,
-            "evidence_photos": photos,
-        },
-        "completeness": {
-            "status": "incomplete" if missing_set else "complete",
-            "components": comp_results,
-            "essential_missing": list(missing_set),
-            "nonessential_missing": [],
-            "uncertain_components": [],
-            "essential_uncertain": [],
-            "parts_list": parts_list,
-            "parts_missing": parts_missing_str,
-            "parts_uncertain": "",
-        },
-        "condition": {
-            "amazon_condition": amazon_condition,
-            "cosmetic_grade": cosmetic,
-            "listing_blockers": [id_check] if is_mismatch else ["Physical damage"] if observed_state == "damaged" else [],
-            "relistable_as_is": disposition == "restock",
-        },
-        "claims": {"status": "unverified", "discrepancies": []},
-        "decision": {
-            "recommended_disposition": "wrong_product" if similarity.get("is_auto_rejected") else disposition,
-            "requires_review": not similarity["is_auto_approved"] and not similarity.get("is_auto_rejected") and (is_mismatch or disposition in ("pending_review", "wrong_product") or observed_state == "uncertain"),
-            "requires_signoff": not similarity["is_auto_approved"] and not similarity.get("is_auto_rejected") and (is_mismatch or disposition in ("pending_review", "wrong_product") or observed_state == "uncertain"),
-            "auto_approved": similarity["is_auto_approved"],
-            "auto_rejected": bool(similarity.get("is_auto_rejected")),
-            "auto_disapproved": bool(similarity.get("is_auto_rejected")),
-            "confidence": similarity["confidence"],
-            "reason": similarity["summary"],
-            "rule_id": similarity.get("rule_id", "R03_MISMATCH") if similarity.get("is_auto_rejected") else ("R06_AUTO_RESTOCK" if similarity["is_auto_approved"] and disposition == "restock" else ("R03-MISMATCH" if is_mismatch else "INSPECT")),
-        },
-        "escalation_triggers": [] if similarity.get("is_auto_rejected") else ([id_check] if is_mismatch else []),
-        "requires_review": not similarity["is_auto_approved"] and not similarity.get("is_auto_rejected") and (is_mismatch or disposition in ("pending_review", "wrong_product") or observed_state == "uncertain"),
-        "requires_signoff": not similarity["is_auto_approved"] and not similarity.get("is_auto_rejected") and (is_mismatch or disposition in ("pending_review", "wrong_product") or observed_state == "uncertain"),
-        "auto_approved": similarity["is_auto_approved"],
-        "auto_rejected": bool(similarity.get("is_auto_rejected")),
-        "auto_disapproved": bool(similarity.get("is_auto_rejected")),
-        "review_reasons": [] if (similarity["is_auto_approved"] or similarity.get("is_auto_rejected")) else ([id_check] if is_mismatch else ["Confidence below 85% threshold"]),
-        "returned_photo_refs": photos,
-        "reference_photo_ref": ref_photo,
-        "similarity": similarity,
     }
 
 
@@ -452,6 +202,8 @@ def _disposition_for_id_check(before: BeforeRow | None, id_check: str, fallback:
 
 
 def _uncertain_row(row: ReturnedRow, before: BeforeRow | None, reason: str) -> dict[str, str]:
+    """The fail-open row (§3): no verdict, no grade, no confidence - just the reason. Written for
+    every row that did not get a real model response run through the deterministic pipeline."""
     id_check = check_id_match(before, row)
     return {
         "record_id": row.record_id,
@@ -461,6 +213,7 @@ def _uncertain_row(row: ReturnedRow, before: BeforeRow | None, reason: str) -> d
         "ordered_sku": row.ordered_sku,
         "ordered_asin": row.ordered_asin,
         "identity_match": before.identity_match if before else "uncertain",
+        "photo_identity_match": "uncertain",  # no model verdict on the returned photo this run
         "parts_list": before.parts_list if before else "",
         "parts_missing": "",
         "observed_state": "uncertain",
@@ -469,47 +222,8 @@ def _uncertain_row(row: ReturnedRow, before: BeforeRow | None, reason: str) -> d
         "photo_refs": ";".join(row.returned_photo_refs),
         "captured_at": row.time,
         "sold_vs_returned_id_check": id_check,
+        "failure_reason": reason,
     }
-
-
-def _evaluate_row_fallback(row: ReturnedRow, before: BeforeRow | None) -> tuple[dict[str, str], dict[str, Any]]:
-    from returns_manager.batch.similarity import evaluate_row_similarity
-
-    id_check = check_id_match(before, row)
-    parts_list = before.parts_list if before else ""
-    parts_missing_init = getattr(row, "parts_missing", None) or (before.parts_missing if before else "") or ""
-
-    base_row = {
-        "record_id": row.record_id,
-        "unit_id": row.unit_id,
-        "org_id": row.org_id,
-        "order_id": row.order_id,
-        "ordered_sku": row.ordered_sku,
-        "ordered_asin": row.ordered_asin,
-        "identity_match": before.identity_match if before else "uncertain",
-        "parts_list": parts_list,
-        "parts_missing": parts_missing_init,
-        "observed_state": "uncertain",
-        "amazon_condition": "uncertain",
-        "operator_disposition": "pending_review",
-        "photo_refs": ";".join(row.returned_photo_refs),
-        "captured_at": row.time,
-        "sold_vs_returned_id_check": id_check,
-    }
-
-    sim = evaluate_row_similarity(base_row, before, row)
-    parts_missing = sim.get("parts_missing_detected", "") or parts_missing_init
-
-    output_row = {
-        **base_row,
-        "parts_missing": parts_missing,
-        "observed_state": sim["resolved_state"],
-        "amazon_condition": sim["resolved_condition"],
-        "operator_disposition": sim["recommended_disposition"],
-        "identity_match": before.identity_match if before else "uncertain",
-    }
-    detail = _build_synthetic_row_detail(output_row, before, row)
-    return output_row, detail
 
 
 def _missing_parts_field(pipeline_completeness: Any) -> str:
@@ -559,6 +273,23 @@ async def _run_judgment_with_fallback(
     raise last
 
 
+def _fail_open(
+    row: ReturnedRow, before: BeforeRow | None, reason: str, *, attempted_model_call: bool = False
+) -> RowResult:
+    """Every non-success path ends here: `uncertain` / `pending_review`, the reason in
+    `failure_reason`, and no detail (there is no real judgment to show)."""
+    return RowResult(_uncertain_row(row, before, reason), reason, attempted_model_call)
+
+
+def _report_progress(on_progress: Any | None, *args: Any) -> None:
+    if on_progress is None:
+        return
+    try:
+        on_progress(*args)
+    except Exception:  # a progress-reporting failure must never stop the batch
+        logger.warning("batch progress callback failed", exc_info=True)
+
+
 async def process_returned_row(
     row: ReturnedRow,
     before_by_unit: dict[str, BeforeRow],
@@ -572,30 +303,24 @@ async def process_returned_row(
 ) -> RowResult:
     before = before_by_unit.get(row.unit_id)
     if before is None:
-        unc = _uncertain_row(row, None, "no before-record for this unit_id")
-        return RowResult(unc, "no_before_record", False, detail=_build_synthetic_row_detail(unc, None, row))
+        return _fail_open(row, None, "no_before_record")
     if not before.photo_ref:
-        unc = _uncertain_row(row, before, "before-record has no photo_ref")
-        return RowResult(unc, "no_reference_photo", False, detail=_build_synthetic_row_detail(unc, before, row))
+        return _fail_open(row, before, "no_reference_photo")
     if not row.returned_photo_refs:
-        output_row, detail = _evaluate_row_fallback(row, before)
-        return RowResult(output_row, "no_return_photo", False, detail=detail)
+        return _fail_open(row, before, "no_return_photo")
 
     category = before.category or default_category
     if not category:
-        output_row, detail = _evaluate_row_fallback(row, before)
-        return RowResult(output_row, "no_category", False, detail=detail)
+        return _fail_open(row, before, "no_category")
     category = category.lower()
     if category not in VALID_CATEGORIES:
-        output_row, detail = _evaluate_row_fallback(row, before)
-        return RowResult(output_row, f"unknown_category:{category}", False, detail=detail)
+        return _fail_open(row, before, f"unknown_category:{category}")
 
     try:
         rubric = load_rubric(category)
         policy = load_policy(category)
     except ValueError as exc:
-        unc = _uncertain_row(row, before, str(exc))
-        return RowResult(unc, f"reference_load_failed:{exc}", False, detail=_build_synthetic_row_detail(unc, before, row))
+        return _fail_open(row, before, f"reference_load_failed:{exc}")
 
     parts = parse_parts_list(before.parts_list)
     card = build_card(
@@ -611,8 +336,7 @@ async def process_returned_row(
     try:
         ref_bytes = await fetch_image(before.photo_ref, http_client, long_edge=long_edge)
     except ImageFetchError as exc:
-        unc = _uncertain_row(row, before, str(exc))
-        return RowResult(unc, f"image_fetch_failed:{exc}", False, detail=_build_synthetic_row_detail(unc, before, row))
+        return _fail_open(row, before, f"image_fetch_failed:{exc}")
 
     # One bad URL among several must not discard every other, usable return photo (§3 fail
     # open: preserve the available information). Only if literally none of them fetch does
@@ -625,8 +349,7 @@ async def process_returned_row(
         except ImageFetchError as exc:
             photo_errors.append(str(exc))
     if not return_bytes:
-        unc = _uncertain_row(row, before, "; ".join(photo_errors))
-        return RowResult(unc, f"image_fetch_failed:{'; '.join(photo_errors)}", False, detail=_build_synthetic_row_detail(unc, before, row))
+        return _fail_open(row, before, f"image_fetch_failed:{'; '.join(photo_errors)}")
 
     photos = [
         ReturnPhoto(
@@ -655,78 +378,16 @@ async def process_returned_row(
     )
 
     if quota.is_exhausted:
-        goldens = _load_golden_returns_30() if settings.rm_model_provider != "none" else {}
-        if row.record_id in goldens:
-            golden = goldens[row.record_id]
-            id_check = golden.get("sold_vs_returned_id_check", check_id_match(before, row))
-            parts_missing = golden.get("parts_missing", "")
-            observed_state = golden.get("observed_state", "uncertain")
-            amazon_condition = golden.get("amazon_condition", "uncertain")
-            operator_disposition = golden.get("operator_disposition", "pending_review")
-            output_row = {
-                "record_id": row.record_id,
-                "unit_id": row.unit_id,
-                "org_id": row.org_id,
-                "order_id": row.order_id,
-                "ordered_sku": row.ordered_sku,
-                "ordered_asin": row.ordered_asin,
-                "identity_match": golden.get("identity_match", before.identity_match),
-                "parts_list": golden.get("parts_list", before.parts_list),
-                "parts_missing": parts_missing,
-                "observed_state": observed_state,
-                "amazon_condition": amazon_condition,
-                "operator_disposition": operator_disposition,
-                "photo_refs": ";".join(row.returned_photo_refs),
-                "captured_at": row.time,
-                "sold_vs_returned_id_check": id_check,
-            }
-            detail = _build_synthetic_row_detail(output_row, before, row)
-            return RowResult(output_row, None, False, warning="model quota exhausted; evaluated with calibrated reference", detail=detail)
-        output_row, detail = _evaluate_row_fallback(row, before)
-        return RowResult(output_row, None, False, warning="evaluated with automatic dynamic rules engine", detail=detail)
+        # Quota was used up earlier in this run: no request is sent, and nothing is guessed.
+        return _fail_open(row, before, "model_call_failed:quota_exhausted")
 
     try:
         session = await _run_judgment_with_fallback(client, bundle, settings, quota)
     except SessionFailed as exc:
-        is_quota = (
-            getattr(exc.cause, "error_class", None) == "quota_exhausted"
-            or "QuotaExhaustedError" in type(exc.cause).__name__
-            or "429" in str(exc.cause)
-            or "RESOURCE_EXHAUSTED" in str(exc.cause)
-            or "quota" in str(exc.cause).lower()
-        )
-        if is_quota:
+        error_class = classify_error(exc.cause).error_class
+        if error_class == "quota_exhausted":
             await quota.mark_exhausted(settings.rm_judgment_model, "judgment")
-        goldens = _load_golden_returns_30() if (is_quota or settings.rm_model_provider == "replay") else {}
-        if row.record_id in goldens:
-            golden = goldens[row.record_id]
-            id_check = golden.get("sold_vs_returned_id_check", check_id_match(before, row))
-            parts_missing = golden.get("parts_missing", "")
-            observed_state = golden.get("observed_state", "uncertain")
-            amazon_condition = golden.get("amazon_condition", "uncertain")
-            operator_disposition = golden.get("operator_disposition", "pending_review")
-            output_row = {
-                "record_id": row.record_id,
-                "unit_id": row.unit_id,
-                "org_id": row.org_id,
-                "order_id": row.order_id,
-                "ordered_sku": row.ordered_sku,
-                "ordered_asin": row.ordered_asin,
-                "identity_match": golden.get("identity_match", before.identity_match),
-                "parts_list": golden.get("parts_list", before.parts_list),
-                "parts_missing": parts_missing,
-                "observed_state": observed_state,
-                "amazon_condition": amazon_condition,
-                "operator_disposition": operator_disposition,
-                "photo_refs": ";".join(row.returned_photo_refs),
-                "captured_at": row.time,
-                "sold_vs_returned_id_check": id_check,
-            }
-            detail = _build_synthetic_row_detail(output_row, before, row)
-            return RowResult(output_row, None, True, warning="model quota exhausted; evaluated with calibrated reference", detail=detail)
-
-        output_row, detail = _evaluate_row_fallback(row, before)
-        return RowResult(output_row, None, True, warning="evaluated with automatic dynamic rules engine", detail=detail)
+        return _fail_open(row, before, f"model_call_failed:{error_class}", attempted_model_call=True)
 
     result = run_pipeline(
         session.judgment,
@@ -748,6 +409,8 @@ async def process_returned_row(
         "ordered_sku": row.ordered_sku,
         "ordered_asin": row.ordered_asin,
         "identity_match": before.identity_match,  # carried forward, not re-derived (per instruction)
+        # The model's own identity verdict on the returned photo(s), kept separate (F-024).
+        "photo_identity_match": session.judgment.identity.identity_match,
         "parts_list": before.parts_list,
         "parts_missing": _missing_parts_field(result.completeness),
         "observed_state": session.judgment.model_observed_state,
@@ -756,6 +419,7 @@ async def process_returned_row(
         "photo_refs": ";".join(row.returned_photo_refs),
         "captured_at": row.time,
         "sold_vs_returned_id_check": id_check,
+        "failure_reason": "",
     }
     warning = (
         f"{len(photo_errors)} of {len(row.returned_photo_refs)} return photo(s) failed to fetch: "
@@ -763,13 +427,7 @@ async def process_returned_row(
         if photo_errors
         else None
     )
-    detail = _build_row_detail(session_judgment=session.judgment, result=result, row=row, before=before, output_row=output_row)
-    if detail.get("similarity", {}).get("is_auto_approved"):
-        sim = detail["similarity"]
-        output_row["operator_disposition"] = sim["recommended_disposition"]
-        output_row["amazon_condition"] = sim["resolved_condition"]
-        output_row["observed_state"] = sim["resolved_state"]
-        output_row["identity_match"] = "yes"
+    detail = _build_row_detail(session_judgment=session.judgment, result=result, row=row, before=before)
     return RowResult(output_row, None, True, warning, detail=detail)
 
 
@@ -797,17 +455,11 @@ async def run_batch(
     async with httpx.AsyncClient(timeout=30.0, headers=headers) as http_client:
         for row in returned_rows:
             if max_requests is not None and summary.live_requests >= max_requests:
-                unc = _uncertain_row(row, before_by_unit.get(row.unit_id), "max_requests reached")
+                unc = _uncertain_row(row, before_by_unit.get(row.unit_id), "max_requests_reached")
                 output_rows.append(unc)
-                det = _build_synthetic_row_detail(unc, before_by_unit.get(row.unit_id), row)
-                details_by_record_id[row.record_id] = det
                 summary.uncertain += 1
                 summary.notes.append(f"{row.record_id}: skipped, max_requests reached")
-                if on_progress is not None:
-                    try:
-                        on_progress(unc, det, summary, output_rows, details_by_record_id)
-                    except Exception:
-                        pass
+                _report_progress(on_progress, unc, None, summary, output_rows, details_by_record_id)
                 continue
             result = await process_returned_row(
                 row,
@@ -831,11 +483,7 @@ async def run_batch(
             else:
                 summary.uncertain += 1
                 summary.notes.append(f"{row.record_id}: {result.note}")
-            if on_progress is not None:
-                try:
-                    on_progress(result.output_row, result.detail, summary, output_rows, details_by_record_id)
-                except Exception:
-                    pass
+            _report_progress(on_progress, result.output_row, result.detail, summary, output_rows, details_by_record_id)
     return output_rows, details_by_record_id, summary
 
 
