@@ -99,6 +99,10 @@ class Settings(BaseSettings):
     rm_circuit_failure_threshold: int = Field(5, ge=1)
     rm_circuit_cooldown_s: int = Field(60, ge=1)
     rm_high_value_threshold_minor: int = Field(500000, ge=0)
+    # Batch auto-approve (batch/auto_approve.py): the minimum model-reported check confidence, in
+    # basis points, for a row the engine already routed with no review and no sign-off. NOT yet
+    # calibrated by a threshold sweep (§21.5); 8500 is a placeholder, not a measured operating point.
+    rm_batch_auto_approve_min_confidence_bp: int = Field(8500, ge=0, le=10000)
     rm_max_daily_spend_usd: str = "0"
     rm_eval_spend_cap_usd: str = "0"
     rm_webhook_allowlist: str = ""

@@ -136,7 +136,9 @@ OUTPUT_FIELDNAMES = [
     "parts_missing",
     "observed_state",
     "amazon_condition",
-    "operator_disposition",
+    "operator_disposition",  # the engine route only if auto-approved; otherwise pending_review
+    "agent_disposition",  # the engine's recommendation (empty when it made none)
+    "auto_approved",  # "true" only per batch/auto_approve.py; never recomputed by the UI
     "photo_refs",
     "captured_at",
     "sold_vs_returned_id_check",

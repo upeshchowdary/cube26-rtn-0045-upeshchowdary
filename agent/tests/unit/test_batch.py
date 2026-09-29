@@ -179,8 +179,8 @@ def test_write_output_csv_uses_fixed_column_order(tmp_path: Path) -> None:
     header = out.read_text(encoding="utf-8").splitlines()[0]
     assert header == (
         "record_id,unit_id,org_id,order_id,ordered_sku,ordered_asin,identity_match,photo_identity_match,"
-        "parts_list,parts_missing,observed_state,amazon_condition,operator_disposition,photo_refs,"
-        "captured_at,sold_vs_returned_id_check,failure_reason"
+        "parts_list,parts_missing,observed_state,amazon_condition,operator_disposition,agent_disposition,"
+        "auto_approved,photo_refs,captured_at,sold_vs_returned_id_check,failure_reason"
     )
     assert "unexpected_extra" not in out.read_text(encoding="utf-8")
 
@@ -335,14 +335,14 @@ def test_uncertain_row_no_sold_record_stays_pending_review() -> None:
 
 
 def test_operator_disposition_is_a_route_or_pending_review_only() -> None:
-    assert _operator_disposition("restock", id_mismatch=False) == "restock"
-    assert _operator_disposition("restock", id_mismatch=True) == "pending_review"
-    assert _operator_disposition(None, id_mismatch=False) == "pending_review"
+    assert _operator_disposition("restock", auto_approved=True) == "restock"
+    assert _operator_disposition("restock", auto_approved=False) == "pending_review"
+    assert _operator_disposition(None, auto_approved=True) == "pending_review"
     assert _id_mismatch(_before(), "NOT MATCHED: order_id: ...") is True
     assert _id_mismatch(_before(), "matched") is False
     assert _id_mismatch(None, "NOT MATCHED: no sold-record for this unit_id") is False
     for route in DISPOSITIONS:
-        assert _operator_disposition(route, id_mismatch=False) in DISPOSITIONS
+        assert _operator_disposition(route, auto_approved=True) in DISPOSITIONS
 
 
 def test_wrong_item_is_r03_null_recommendation_and_pending_review() -> None:
@@ -359,7 +359,7 @@ def test_wrong_item_is_r03_null_recommendation_and_pending_review() -> None:
     assert result.decision.recommended_disposition is None
     assert result.decision.no_recommendation_reason == "wrong_item_returned"
     assert result.claims.wrong_item_returned.value == "yes"
-    assert _operator_disposition(result.decision.recommended_disposition, id_mismatch=False) == "pending_review"
+    assert _operator_disposition(result.decision.recommended_disposition, auto_approved=True) == "pending_review"
 
 
 @pytest.mark.parametrize("value", ["wrong_product", "pending_review", "RESTOCK", "return_to_vendor"])
@@ -585,8 +585,8 @@ def test_render_output_csv_reflects_latest_override_not_the_stored_file(tmp_path
     lines = after_override.decode("utf-8").splitlines()
     assert lines[0] == (
         "record_id,unit_id,org_id,order_id,ordered_sku,ordered_asin,identity_match,photo_identity_match,"
-        "parts_list,parts_missing,observed_state,amazon_condition,operator_disposition,photo_refs,"
-        "captured_at,sold_vs_returned_id_check,failure_reason"
+        "parts_list,parts_missing,observed_state,amazon_condition,operator_disposition,agent_disposition,"
+        "auto_approved,photo_refs,captured_at,sold_vs_returned_id_check,failure_reason"
     )
     assert "refurbish" in lines[1]
     assert "liquidate" not in after_override.decode("utf-8")
@@ -815,3 +815,185 @@ def test_batch_code_has_no_answer_key_or_clue_inference() -> None:
     text += (src / "api" / "routes" / "batch.py").read_text(encoding="utf-8")
     for needle in ("returns_output_30", "manual_test_images", "scenario", "_extract_filename", "similarity"):
         assert needle not in text, needle
+
+
+# ── auto-approve never overrides the engine (A5/A2) ───────────────────────────────
+# One implementation (batch/auto_approve.py); the UI only reads its flag. It can only let an
+# engine route stand when the engine asked for neither review nor sign-off.
+
+
+def _confident(j: Any, value: float = 0.95) -> Any:
+    from returns_manager.llm.schemas import JudgmentV1
+
+    raw = j.model_dump(mode="json")
+
+    def bump(o: Any) -> None:
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k == "confidence" and isinstance(v, (int, float)):
+                    o[k] = value
+                else:
+                    bump(v)
+        elif isinstance(o, list):
+            for x in o:
+                bump(x)
+
+    bump(raw)
+    return JudgmentV1.model_validate(raw)
+
+
+def _sealed_new(ctx: Any, confidence: float = 0.95) -> Any:
+    from returns_manager.llm.schemas import JudgmentV1
+
+    raw = b.grade(b.judgment(ctx), "new", ctx).model_dump(mode="json")
+    raw["condition"]["packaging_state"] = "factory_sealed_intact"
+    return _confident(JudgmentV1.model_validate(raw), confidence)
+
+
+def test_auto_approve_marks_a_clean_engine_restock_without_changing_it() -> None:
+    from returns_manager.batch import auto_approve
+
+    ctx = b.context(b.headphones_card())
+    result = b.run(ctx, _sealed_new(ctx))
+    before = (result.decision.recommended_disposition, result.decision.rule_id, result.condition.amazon_condition)
+    approval = auto_approve.evaluate(result, id_mismatch=False, threshold_bp=8500)
+    assert approval.approved is True
+    assert approval.blocked_by == ()
+    assert approval.min_confidence_bp == 9500
+    # Nothing about the engine's decision moved.
+    assert (result.decision.recommended_disposition, result.decision.rule_id, result.condition.amazon_condition) == before
+    assert before[:2] == ("restock", "R12")
+    assert _operator_disposition(result.decision.recommended_disposition, auto_approved=approval.approved) == "restock"
+
+
+def test_auto_approve_threshold_comes_from_config_and_blocks_low_confidence() -> None:
+    from returns_manager.batch import auto_approve
+    from returns_manager.config import Settings
+
+    assert Settings.model_fields["rm_batch_auto_approve_min_confidence_bp"].default == 8500
+    ctx = b.context(b.headphones_card())
+    result = b.run(ctx, _sealed_new(ctx, confidence=0.84))
+    approval = auto_approve.evaluate(result, id_mismatch=False, threshold_bp=8500)
+    assert approval.approved is False
+    assert "confidence_below_threshold" in approval.blocked_by
+    assert _operator_disposition(result.decision.recommended_disposition, auto_approved=approval.approved) == "pending_review"
+
+
+def test_auto_approve_never_skips_s02_high_value_signoff() -> None:
+    from returns_manager.batch import auto_approve
+
+    ctx = b.context(b.headphones_card(price_minor=900000))
+    j = b.component(ctx, b.judgment(ctx), "usb_cable", status="missing", visibility="observed_absent_in_clear_view")
+    result = b.run(ctx, _confident(b.grade(j, "used_good", ctx)))
+    assert result.decision.requires_signoff is True
+    approval = auto_approve.evaluate(result, id_mismatch=False, threshold_bp=0)
+    assert approval.approved is False
+    assert "requires_signoff" in approval.blocked_by
+
+
+def test_auto_approve_never_skips_s01_dispose_signoff() -> None:
+    from returns_manager.batch import auto_approve
+
+    ctx = b.context(b.headphones_card())
+    result = b.run(ctx, _sealed_new(ctx))
+    forced = type(result.decision)(**{**result.decision.__dict__, "recommended_disposition": "dispose", "requires_signoff": True})
+    approval = auto_approve.evaluate(type(result)(**{**result.__dict__, "decision": forced}), id_mismatch=False, threshold_bp=0)
+    assert approval.approved is False
+    assert "requires_signoff" in approval.blocked_by
+
+
+def test_auto_approve_blocked_by_id_mismatch_and_by_null_recommendation() -> None:
+    from returns_manager.batch import auto_approve
+    from returns_manager.llm.schemas import JudgmentV1
+
+    ctx = b.context(b.headphones_card())
+    clean = b.run(ctx, _sealed_new(ctx))
+    assert "sold_vs_returned_id_mismatch" in auto_approve.evaluate(clean, id_mismatch=True, threshold_bp=0).blocked_by
+
+    raw = _sealed_new(ctx).model_dump(mode="json")
+    raw["identity"]["identity_match"] = "no"
+    for fc in raw["identity"]["feature_checks"]:
+        fc["result"] = "mismatch"
+    wrong = b.run(ctx, JudgmentV1.model_validate(raw))
+    approval = auto_approve.evaluate(wrong, id_mismatch=False, threshold_bp=0)
+    assert approval.approved is False
+    assert "no_recommendation:wrong_item_returned" in approval.blocked_by
+
+
+def test_row_detail_keeps_the_engine_rule_id_and_route() -> None:
+    """A2: the detail's decision is the engine's, never a heuristic rewrite (e.g. R06_AUTO_RESTOCK)."""
+    ctx = b.context(b.headphones_card())
+    j = b.component(ctx, b.judgment(ctx), "usb_cable", status="missing", visibility="observed_absent_in_clear_view")
+    result = b.run(ctx, b.grade(j, "used_good", ctx))
+    detail = _build_row_detail(session_judgment=j, result=result, row=_returned(), before=_before())
+    assert detail["decision"]["rule_id"] == result.decision.rule_id == "R09"
+    assert detail["decision"]["recommended_disposition"] == "refurbish"
+    assert "similarity" not in detail
+
+
+def _signoff_job(svc: BatchJobsService, created_by: str) -> None:
+    _done_job(svc, "org_demo_alpha", "job-1")
+    svc._jobs["job-1"].created_by = created_by
+    (svc._job_dir("org_demo_alpha", "job-1") / "rows_detail.json").write_text(
+        json.dumps({"RTN-1": {"decision": {"recommended_disposition": "dispose", "requires_signoff": True}}})
+    )
+
+
+def test_uploader_cannot_sign_off_a_row_that_requires_signoff(tmp_path: Path) -> None:
+    from returns_manager.security.roles import Forbidden
+
+    svc = _service(tmp_path)
+    _signoff_job(svc, created_by="user:op_alex")
+    assert svc.row_requires_signoff("org_demo_alpha", "job-1", "RTN-1") is True
+    for action in ("accept", "override"):
+        with pytest.raises(Forbidden):
+            svc.record_decision(
+                "org_demo_alpha", "job-1", "RTN-1", action=action,  # type: ignore[arg-type]
+                new_disposition="dispose", reason="ok", actor="user:op_alex",
+            )
+    # A review request by the uploader is fine; a different person may sign off.
+    assert svc.record_decision(
+        "org_demo_alpha", "job-1", "RTN-1", action="review_request", new_disposition=None, reason="look", actor="user:op_alex"
+    )
+    assert svc.record_decision(
+        "org_demo_alpha", "job-1", "RTN-1", action="accept", new_disposition=None, reason="ok", actor="user:rev_priya"
+    )
+
+
+def test_ui_reads_the_backend_auto_approve_flag_and_has_no_copy_of_the_rule() -> None:
+    ui = Path(__file__).resolve().parents[3] / "ui" / "src"
+    store = (ui / "lib" / "store.tsx").read_text(encoding="utf-8")
+    assert "row.auto_approved === 'true'" in store
+    assert not (ui / "lib" / "similarity.ts").exists()
+    everything = "\n".join(p.read_text(encoding="utf-8") for p in ui.rglob("*.ts*"))
+    for needle in ("computeRowSimilarity", ">= 85", "confidence >= "):
+        assert needle not in everything, needle
+
+
+def test_accepting_a_signoff_row_over_http_needs_the_signoff_permission(tmp_path: Path) -> None:
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from returns_manager.api import problems
+    from returns_manager.api.deps import Services, principal
+    from returns_manager.api.routes.batch import router
+    from returns_manager.security.roles import Principal, Scope
+
+    svc = _service(tmp_path)
+    _signoff_job(svc, created_by="user:op_alex")
+    app = FastAPI()
+    problems.install(app)
+    app.include_router(router)
+    app.state.services = Services(settings=Settings.model_construct(), db=None, jwt=None, storage=None, batch_jobs=svc)  # type: ignore[arg-type]
+    url = "/api/v1/batch/jobs/job-1/rows/RTN-1/decision"
+    body = {"action": "accept", "reason": "ok"}
+
+    app.dependency_overrides[principal] = lambda: Principal(
+        kind="api_key", org_id="org_demo_alpha", actor_id="k1", scopes=frozenset({Scope.RETURNS_WRITE})
+    )
+    assert TestClient(app).post(url, json=body).status_code == 403
+
+    app.dependency_overrides[principal] = lambda: Principal(
+        kind="api_key", org_id="org_demo_alpha", actor_id="k2", scopes=frozenset({Scope.RETURNS_WRITE, Scope.REVIEW_WRITE})
+    )
+    assert TestClient(app).post(url, json=body).status_code == 201

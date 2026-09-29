@@ -200,6 +200,7 @@ async def create_batch_job(
         returned_filename=returned_fn,
         default_category=default_category,
         max_requests=max_requests,
+        created_by=principal.actor_label,
     )
     return _to_response(job)
 
@@ -316,6 +317,10 @@ async def record_batch_row_decision(
             raise BadRequest("override requires new_disposition")
     if svc.batch_jobs is None:
         raise BadRequest("batch processing is not configured on this deployment (no Gemini API key set)")
+    if body.action in ("accept", "override") and svc.batch_jobs.row_requires_signoff(
+        principal.org_id, job_id, record_id
+    ):
+        require(principal, Permission.SIGNOFF)  # S01 dispose / S02 high value (§12.2)
     entry = svc.batch_jobs.record_decision(
         principal.org_id,
         job_id,

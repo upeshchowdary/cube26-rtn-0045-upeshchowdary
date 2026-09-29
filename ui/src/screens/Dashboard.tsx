@@ -88,7 +88,7 @@ export default function Dashboard() {
 
       <div className="metrics">
         <Metric label="Total returns" value={String(rows.length)} note={`Across ${jobs.filter((j) => j.status === 'done').length} completed upload(s)`} icon={Package} tone="teal" />
-        <Metric label="Auto-approved" value={rows.length === 0 ? 'no data' : String(autoApprovedCount)} note="High-confidence, no review needed" icon={BadgeCheck} tone="amber" />
+        <Metric label="Auto-approved" value={rows.length === 0 ? 'no data' : String(autoApprovedCount)} note="Engine route, no review or sign-off required" icon={BadgeCheck} tone="amber" />
         <Metric label="Auto-disapproved" value={rows.length === 0 ? 'no data' : String(autoDisapprovedCount)} note="Possible wrong item, held for review" icon={XCircle} tone="red" />
         <Metric label="Needs attention" value={String(attention.length)} note="Awaiting review or damaged" icon={Eye} tone="violet" />
         <Metric label="Restock eligible" value={rows.length === 0 ? 'no data' : String(restockCount)} note="Products approved for restock" icon={PackageCheck} tone="green" />

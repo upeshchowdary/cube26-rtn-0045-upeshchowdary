@@ -21,6 +21,9 @@ function deriveStatus(row: BatchRowFlat, latest: RowDecisionEntry | null): strin
     if (latest.action === 'retake_request') return 'Awaiting operator'
     if (latest.action === 'review_request') return 'Awaiting review'
   }
+  // The backend's flag (batch/auto_approve.py): the engine routed the row with no review and no
+  // sign-off required. Not recomputed here, and not the same as a person finalizing it.
+  if (row.auto_approved === 'true') return 'Auto-approved'
   if (row.failure_reason || row.observed_state === 'damaged' || row.amazon_condition === 'uncertain') {
     return 'Needs attention'
   }

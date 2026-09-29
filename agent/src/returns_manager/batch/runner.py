@@ -20,6 +20,7 @@ import logging
 import httpx
 import yaml
 
+from returns_manager.batch import auto_approve
 from returns_manager.batch.cards import VALID_CATEGORIES, build_card
 from returns_manager.batch.images import ImageFetchError, fetch_image
 from returns_manager.batch.io_csv import BeforeRow, ReturnedRow, read_before_csv, read_returned_csv
@@ -190,15 +191,14 @@ def check_id_match(before: BeforeRow | None, row: ReturnedRow) -> str:
     return "matched"
 
 
-def _operator_disposition(recommended: str | None, *, id_mismatch: bool) -> str:
-    """`operator_disposition` before any human decision (§14.3): the engine's route only when
-    nothing needs a person first. The only values are the four routes and `pending_review` -
-    a wrong item is never a disposition. A sold-vs-returned paperwork mismatch is an
-    independent signal a correct-looking photo can't excuse, so it holds the row for review
-    (`sold_vs_returned_id_check` says why) instead of letting the photo-based route stand."""
-    if id_mismatch or not recommended:
-        return "pending_review"
-    return recommended
+def _operator_disposition(recommended: str | None, *, auto_approved: bool) -> str:
+    """`operator_disposition` before any human decision (§14.3): the engine's route only when the
+    row is auto-approved (engine route, no review, no sign-off, IDs agree - see auto_approve.py);
+    otherwise `pending_review` until a person accepts or overrides it. The only values are the
+    four routes and `pending_review` - a wrong item is never a disposition."""
+    if auto_approved and recommended:
+        return recommended
+    return "pending_review"
 
 
 def _id_mismatch(before: BeforeRow | None, id_check: str) -> bool:
@@ -225,6 +225,8 @@ def _uncertain_row(row: ReturnedRow, before: BeforeRow | None, reason: str) -> d
         "observed_state": "uncertain",
         "amazon_condition": "uncertain",
         "operator_disposition": "pending_review",
+        "agent_disposition": "",
+        "auto_approved": "false",
         "photo_refs": ";".join(row.returned_photo_refs),
         "captured_at": row.time,
         "sold_vs_returned_id_check": id_check,
@@ -406,9 +408,14 @@ async def process_returned_row(
     # A wrong item (model identity "no") is §12.2 R03: the engine already returns
     # recommended_disposition=None with no_recommendation_reason="wrong_item_returned", so it
     # lands here as pending_review like every other null recommendation.
-    disposition = _operator_disposition(
-        result.decision.recommended_disposition, id_mismatch=_id_mismatch(before, id_check)
+    # A sold-vs-returned paperwork mismatch is an independent signal a correct-looking photo can't
+    # excuse: it blocks auto-approve, so the row waits for a person.
+    approval = auto_approve.evaluate(
+        result,
+        id_mismatch=_id_mismatch(before, id_check),
+        threshold_bp=settings.rm_batch_auto_approve_min_confidence_bp,
     )
+    disposition = _operator_disposition(result.decision.recommended_disposition, auto_approved=approval.approved)
 
     output_row = {
         "record_id": row.record_id,
@@ -425,6 +432,8 @@ async def process_returned_row(
         "observed_state": session.judgment.model_observed_state,
         "amazon_condition": result.condition.amazon_condition,
         "operator_disposition": disposition,
+        "agent_disposition": result.decision.recommended_disposition or "",
+        "auto_approved": "true" if approval.approved else "false",
         "photo_refs": ";".join(row.returned_photo_refs),
         "captured_at": row.time,
         "sold_vs_returned_id_check": id_check,
@@ -437,6 +446,7 @@ async def process_returned_row(
         else None
     )
     detail = _build_row_detail(session_judgment=session.judgment, result=result, row=row, before=before)
+    detail["auto_approval"] = approval.as_dict()
     return RowResult(output_row, None, True, warning, detail=detail)
 
 

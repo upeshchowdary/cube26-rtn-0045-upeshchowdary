@@ -33,6 +33,7 @@ from returns_manager.config import Settings
 from returns_manager.disposition.engine import Route
 from returns_manager.ids import new_id
 from returns_manager.llm.client import ModelClient
+from returns_manager.security.roles import Forbidden
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,7 @@ class BatchJob:
     live_requests: int = 0
     error: str | None = None
     notes: list[str] = field(default_factory=list)
+    created_by: str = ""  # actor label of the uploader; the four-eyes check compares against it
 
 
 class BatchJobsService:
@@ -116,6 +118,7 @@ class BatchJobsService:
         returned_filename: str,
         default_category: str | None,
         max_requests: int,
+        created_by: str = "",
     ) -> BatchJob:
         job_id = new_id()
         job_dir = self._job_dir(org_id, job_id)
@@ -132,6 +135,7 @@ class BatchJobsService:
             before_filename=before_filename,
             returned_filename=returned_filename,
             total_rows=returned_row_count,
+            created_by=created_by,
         )
         self._jobs[job_id] = job
         self._save(job)
@@ -240,6 +244,12 @@ class BatchJobsService:
         detail = all_detail.get(record_id)
         return detail if isinstance(detail, dict) and detail else None
 
+    def row_requires_signoff(self, org_id: str, job_id: str, record_id: str) -> bool:
+        """Whether the engine's decision for this row needs a second person's sign-off (S01 dispose,
+        S02 high value). A row with no detail has no engine decision to sign off."""
+        detail = self.output_row_detail(org_id, job_id, record_id)
+        return bool(detail and detail.get("decision", {}).get("requires_signoff"))
+
     def _load_decisions(self, org_id: str, job_id: str) -> list[dict[str, Any]]:
         path = self._decisions_path(org_id, job_id)
         if not path.exists():
@@ -273,6 +283,15 @@ class BatchJobsService:
         job = self.get_job(org_id, job_id)
         if job is None:
             return None
+        if (
+            action in ("accept", "override")
+            and job.created_by
+            and actor == job.created_by
+            and self.row_requires_signoff(org_id, job_id, record_id)
+        ):
+            # Four-eyes (§12.2 S01/S02, review/service.py): whoever submitted the returns cannot
+            # also sign off a disposition that requires sign-off.
+            raise Forbidden("four-eyes rule: the uploader of this batch cannot sign off this row")
         entry: dict[str, Any] = {
             "record_id": record_id,
             "action": action,

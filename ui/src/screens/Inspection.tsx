@@ -580,7 +580,19 @@ export default function Inspection() {
                 <small>{detail.decision.synthetic_values ? 'Synthetic values' : 'Real values'}</small>
               </div>
             )}
-            {(detail?.decision?.requires_review || !detail || row.wrong_item_flag || row.operator_disposition === 'pending_review') && (
+            {detail?.auto_approval && (
+              <div className="functional" style={{ color: detail.auto_approval.approved ? '#2fa866' : undefined }}>
+                {detail.auto_approval.approved ? <CheckCircle2 size={14} /> : <CircleAlert size={14} />}{' '}
+                {detail.auto_approval.approved
+                  ? 'Auto-approved: the engine route stands (no review or sign-off required)'
+                  : `Not auto-approved: ${detail.auto_approval.blocked_by.map(titleCase).join(', ')}`}
+                {' · '}lowest model-reported check confidence{' '}
+                {detail.auto_approval.min_confidence_bp === null ? 'n/a' : `${(detail.auto_approval.min_confidence_bp / 100).toFixed(0)}%`}
+                {' '}vs threshold {(detail.auto_approval.threshold_bp / 100).toFixed(0)}%
+                {detail.auto_approval.threshold_calibrated ? '' : ' (not yet calibrated by a threshold sweep)'}
+              </div>
+            )}
+            {(detail?.decision?.requires_review || !detail || row.wrong_item_flag || row.operator_disposition === 'pending_review') && row.auto_approved !== 'true' && (
               <div className="functional" style={{ color: '#d97706' }}>
                 <CircleAlert size={14} /> Requires review: {detail?.decision?.review_reasons?.map(titleCase).join(', ') || (row.failure_reason ? titleCase(row.failure_reason) : row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') ? 'Paperwork mismatch' : 'No inspection detail')}
               </div>
@@ -628,7 +640,7 @@ export default function Inspection() {
         {modal && (
           <DecisionModal
             kind={modal}
-            defaultDisposition={detail?.decision?.recommended_disposition || row.operator_disposition}
+            defaultDisposition={detail?.decision?.recommended_disposition || row.agent_disposition || undefined}
             onClose={() => setModal('')}
             onSubmit={(body) => submitDecision(modal, body)}
           />

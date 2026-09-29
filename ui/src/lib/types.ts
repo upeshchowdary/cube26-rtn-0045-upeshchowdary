@@ -18,7 +18,7 @@ export interface BatchJob {
   notes: string[]
 }
 
-// The 17 flat columns written by batch/io_csv.py:OUTPUT_FIELDNAMES.
+// The 19 flat columns written by batch/io_csv.py:OUTPUT_FIELDNAMES.
 export interface BatchRowFlat {
   record_id: string
   unit_id: string
@@ -32,7 +32,9 @@ export interface BatchRowFlat {
   parts_missing: string
   observed_state: string
   amazon_condition: string
-  operator_disposition: string
+  operator_disposition: string // the engine route only if auto-approved; otherwise pending_review
+  agent_disposition: string // the engine's recommendation ('' when it made none)
+  auto_approved: string // 'true' | 'false' - decided by the backend (batch/auto_approve.py)
   photo_refs: string
   captured_at: string
   sold_vs_returned_id_check: string
@@ -219,6 +221,13 @@ export interface RowDetail {
   review_reasons: string[]
   returned_photo_refs: string[]
   reference_photo_ref: string
+  auto_approval?: {
+    approved: boolean
+    min_confidence_bp: number | null // lowest model-reported check confidence
+    threshold_bp: number
+    threshold_calibrated: boolean // false until the §21.5 threshold sweep is run
+    blocked_by: string[]
+  }
 }
 
 export interface MetricEnvelope {
