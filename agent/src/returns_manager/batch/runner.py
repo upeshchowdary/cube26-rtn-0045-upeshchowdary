@@ -190,15 +190,21 @@ def check_id_match(before: BeforeRow | None, row: ReturnedRow) -> str:
     return "matched"
 
 
-def _disposition_for_id_check(before: BeforeRow | None, id_check: str, fallback: str) -> str:
-    """A returned unit whose sold-record IDs don't match is flagged wrong_product
-    regardless of what the photo-based pipeline concluded - mismatched paperwork on the
-    returned package is a stronger, independent signal than condition grading, and a
-    correct-looking photo can't excuse it. Not applied when there is no sold record at
-    all to compare against (that's a missing-data problem, not a proven mismatch)."""
-    if before is not None and id_check.startswith("NOT MATCHED"):
-        return "wrong_product"
-    return fallback
+def _operator_disposition(recommended: str | None, *, id_mismatch: bool) -> str:
+    """`operator_disposition` before any human decision (§14.3): the engine's route only when
+    nothing needs a person first. The only values are the four routes and `pending_review` -
+    a wrong item is never a disposition. A sold-vs-returned paperwork mismatch is an
+    independent signal a correct-looking photo can't excuse, so it holds the row for review
+    (`sold_vs_returned_id_check` says why) instead of letting the photo-based route stand."""
+    if id_mismatch or not recommended:
+        return "pending_review"
+    return recommended
+
+
+def _id_mismatch(before: BeforeRow | None, id_check: str) -> bool:
+    """A proven disagreement between the sold and returned records. No sold record at all is a
+    missing-data problem (the row fails open for that), not a proven mismatch."""
+    return before is not None and id_check.startswith("NOT MATCHED")
 
 
 def _uncertain_row(row: ReturnedRow, before: BeforeRow | None, reason: str) -> dict[str, str]:
@@ -218,7 +224,7 @@ def _uncertain_row(row: ReturnedRow, before: BeforeRow | None, reason: str) -> d
         "parts_missing": "",
         "observed_state": "uncertain",
         "amazon_condition": "uncertain",
-        "operator_disposition": _disposition_for_id_check(before, id_check, "pending_review"),
+        "operator_disposition": "pending_review",
         "photo_refs": ";".join(row.returned_photo_refs),
         "captured_at": row.time,
         "sold_vs_returned_id_check": id_check,
@@ -397,8 +403,11 @@ async def process_returned_row(
     )
 
     id_check = check_id_match(before, row)
-    disposition = _disposition_for_id_check(
-        before, id_check, result.decision.recommended_disposition or "pending_review"
+    # A wrong item (model identity "no") is §12.2 R03: the engine already returns
+    # recommended_disposition=None with no_recommendation_reason="wrong_item_returned", so it
+    # lands here as pending_review like every other null recommendation.
+    disposition = _operator_disposition(
+        result.decision.recommended_disposition, id_mismatch=_id_mismatch(before, id_check)
     )
 
     output_row = {

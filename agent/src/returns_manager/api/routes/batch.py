@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from returns_manager.api.deps import PrincipalDep, ServicesDep
 from returns_manager.batch.jobs_service import BatchJob
+from returns_manager.disposition.engine import Route
 from returns_manager.errors import BadRequest, NotFound
 from returns_manager.security.roles import Permission, require
 
@@ -282,7 +283,8 @@ async def get_batch_job_row_detail(
 
 class RowDecisionRequest(BaseModel):
     action: Literal["accept", "override", "retake_request", "review_request"]
-    new_disposition: str | None = None
+    # Only the four dispositions (§12.2); any other value is rejected with 422.
+    new_disposition: Route | None = None
     reason: str = Field(..., min_length=1, max_length=2000)
 
 

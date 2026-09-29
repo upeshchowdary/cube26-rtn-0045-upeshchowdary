@@ -86,9 +86,17 @@ def generate_evidence_record_schema() -> dict[str, Any]:
     return _patch_schema(raw)
 
 
+DISPOSITIONS = ["restock", "refurbish", "liquidate", "dispose"]
+
+
 def generate_flat_schema() -> dict[str, Any]:
     """Generate a JSON Schema for the flat view columns."""
     props: dict[str, Any] = {col: {"type": "string"} for col in FLAT_COLUMNS}
+    # The four dispositions (§12.2) are the only routes. `operator_disposition` is
+    # `pending_review` until a person finalizes it; `agent_disposition` is empty when the
+    # engine made no recommendation (see `no_recommendation_reason`).
+    props["operator_disposition"] = {"type": "string", "enum": [*DISPOSITIONS, "pending_review"]}
+    props["agent_disposition"] = {"type": "string", "enum": [*DISPOSITIONS, ""]}
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "https://returns-manager/contract/return-evidence-flat.v1.schema.json",

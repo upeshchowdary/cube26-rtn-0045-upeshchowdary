@@ -30,6 +30,7 @@ from typing import Any, Literal
 
 from returns_manager.batch.runner import run_batch
 from returns_manager.config import Settings
+from returns_manager.disposition.engine import Route
 from returns_manager.ids import new_id
 from returns_manager.llm.client import ModelClient
 
@@ -261,7 +262,7 @@ class BatchJobsService:
         record_id: str,
         *,
         action: DecisionAction,
-        new_disposition: str | None,
+        new_disposition: Route | None,
         reason: str,
         actor: str,
     ) -> dict[str, Any] | None:

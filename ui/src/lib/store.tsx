@@ -21,13 +21,19 @@ function deriveStatus(row: BatchRowFlat, latest: RowDecisionEntry | null): strin
     if (latest.action === 'retake_request') return 'Awaiting operator'
     if (latest.action === 'review_request') return 'Awaiting review'
   }
-  if (row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') || row.operator_disposition === 'wrong_product') {
-    return 'Auto-disapproved'
-  }
   if (row.failure_reason || row.observed_state === 'damaged' || row.amazon_condition === 'uncertain') {
     return 'Needs attention'
   }
   return 'Awaiting review'
+}
+
+// A wrong item is surfaced as a review flag (§12.2 R03 gives it no disposition): the model's own
+// identity verdict on the returned photo is "no", or the returned record's IDs disagree with a sold
+// record that exists. A missing sold record is a data gap, not a proven mismatch.
+export function isWrongItemFlag(row: BatchRowFlat): boolean {
+  const check = row.sold_vs_returned_id_check || ''
+  const paperworkMismatch = check.startsWith('NOT MATCHED') && !check.includes('no sold-record')
+  return row.photo_identity_match === 'no' || paperworkMismatch
 }
 
 function toDerived(job: BatchJob, row: BatchRowFlat, latest: RowDecisionEntry | null): DerivedRow {
@@ -43,6 +49,7 @@ function toDerived(job: BatchJob, row: BatchRowFlat, latest: RowDecisionEntry | 
     reference_image: null,
     photos,
     status: deriveStatus(row, latest),
+    wrong_item_flag: isWrongItemFlag(row),
     latest_decision: latest,
   }
 }

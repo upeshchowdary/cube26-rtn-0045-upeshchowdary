@@ -273,7 +273,7 @@ export default function Inspection() {
                   <h3 style={{ margin: '0 0 4px', color: '#fca5a5', fontSize: '14.5px', fontWeight: 600 }}>Paperwork & Identity Mismatch Detected</h3>
                   <p style={{ margin: '0 0 6px', color: '#fecaca', fontSize: '12.5px', fontFamily: 'monospace' }}>{row.sold_vs_returned_id_check}</p>
                   <small style={{ color: '#fda4af', fontSize: '11.5px', lineHeight: 1.4, display: 'block' }}>
-                    The physical paperwork or order identifiers on this returned item do not match the original sold record. The deterministic rules engine routed this return to: <b>{dispositionLabel(row.operator_disposition || 'wrong_product').toUpperCase()}</b>.
+                    The paperwork or order identifiers on this returned item do not match the original sold record. The row is held for review (<b>{dispositionLabel(row.operator_disposition || 'pending_review').toUpperCase()}</b>); a mismatch is a review flag, not a disposition.
                   </small>
                 </div>
               </div>
@@ -526,7 +526,6 @@ export default function Inspection() {
                     if (disp === 'refurbish') return 'Item needs repair or repackaging'
                     if (disp === 'liquidate') return 'Sell at reduced value'
                     if (disp === 'dispose') return 'Item has no recoverable value'
-                    if (disp === 'wrong_product') return 'Returned item differs from ordered catalog SKU'
                     return 'Requires operator review'
                   })()}
                 </small>
@@ -581,12 +580,12 @@ export default function Inspection() {
                 <small>{detail.decision.synthetic_values ? 'Synthetic values' : 'Real values'}</small>
               </div>
             )}
-            {(detail?.decision?.requires_review || !detail || row.operator_disposition === 'wrong_product' || row.operator_disposition === 'pending_review') && (
+            {(detail?.decision?.requires_review || !detail || row.wrong_item_flag || row.operator_disposition === 'pending_review') && (
               <div className="functional" style={{ color: '#d97706' }}>
                 <CircleAlert size={14} /> Requires review: {detail?.decision?.review_reasons?.map(titleCase).join(', ') || (row.failure_reason ? titleCase(row.failure_reason) : row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') ? 'Paperwork mismatch' : 'No inspection detail')}
               </div>
             )}
-            {(detail?.decision?.requires_signoff || row.operator_disposition === 'wrong_product') && (
+            {detail?.decision?.requires_signoff && (
               <div className="functional">
                 <LockKeyhole size={14} /> Requires sign-off
               </div>

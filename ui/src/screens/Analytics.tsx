@@ -83,7 +83,7 @@ export default function Analytics() {
               </i>
             </div>
           ))}
-          <small>Mismatch = sold-vs-returned ID check failed or the engine flagged wrong_product.</small>
+          <small>Mismatch = the model reported a different item on the returned photo, or the sold-vs-returned ID check failed.</small>
         </section>
       </div>
 

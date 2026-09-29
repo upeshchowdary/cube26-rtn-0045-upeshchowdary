@@ -292,5 +292,8 @@ export interface DerivedRow extends BatchRowFlat {
   reference_image: string | null // the before-row's own catalogue/reference photo URL
   photos: string[] // every returned photo URL for this row
   status: string // display status derived from job status + decisions
+  // Review flag, never a disposition: the model saw a different item on the returned photo,
+  // or the returned record's IDs disagree with the sold record.
+  wrong_item_flag: boolean
   latest_decision: RowDecisionEntry | null
 }

@@ -26,7 +26,8 @@ from returns_manager.batch.jobs_service import BatchJob, BatchJobsService
 from returns_manager.batch.parts import parse_parts_list
 from returns_manager.batch.runner import (
     _build_row_detail,
-    _disposition_for_id_check,
+    _id_mismatch,
+    _operator_disposition,
     _missing_parts_field,
     _uncertain_row,
     check_id_match,
@@ -310,33 +311,90 @@ def test_check_id_match_flags_org_id_mismatch() -> None:
     assert "org_id" in result
 
 
-# ── ID mismatch overrides operator_disposition to wrong_product ────────────────────
-# A mismatched order/SKU/org/ASIN on the returned label outranks whatever the photo
-# looked like - the fail-open row's disposition is forced to wrong_product instead of
-# the usual pending_review, but only when there IS a sold record to disagree with (no
-# sold record at all is a missing-data problem, not a proven mismatch).
+# ── four dispositions only (B3, §12.2) ─────────────────────────────────────────────
+# A mismatched order/SKU/org/ASIN on the returned label outranks whatever the photo looked
+# like, so it holds the row for review - as a review flag, never as a fifth disposition. A
+# wrong item seen by the model is §12.2 R03: recommended_disposition=None with
+# no_recommendation_reason=wrong_item_returned, and the row is pending_review.
+# (These replace three tests that asserted the former `wrong_product` value.)
+
+DISPOSITIONS = {"restock", "refurbish", "liquidate", "dispose"}
 
 
-def test_uncertain_row_marks_wrong_product_on_id_mismatch() -> None:
+def test_uncertain_row_on_id_mismatch_is_pending_review_not_a_fifth_disposition() -> None:
     row = _returned(order_id="ORD-999")
     out = _uncertain_row(row, _before(), "image_fetch_failed: timeout")
-    assert out["operator_disposition"] == "wrong_product"
+    assert out["operator_disposition"] == "pending_review"
     assert out["sold_vs_returned_id_check"].startswith("NOT MATCHED:")
 
 
-def test_uncertain_row_no_sold_record_stays_pending_review_not_wrong_product() -> None:
+def test_uncertain_row_no_sold_record_stays_pending_review() -> None:
     out = _uncertain_row(_returned(), None, "no before-record for this unit_id")
     assert out["operator_disposition"] == "pending_review"
     assert out["sold_vs_returned_id_check"] == "NOT MATCHED: no sold-record for this unit_id"
 
 
-def test_disposition_for_id_check_overrides_fallback_only_when_before_known() -> None:
-    assert _disposition_for_id_check(_before(), "NOT MATCHED: order_id: ...", "restock") == "wrong_product"
-    assert _disposition_for_id_check(_before(), "matched", "restock") == "restock"
-    assert (
-        _disposition_for_id_check(None, "NOT MATCHED: no sold-record for this unit_id", "pending_review")
-        == "pending_review"
+def test_operator_disposition_is_a_route_or_pending_review_only() -> None:
+    assert _operator_disposition("restock", id_mismatch=False) == "restock"
+    assert _operator_disposition("restock", id_mismatch=True) == "pending_review"
+    assert _operator_disposition(None, id_mismatch=False) == "pending_review"
+    assert _id_mismatch(_before(), "NOT MATCHED: order_id: ...") is True
+    assert _id_mismatch(_before(), "matched") is False
+    assert _id_mismatch(None, "NOT MATCHED: no sold-record for this unit_id") is False
+    for route in DISPOSITIONS:
+        assert _operator_disposition(route, id_mismatch=False) in DISPOSITIONS
+
+
+def test_wrong_item_is_r03_null_recommendation_and_pending_review() -> None:
+    from returns_manager.llm.schemas import JudgmentV1
+
+    ctx = b.context(b.headphones_card())
+    raw = b.judgment(ctx).model_dump(mode="json")
+    raw["identity"]["identity_match"] = "no"
+    for fc in raw["identity"]["feature_checks"]:
+        fc["result"] = "mismatch"
+    result = b.run(ctx, JudgmentV1.model_validate(raw))
+
+    assert result.decision.rule_id == "R03"
+    assert result.decision.recommended_disposition is None
+    assert result.decision.no_recommendation_reason == "wrong_item_returned"
+    assert result.claims.wrong_item_returned.value == "yes"
+    assert _operator_disposition(result.decision.recommended_disposition, id_mismatch=False) == "pending_review"
+
+
+@pytest.mark.parametrize("value", ["wrong_product", "pending_review", "RESTOCK", "return_to_vendor"])
+def test_decision_request_rejects_anything_but_the_four_dispositions(value: str) -> None:
+    from pydantic import ValidationError
+
+    from returns_manager.api.routes.batch import RowDecisionRequest
+
+    with pytest.raises(ValidationError):
+        RowDecisionRequest(action="override", new_disposition=value, reason="r")  # type: ignore[arg-type]
+    for route in DISPOSITIONS:
+        assert RowDecisionRequest(action="override", new_disposition=route, reason="r").new_disposition == route  # type: ignore[arg-type]
+
+
+def test_flat_contract_enumerates_only_the_four_dispositions() -> None:
+    from returns_manager.contract.schema import generate_flat_schema
+
+    props = generate_flat_schema()["properties"]
+    assert set(props["operator_disposition"]["enum"]) == DISPOSITIONS | {"pending_review"}
+    assert set(props["agent_disposition"]["enum"]) == DISPOSITIONS | {""}
+    committed = json.loads(
+        (Path(__file__).resolve().parents[2] / "contract" / "return-evidence-flat.v1.schema.json").read_text(
+            encoding="utf-8"
+        )
     )
+    assert committed["properties"]["operator_disposition"] == props["operator_disposition"]
+
+
+def test_committed_example_output_csv_uses_only_the_four_dispositions() -> None:
+    import csv
+
+    path = Path(__file__).resolve().parents[2] / "manual_test_images" / "returns_output_30.csv"
+    with path.open(encoding="utf-8") as f:
+        values = {r["operator_disposition"] for r in csv.DictReader(f)}
+    assert values <= DISPOSITIONS | {"pending_review"}, values
 
 
 class _FakeCompleteness:

@@ -8,7 +8,6 @@ export const DISPOSITION_COLORS: Record<string, string> = {
   refurbish: '#347d70',
   liquidate: '#477e9b',
   dispose: '#caa255',
-  wrong_product: '#c9564f',
   pending_review: '#8da296',
 }
 
@@ -36,7 +35,7 @@ export function identityDistribution(rows: DerivedRow[]): { name: string; value:
   let uncertain = 0
   let ok = 0
   for (const row of rows) {
-    if (row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') || row.operator_disposition === 'wrong_product') {
+    if (row.wrong_item_flag) {
       mismatch++
     } else if (row.observed_state === 'uncertain') {
       uncertain++

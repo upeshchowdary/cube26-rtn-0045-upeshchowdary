@@ -55,7 +55,14 @@
       "type": "string"
     },
     "operator_disposition": {
-      "type": "string"
+      "type": "string",
+      "enum": [
+        "restock",
+        "refurbish",
+        "liquidate",
+        "dispose",
+        "pending_review"
+      ]
     },
     "photo_refs": {
       "type": "string"
@@ -67,7 +74,14 @@
       "type": "string"
     },
     "agent_disposition": {
-      "type": "string"
+      "type": "string",
+      "enum": [
+        "restock",
+        "refurbish",
+        "liquidate",
+        "dispose",
+        ""
+      ]
     },
     "no_recommendation_reason": {
       "type": "string"

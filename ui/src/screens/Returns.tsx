@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { ArrowDownUp, ArrowUpRight, ChevronLeft, ChevronRight, Clock3, Download, Package, Plus, Search, SlidersHorizontal } from 'lucide-react'
 import { useBatchStore } from '../lib/store'
 import { dispositionLabel } from '../lib/derive'
+import type { DerivedRow } from '../lib/types'
 import { Button, Header, Note, Pill } from './shared'
 
 const PAGE_SIZE = 8
@@ -36,14 +37,16 @@ export default function Returns() {
   }
 
   const tabs = ['All returns', 'Awaiting review', 'Needs attention', 'Finalized', 'Auto-disapproved']
-  const inTab = (status: string) => {
+  // "Auto-disapproved" lists rows flagged as a possible wrong item. It is a review flag, not a
+  // decision: those rows stay pending review until a person accepts or overrides them.
+  const inTab = (row: DerivedRow) => {
     if (tab === 'All returns') return true
-    if (tab === 'Auto-disapproved') return status === 'Auto-disapproved' || status === 'Rejected'
-    return tab === status
+    if (tab === 'Auto-disapproved') return row.wrong_item_flag && !row.latest_decision
+    return tab === row.status
   }
   const filtered = rows
     .filter((r) => `${r.record_id} ${r.order_id} ${r.unit_id} ${r.ordered_sku} ${r.ordered_asin}`.toLowerCase().includes(query.toLowerCase()))
-    .filter((r) => inTab(r.status))
+    .filter((r) => inTab(r))
     .sort((a, b) => {
       if (sortKey === 'time') {
         const tA = parseTime(a.captured_at || a.job_created_at)
@@ -92,7 +95,7 @@ export default function Returns() {
                   {t === 'All returns'
                     ? rows.length
                     : t === 'Auto-disapproved'
-                    ? rows.filter((r) => r.status === 'Auto-disapproved' || r.status === 'Rejected').length
+                    ? rows.filter((r) => r.wrong_item_flag && !r.latest_decision).length
                     : rows.filter((r) => r.status === t).length}
                 </small>
               </button>

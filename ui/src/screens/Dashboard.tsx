@@ -38,7 +38,7 @@ export default function Dashboard() {
 
   const attention = needsAttention(rows)
   const autoApprovedCount = rows.filter((r) => r.status === 'Auto-approved').length
-  const autoDisapprovedCount = rows.filter((r) => r.status === 'Auto-disapproved' || r.operator_disposition === 'wrong_product').length
+  const autoDisapprovedCount = rows.filter((r) => r.wrong_item_flag && !r.latest_decision).length
   const restockCount = rows.filter((r) => r.operator_disposition === 'restock').length
   const liveRequests = jobs.reduce((sum, j) => sum + j.live_requests, 0)
   const activity = rowsPerJob(jobs)
@@ -89,7 +89,7 @@ export default function Dashboard() {
       <div className="metrics">
         <Metric label="Total returns" value={String(rows.length)} note={`Across ${jobs.filter((j) => j.status === 'done').length} completed upload(s)`} icon={Package} tone="teal" />
         <Metric label="Auto-approved" value={rows.length === 0 ? 'no data' : String(autoApprovedCount)} note="High-confidence, no review needed" icon={BadgeCheck} tone="amber" />
-        <Metric label="Auto-disapproved" value={rows.length === 0 ? 'no data' : String(autoDisapprovedCount)} note="Photo/ID mismatch, auto-rejected" icon={XCircle} tone="red" />
+        <Metric label="Auto-disapproved" value={rows.length === 0 ? 'no data' : String(autoDisapprovedCount)} note="Possible wrong item, held for review" icon={XCircle} tone="red" />
         <Metric label="Needs attention" value={String(attention.length)} note="Awaiting review or damaged" icon={Eye} tone="violet" />
         <Metric label="Restock eligible" value={rows.length === 0 ? 'no data' : String(restockCount)} note="Products approved for restock" icon={PackageCheck} tone="green" />
         <Metric label="Live model requests" value={String(liveRequests)} note="Real Gemini quota spent" icon={CircleDollarSign} tone="blue" />

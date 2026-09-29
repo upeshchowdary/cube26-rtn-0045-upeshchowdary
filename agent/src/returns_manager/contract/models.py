@@ -172,7 +172,9 @@ class DispositionBlock(BaseModel):
     assumptions: list[str] = Field(default_factory=list)
     requires_review: bool = False
     review_reasons: list[str] = Field(default_factory=list)
-    final_disposition: str | None = Field(None, description="Human-confirmed; null until finalized.")
+    final_disposition: Literal["restock", "refurbish", "liquidate", "dispose"] | None = Field(
+        None, description="Human-confirmed; null until finalized."
+    )
     listing_condition: str | None = None
     relistable_as_is: bool
     rule_id: str
