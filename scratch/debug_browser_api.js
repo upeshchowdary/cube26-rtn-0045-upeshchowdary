@@ -2,7 +2,12 @@ const puppeteer = require('./node_modules/puppeteer-core');
 
 const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const BASE_URL = 'http://localhost:5175';
-const API_KEY = 'rmk_local_s8dPJ1uaqqsA89grddXAj3SEUEKIWPbthNkKURXH';
+// The API key comes from the environment; it is never committed (audit A12).
+const API_KEY = process.env.RM_API_KEY;
+if (!API_KEY) {
+  console.error('RM_API_KEY is not set. Mint a key with `returns-manager keys create` and export RM_API_KEY.');
+  process.exit(1);
+}
 
 async function test() {
   const browser = await puppeteer.launch({

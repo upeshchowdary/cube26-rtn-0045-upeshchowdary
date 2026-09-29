@@ -1,7 +1,12 @@
+import os
+import sys
+
+# The API key comes from the environment; it is never committed (audit A12).
+RM_API_KEY = os.environ.get("RM_API_KEY") or sys.exit("RM_API_KEY is not set. Mint a key with `returns-manager keys create` and export RM_API_KEY.")
 import csv, requests
 from pathlib import Path
 
-r = requests.get('http://127.0.0.1:8000/api/v1/batch/jobs/01M3NVEAEY4EZV8YFDBSWW6FB9/output.csv', headers={'X-API-Key': 'rmk_local_s8dPJ1uaqqsA89grddXAj3SEUEKIWPbthNkKURXH'})
+r = requests.get('http://127.0.0.1:8000/api/v1/batch/jobs/01M3NVEAEY4EZV8YFDBSWW6FB9/output.csv', headers={'X-API-Key': RM_API_KEY})
 dl = list(csv.DictReader(r.text.splitlines()))
 gd = list(csv.DictReader(Path('agent/manual_test_images/returns_output_30.csv').read_text(encoding='utf-8').splitlines()))
 

@@ -1,9 +1,14 @@
+import os
+import sys
+
+# The API key comes from the environment; it is never committed (audit A12).
+RM_API_KEY = os.environ.get("RM_API_KEY") or sys.exit("RM_API_KEY is not set. Mint a key with `returns-manager keys create` and export RM_API_KEY.")
 import httpx
 import json
 from pathlib import Path
 
 API_URL = "http://127.0.0.1:8000/api/v1/batch"
-API_KEY = "rmk_local_s8dPJ1uaqqsA89grddXAj3SEUEKIWPbthNkKURXH"
+API_KEY = RM_API_KEY
 HEADERS = {"X-API-Key": API_KEY}
 CSV_PATH = Path(r"c:\Users\UPESH CHOWDARY\OneDrive\Desktop\cube26-rtn-0045-upeshchowdary-main\cube26-rtn-0045-upeshchowdary\agent\manual_test_images\returns_input_30.csv")
 

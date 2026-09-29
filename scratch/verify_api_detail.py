@@ -1,8 +1,13 @@
+import os
+import sys
+
+# The API key comes from the environment; it is never committed (audit A12).
+RM_API_KEY = os.environ.get("RM_API_KEY") or sys.exit("RM_API_KEY is not set. Mint a key with `returns-manager keys create` and export RM_API_KEY.")
 import urllib.request
 import json
 
 base_url = "http://127.0.0.1:8000/api/v1/batch/jobs/01M3MS62VX5T4C9ZMZPX55PGSF/rows"
-headers = {"X-API-Key": "rmk_local_s8dPJ1uaqqsA89grddXAj3SEUEKIWPbthNkKURXH"}
+headers = {"X-API-Key": RM_API_KEY}
 
 for test_id in ["RTN-EDGE-01", "RTN-PHONE-04", "RTN-AIR-02", "RTN-PHONE-02"]:
     url = f"{base_url}/{test_id}/detail"

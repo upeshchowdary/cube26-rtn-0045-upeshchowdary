@@ -1,3 +1,8 @@
+import os
+import sys
+
+# The API key comes from the environment; it is never committed (audit A12).
+RM_API_KEY = os.environ.get("RM_API_KEY") or sys.exit("RM_API_KEY is not set. Mint a key with `returns-manager keys create` and export RM_API_KEY.")
 import urllib.request
 import urllib.error
 import json
@@ -5,7 +10,7 @@ import csv
 import io
 import sys
 
-API_KEY = "rmk_local_s8dPJ1uaqqsA89grddXAj3SEUEKIWPbthNkKURXH"
+API_KEY = RM_API_KEY
 BASE_URL = "http://127.0.0.1:8000"
 
 def req(path, method="GET", body=None):

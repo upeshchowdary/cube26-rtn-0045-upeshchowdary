@@ -12,6 +12,11 @@ Runs end-to-end verification across:
 5. CSV Export Integrity & RFC 4180 Compliance
 6. Dashboard & Returns Metric Invariant Verification
 """
+import os
+import sys
+
+# The API key comes from the environment; it is never committed (audit A12).
+RM_API_KEY = os.environ.get("RM_API_KEY") or sys.exit("RM_API_KEY is not set. Mint a key with `returns-manager keys create` and export RM_API_KEY.")
 
 import sys
 import os
@@ -28,7 +33,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "agent" / "src"))
 
-API_KEY = "rmk_local_s8dPJ1uaqqsA89grddXAj3SEUEKIWPbthNkKURXH"
+API_KEY = RM_API_KEY
 BASE_URL = "http://127.0.0.1:8000"
 HEADERS = {
     "X-API-Key": API_KEY,
