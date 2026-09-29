@@ -191,6 +191,31 @@ def demo_unit_id(chain_setup):
     return chain_setup[2]
 
 
+async def _tamper_as_owner(statements: list[tuple[str, tuple[object, ...]]]) -> None:
+    """Run a tamper the way an out-of-band DBA or attacker would: as the table owner (migrator),
+    in one transaction. The app role cannot do it: unit_events and org_ledger are SELECT/INSERT
+    only for rm_app (0008_event_chain.sql), which `_assert_app_role_cannot_update` checks."""
+    from psycopg import AsyncConnection
+
+    from tests.conftest import migrator_dsn
+
+    async with await AsyncConnection.connect(migrator_dsn()) as mconn, mconn.transaction():
+        for sql, params in statements:
+            await mconn.execute(sql, params)
+
+
+async def _assert_app_role_cannot_update(
+    db: Database, org: str, sql: str, params: tuple[object, ...]
+) -> None:
+    import psycopg
+
+    from returns_manager.db.tenant import transaction
+
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        async with transaction(db.pool, org) as conn:
+            await conn.execute(sql, params)
+
+
 # T-CHN-02  Append creates expected chain structure
 @pytest.mark.asyncio
 async def test_append_creates_chain_structure(db, demo_org, demo_return_id, demo_unit_id) -> None:
@@ -288,11 +313,13 @@ async def test_tamper_payload_edit(db, demo_org, demo_return_id, demo_unit_id) -
             actor_id="worker/j1",
             payload={"inspection_id": "ins_t01", "job_id": "j1", "kind": "judgment"},
         )
-        # Privileged tamper: update payload directly
-        await conn.execute(
-            "UPDATE rm.unit_events SET payload = %s WHERE event_id = %s",
-            (json.dumps({"inspection_id": "ins_TAMPERED", "job_id": "j1", "kind": "judgment"}), ev.event_id),
-        )
+    tamper = (
+        "UPDATE rm.unit_events SET payload = %s WHERE event_id = %s",
+        (json.dumps({"inspection_id": "ins_TAMPERED", "job_id": "j1", "kind": "judgment"}), ev.event_id),
+    )
+    await _assert_app_role_cannot_update(db, demo_org, *tamper)
+    await _tamper_as_owner([tamper])
+    async with transaction(db.pool, demo_org) as conn:
         result = VerificationResult(org_id=demo_org)
         await verify_unit(conn, demo_org, demo_unit_id, result)
 
@@ -334,15 +361,11 @@ async def test_tamper_event_reorder(db, demo_org, demo_return_id, demo_unit_id) 
                 "tool_calls": 0,
             },
         )
-        # Swap the event_hash values (simulates reorder)
-        await conn.execute(
-            "UPDATE rm.unit_events SET event_hash = %s WHERE event_id = %s",
-            (ev2.event_hash, ev1.event_id),
-        )
-        await conn.execute(
-            "UPDATE rm.unit_events SET event_hash = %s WHERE event_id = %s",
-            (ev1.event_hash, ev2.event_id),
-        )
+    # Swap the event_hash values (simulates reorder)
+    swap = "UPDATE rm.unit_events SET event_hash = %s WHERE event_id = %s"
+    await _assert_app_role_cannot_update(db, demo_org, swap, (ev2.event_hash, ev1.event_id))
+    await _tamper_as_owner([(swap, (ev2.event_hash, ev1.event_id)), (swap, (ev1.event_hash, ev2.event_id))])
+    async with transaction(db.pool, demo_org) as conn:
         result = VerificationResult(org_id=demo_org)
         await verify_unit(conn, demo_org, demo_unit_id, result)
 
@@ -445,11 +468,11 @@ async def test_tamper_ledger_hash_edit(db, demo_org, demo_return_id, demo_unit_i
             document_sha256="e" * 64,
             unit_head_event_hash=ev.event_hash,
         )
-        # Tamper: change the ledger_hash of the first entry
-        await conn.execute(
-            "UPDATE rm.org_ledger SET ledger_hash = %s WHERE entry_id = %s",
-            ("f" * 64, le.entry_id),
-        )
+    # Tamper: change the ledger_hash of the first entry
+    tamper = ("UPDATE rm.org_ledger SET ledger_hash = %s WHERE entry_id = %s", ("f" * 64, le.entry_id))
+    await _assert_app_role_cannot_update(db, demo_org, *tamper)
+    await _tamper_as_owner([tamper])
+    async with transaction(db.pool, demo_org) as conn:
         result = VerificationResult(org_id=demo_org)
         await verify_ledger(conn, demo_org, result)
 
