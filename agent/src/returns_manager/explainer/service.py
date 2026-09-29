@@ -1,7 +1,7 @@
 """Explainer Agent service (§11.14 / P14).
 
 Answers natural-language questions about why a return was decided using
-immutable evidence records, hash-chained events, active rules, and rubrics.
+stored evidence records (superseded, never edited in place), hash-chained events, active rules, and rubrics.
 
 Rules:
 - Read-only; never proposes new verdicts or dispositions.

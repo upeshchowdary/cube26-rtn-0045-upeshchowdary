@@ -1,347 +1,265 @@
-# CUBE26 RETURNS MANAGER (RTN-0045) — MASTER PROJECT DOSSIER & COMPREHENSIVE PROMPT
-**Author:** Upesh Chowdary  
-**Track:** Cube26 Buildathon Round 2 — Track RTN-0045  
-**Project:** Returns Manager — *"Turn every returned package into a documented, auditable decision."*  
-**Date of Completion:** September 29, 2026  
-**Repository Branch:** `upeshchowdary`  
-**Test Suite Status:** 127 / 127 Passing (100% Green, 0 Flaws)
+# Returns Manager (Cube Buildathon 04, track RTN-0045): project dossier
+
+**Author:** Upesh Chowdary
+**Branch:** `upeshchowdary`
+**Revised:** 2026-09-29, after the audit fix passes (Stage 1: `b73fcc1`…`d4344fd`; Stage 2: `06c5c85` onward). Every claim below was checked against the code at that point.
+**Tests:** `uv run returns-manager dev check` (from `agent/`) on 2026-09-29: 453 passed, 97 skipped; ruff, ruff format, mypy, reference validate and the boundary check all ok. The 97 skipped tests are the database tests; they were **not run** (no local Supabase).
 
 ---
 
-## 1. Executive Summary & Enterprise Context
+## 1. What it is
 
-### 1.1 Project Purpose & Real-World Mission
-E-commerce reverse logistics accounts for hundreds of billions of dollars in annual losses across global retail. Returned items are notoriously difficult to process because human warehouse operators make subjective, inconsistent, and often fraudulent inspection decisions under extreme time pressure (averaging 30–45 seconds per return).
+Returns Manager turns a returned package into a documented decision. From 2-3 phone photos of the
+returned item, the seller's catalogue and parts list, the order record and Amazon's published condition
+guidelines, it records four things:
 
-The **Cube26 Returns Manager** is an enterprise-grade, autonomous, multimodal inspection and disposition platform. It ingests return packages, decodes barcodes, analyzes photos comparing "before-sale" reference items against the "returned" items using Google Gemini Vision, executes a 100% deterministic decision engine, and records every step in an immutable, cryptographically hash-chained audit ledger.
+1. **Identity:** yes / no / uncertain.
+2. **Completeness:** each part present / missing / uncertain.
+3. **Condition:** one of the five Amazon grades (New, Used - Like New, Used - Very Good, Used - Good,
+   Used - Acceptable), or uncertain.
+4. **Disposition:** one of four (restock, refurbish, liquidate, dispose), or no recommendation, with the
+   reason, held for review.
 
-### 1.2 Enterprise Benchmark Comparison
-| Feature / Architectural Pillar | Cube26 Returns Manager | Industry Standard (Amazon / Optoro / Narvar) |
+The model (Gemini, via the Interactions API) reports what it observed in one structured output. The
+rules engine (`agent/src/returns_manager/disposition/engine.py`) computes the disposition from that
+evidence. The model's output has no disposition field.
+
+Configured model IDs (defaults in `agent/src/returns_manager/config.py`; the root `.env` can override
+them per role):
+
+| Role | Setting | Default |
 |---|---|---|
-| **Inspection Modality** | Multimodal Vision (Gemini 2.5/Flash) single-session extraction | Fragmented manual barcode scan + visual checklist |
-| **Decision Engine** | Pure deterministic rule engine (separated from perception) | Opaque heuristic rules or brittle rule tables |
-| **Audit & Accountability** | RFC 8785 Canonical JSON + SHA-256 hash chains + Git anchor | Standard relational database logs (mutable by DBAs) |
-| **Human-in-the-Loop** | Four-Eyes Sign-Off + 2% Blind Escalation Audits | Random sample spot-checks or single supervisor sign-off |
-| **Fail-Open Policy** | Explicit fallback to `needs_attention`; zero fabricated grades | Defaulting to restock or human dumping |
-| **Cross-Pod Interoperability** | OpenAPI 3.1 + MCP (Model Context Protocol) Server | Proprietary internal RPC / REST |
+| Judgment | `RM_JUDGMENT_MODEL` | `gemini-3.8-flash` |
+| Judgment fallback (quota exhausted) | `RM_JUDGMENT_FALLBACK_MODEL` | `gemini-3-flash-preview` |
+| Escalation | `RM_ESCALATION_MODEL` | `gemini-3.8-flash` |
+| Audit re-judgment | `RM_AUDIT_MODEL` | `gemini-3.6-flash` |
+| Explainer | `RM_EXPLAINER_MODEL` | `gemini-3.1-flash-lite` |
 
----
+## 2. Principles the code enforces
 
-## 2. Core Architectural Principles & Invariant Laws
+1. **Tenancy.**
+   - Postgres row-level security is enabled and forced on every tenant table.
+   - Policy: `org_id = NULLIF(current_setting('app.org_id', true), '')`, set per transaction.
+   - The app role (`rm_app_login`) cannot bypass RLS, and the app refuses to boot if it could.
+   - A user's org comes from `rm.user_memberships()` after JWT verification; the JWT carries no org.
+   - An API key's org comes from `rm.resolve_api_key`, and only keys in `rm.api_keys` authenticate.
+   - Cross-org access answers 404.
+2. **Engineering Rule 2, "Batch your model calls"** (`RULES.md` §2, `decisions/ADR-002`).
+   - One Judgment session per inspection carries every check in one structured output.
+   - It is normally one request, and at most `RM_MAX_ROUND_TRIPS` (default 2) including tool round trips.
+   - Escalation and audit are separate full re-judgments, never per-check calls.
+3. **Perception and policy are separate.** The model reports observations; the rules engine decides the
+   route. This is a design principle of the project, not Rule 2.
+4. **Fail open.**
+   - Photos and the return record are stored before any model call.
+   - A model or provider failure leaves the return pending / needs attention (batch tool: `uncertain` /
+     `pending_review`) with a reason.
+   - It never produces a pass, a guessed grade or an auto-disposition.
+5. **Tamper-evident within the database (hash-chained)** (`decisions/ADR-007`).
+   - Every event is appended to a per-unit chain: RFC 8785 canonical JSON, SHA-256.
+   - A correction mints a new record version that supersedes the old one, which is kept.
+   - Someone with direct database write access could still rewrite the chain. Anchoring the ledger head
+     outside the database (`chain/anchor.py`) is what would expose that, and no anchors are committed yet.
 
-1. **Law 1: Strict Multi-Tenancy & Security First (ADR-003, ADR-004)**
-   - All tenant data is strictly partitioned via PostgreSQL Row Level Security (RLS) on Supabase.
-   - JWT tokens carry tenant IDs (`org_id`); every SQL query is constrained by tenant isolation. Zero cross-tenant data leaks.
-2. **Law 2: Separation of Perception and Policy (Engineering Rule 2)**
-   - The AI model (Google Gemini) **only extracts objective facts** (visual condition, packaging state, serial match, missing components).
-   - The AI **never decides the financial disposition**. A pure, deterministic, 14-rule Python engine computes the disposition (`restock`, `refurbish`, `liquidate`, `dispose`, `wrong_product`).
-3. **Law 3: Single-Session Inspection (Batch Model Calls)**
-   - To respect rate limits and latency budgets, **one single multimodal prompt answers all visual checks simultaneously**.
-   - Round trips are strictly restricted to 3 exception tools (`crop_photo_region`, `fetch_reference_views`, `fetch_lookalike_sku`) capped by `RM_MAX_ROUND_TRIPS = 2`.
-4. **Law 4: Tamper-Evident Accountability (ADR-007)**
-   - Every return event is appended to an RFC 8785 canonical JSON hash chain.
-   - Modifications produce immutable supersessions (`vN+1` superseding `vN`). Historical truth is never mutated or erased.
-   - Wording standard strictly enforced: *"tamper-evident within the database; not immutable against a colluding DBA without public anchoring"*. Hand-waving buzzwords like "blockchain-secured" are forbidden.
+## 3. Build history (phases P0-P14 and the batch/UI work)
 
----
+Details, failures and evidence per phase are in `build-log.md`.
 
-## 3. Complete Phase-by-Phase Build Chronicle (P0 through P14 + Full Integration)
+- **P0, hygiene.**
+  - Pre-commit config with gitleaks, ruff and a 5 MB file cap (`.pre-commit-config.yaml`).
+  - `scripts/check_boundary.py`: branch name, organiser-owned files, forbidden files, size cap.
+  - The hooks must be installed per clone (`agent/.venv/Scripts/pre-commit install`, with gitleaks on
+    PATH). They were not installed in the clone used for the audit fixes.
+- **P1, tenancy and storage.**
+  - Migrations in `agent/migrations/` (11 files, `0001_roles_and_schema.sql` … `0011_webhook_persistence.sql`).
+  - Tables include `rm.organizations`, `rm.memberships`, `rm.returns`, `rm.return_photos`, `rm.orders` and `rm.products`.
+  - Dependencies are locked with hashes in `agent/uv.lock`. Two specs in `pyproject.toml` are still `>=` (`mcp`, `scikit-learn`).
+- **P2, reference data.**
+  - Condition rubrics per category under `reference/rubrics/amazon.co.uk/`, with exactly the five Amazon grades.
+  - Amazon's "unacceptable condition" text is kept under `unacceptable_conditions`, not as grades.
+  - Category policies under `reference/policies/`.
+- **P3, intake.**
+  - Magic-byte sniffing (JPEG, PNG, WebP, HEIC/HEIF) and a 60M-pixel decode cap.
+  - The stored EXIF summary excludes GPS.
+  - Downscaling to a 1568 px long edge (`RM_ANALYSIS_LONG_EDGE`).
+  - Quality gate: sharpness and exposure, `intake/quality.py`.
+  - Perceptual hash for duplicate photos.
+  - Barcode reading with `zxing-cpp`.
+- **P4, jobs.**
+  - Database-backed job queue with leases, a circuit breaker, a per-model rate limiter, and a daily request quota on the Pacific day.
+  - Provider failures fail open.
+- **P5-P7, judgment, engine, chain.**
+  - Gemini Interactions client with stateful sessions (`previous_interaction_id`) and structured output (`llm/schemas.py`).
+  - Identity fusion and consistency rules (`judgment/`).
+  - The rules engine (section 4).
+  - The per-unit hash chain (`0008_event_chain.sql`, `chain/`).
+- **P8-P9, human loop.**
+  - Review queue, overrides and sign-off rules (S01-S03, section 4).
+  - Blind model re-judgment for escalation and audit.
+  - Audit sampling is `RM_AUDIT_SAMPLE_RATE`, default **0.0** (off). It is model re-judgment, not human sampling.
+- **P10, contracts.**
+  - OpenAPI for the HTTP API.
+  - Evidence-record JSON schema and flat view (`agent/contract/`).
+  - MCP server at `agent/src/returns_manager/mcp_server.py` on the official `mcp` SDK (`MCPServer`, formerly FastMCP), with read-only evidence tools scoped to the caller's org.
+- **P11, observability.**
+  - JSON metrics at `GET /api/v1/metrics/summary` and `/economics`; each figure states its method and `n`.
+  - Structured logs (structlog). There is no Prometheus exporter.
+  - Spend guards: bulk live work refuses without an explicit flag.
+- **P12, evaluation tooling.**
+  - Agreement, Cohen's kappa, selective prediction, confusion matrices, sealed run manifests (`eval/`).
+  - No sealed, independently labelled set exists yet (section 6).
+- **P13, load.** The one recorded run, from `build-log.md`:
+  - `returns-manager load-test --mode replay --units 5 --concurrency 2` against the local database;
+  - 27.24 units/s, 0 duplicates, 0 drops, fail-open under an injected outage PASS;
+  - live mode refuses without `--confirm-spend`.
+  - No larger run has been done.
+- **P14, extensions.**
+  - Webhooks signed with the `RM-Signature` header (`t=<unix>,v1=<hex HMAC-SHA256(secret, t + "." + raw_body)>`, `webhooks/signer.py`).
+  - Explainer agent whose answers must cite evidence the record contains.
+  - ADR-000…ADR-010 in `decisions/`.
+- **Batch tool and UI.**
+  - `batch/` runs the same session and engine on a CSV of image URLs without the database.
+  - `ui/` is a React + Vite + TypeScript operator console.
+  - The batch tool's input rules, auto-approve flag and output columns are in `ARCHITECTURE.md` §2.2.
 
-```mermaid
-graph TD
-    P0[P0: Compliance & Skeleton] --> P1[P1: Security & RLS Database]
-    P1 --> P2[P2: Reference Rubrics & Schemas]
-    P2 --> P3[P3: Intake, Photo Pipeline & Barcode]
-    P3 --> P4[P4: Durable Jobs & Fail-Open Worker]
-    P4 --> P5[P5-P7: Gemini Multimodal Vision & Hash Chain Ledger]
-    P5 --> P8[P8-P9: Human Loop & Blind Escalation Audit]
-    P8 --> P10[P10: Cross-Pod OpenAPI & MCP Server]
-    P10 --> P11[P11: Observability, Metrics & Spend Guards]
-    P11 --> P12[P12: Statistical Eval & Cohen's Kappa]
-    P12 --> P13[P13: Load Testing & Resilience Drills]
-    P13 --> P14[P14: Webhooks, Explainer Agent & ADRs]
-    P14 --> UI[Full-Stack UI & Background Batch Engine]
-    UI --> Video[Playwright Demo Video Pipeline & Final Cert]
-```
+## 4. Disposition rules (generated from `disposition/engine.py`)
 
-### Phase 0: Compliance, Git Hygiene, & Repository Skeleton
-- **Goal:** Set up strict development hygiene, security scanning, and architectural boundaries before writing code.
-- **Actions:**
-  - Implemented pre-commit hooks with `gitleaks` (detecting accidental secret leaks) and `ruff` (formatting and linting).
-  - Configured architectural boundary checker `check_boundary.py` to ensure core modules do not import forbidden outer layers.
-  - Enforced strict repository directory structure adhering to buildathon specifications.
+The engine runs in three steps, each first-match-wins in the order listed:
 
-### Phase 1: Security Foundation & Multitenancy (Database & Storage)
-- **Goal:** Establish multi-tenant database schema with cryptographic isolation.
-- **Actions:**
-  - Authored migrations `0001_core_schema.sql` through `0004_storage_and_policies.sql` using Supabase PostgreSQL.
-  - Implemented Row Level Security (RLS) on all tenant tables (`rm.tenants`, `rm.returns`, `rm.return_photos`, `rm.inventory`).
-  - Implemented JWT tenant isolation with service-role bypass controls.
-  - Pinned dependencies (e.g., `pymupdf` and database drivers) to exact cryptographic hashes.
+1. Step 1 gates.
+2. Step 2 review flags. These never change the route.
+3. Step 3 route rules.
 
-### Phase 2: Reference Data, Rubrics, & Policy Taxonomy
-- **Goal:** Create authoritative catalog data, condition classification standards, and pricing models.
-- **Actions:**
-  - Synthesized condition guidelines based on the Amazon standard condition taxonomy:
-    - `New`, `Used - Like New`, `Used - Very Good`, `Used - Good`, `Used - Acceptable`.
-  - Added specialized non-standard states: `Open Box`, `Defective`, `Wrong Item`, `Counterfeit / Fraudulent`.
-  - Defined category-specific handling policies (e.g., unopened hygiene rules for `beauty_topical` and `grocery_ingestible`).
-  - Created JSON Schema validators to ensure all model inputs and reference items strictly conform.
+Sign-off rules are added on top of the route. The table is produced by `python scripts/rule_table.py`;
+`agent/tests/unit/test_docs.py` fails if this copy drifts from the engine.
 
-### Phase 3: Intake Service, Barcode Decoding, & Image Quality Pipeline
-- **Goal:** Ingest incoming packages, validate photos against security attacks, and decode physical barcodes.
-- **Actions:**
-  - **Image Security & Ingestion:**
-    - Magic-byte verification (supporting JPEG, PNG, WebP, HEIC/HEIF).
-    - Image decompression bomb protection (capped at 60M pixels).
-    - EXIF GPS metadata stripping to preserve customer privacy.
-    - Automated downscaling to 1568px long-edge for optimal Gemini vision token density.
-  - **Quality Gate:**
-    - Laplacian variance sharpness analysis to reject blurry photos before model inference.
-    - Exposure and luminance histogram verification.
-    - 64-bit perceptual hashing (`phash`) to flag accidental duplicate image uploads.
-  - **Barcode Scanning:**
-    - High-performance barcode reader wrapping `zxing-cpp` to detect UPC, EAN-13, Code 128, and QR codes directly from packaging images.
+<!-- rule-table:start -->
+| Rule | Step | Outcome | When (engine condition) | Reason recorded | engine.py line |
+|---|---|---|---|---|---|
+| R01b | 1 gate | no recommendation (review required) | `inp.inspection_state == 'skipped'` | `inp.skip_reason or 'no_product_reference'` | 270 |
+| R01 | 1 gate | no recommendation (review required) | `inp.inspection_state != 'complete' or inp.usable_photo_count == 0` | `inspection_incomplete` | 272 |
+| R02 | 1 gate | no recommendation (review required) | `inp.unit_presence != 'product_present'` | `item_not_present_or_unverified` | 274 |
+| R03 | 1 gate | no recommendation (review required) | `inp.identity == 'no'` | `wrong_item_returned` | 276 |
+| R03b | 1 gate | no recommendation (review required) | `inp.identity == 'uncertain'` | `identity_unverified` | 278 |
+| R05b | 1 gate | no recommendation (review required) | `gate is None and inp.cosmetic_grade is None and (not blockers & DECIDING_BLOCKERS)` | `condition_uncertain` | 285 |
+| R00 | 2 flag | review flag (route unchanged) | `not inp.auto_disposition_enabled` | `review.append("assisted_mode")` | 253 |
+| R04 | 2 flag | review flag (route unchanged) | `always` | `review += [f for f in REVIEW_FLAGS if f in inp.flags]` | 254 |
+| R05 | 2 flag | review flag (route unchanged) | `provisional` | `review.append("essential_component_uncertain")` | 256 |
+| R05c | 2 flag | review flag (route unchanged) | `inp.nonessential_uncertain` | `review.append("nonessential_component_uncertain")` | 262 |
+| R05c | 2 flag | review flag (route unchanged) | `inp.blockers_undetermined` | `review.append("listing_blockers_undetermined")` | 264 |
+| R06 | 3 route | restock | `inp.new_only and grade == 'new' and (not blockers) and (not inp.blockers_undetermined)` | `New-only category, factory-sealed and intact` | 183 |
+| R99 | 3 route | no recommendation (review required) | `inp.new_only and policy_route in ('restock', 'refurbish')` | `f'policy {which}={policy_route} is not allowed for a New-only category'` | 187 |
+| R07 | 3 route | liquidate if salvage > dispose_max_salvage, else dispose | `inp.new_only and policy_route == 'liquidate'` | `f'New-only category, not sealed-new; policy {which}=liquidate'` | 191 |
+| R07 | 3 route | dispose | `inp.new_only` | `f'New-only category, not sealed-new; policy {which}=dispose'` | 192 |
+| R08 | 3 route | dispose | `'consumable_used' in blockers` | `consumable item shows use` | 195 |
+| R09 | 3 route | refurbish | `essential_missing and replaceable and gain >= inp.refurbish_min_net_gain_minor and base.route is not None and ROUTE_RANK[base.route] >= ROUTE_RANK['refurbish']` | `f'replaceable essential part(s) missing; net gain {gain}'` | 203 |
+| R10 | 3 route | liquidate if salvage > dispose_max_salvage, else dispose | `essential_missing` | `essential part(s) missing and not refurbishable` | 206 |
+| R10 | 3 route | liquidate if salvage > dispose_max_salvage, else dispose | `blockers & {'damaged_difficult_to_use', 'not_clean'}` | `damage or dirt makes the item unlistable as-is` | 209 |
+| R11 | 3 route | refurbish | `'functional_test_required' in blockers and gain >= inp.refurbish_min_net_gain_minor` | `f'used electrical item needs a functional test; net gain {gain}'` | 214 |
+| R11 | 3 route | liquidate | `'functional_test_required' in blockers` | `f'functional test needed but net gain {gain} too small'` | 217 |
+| R12 | 3 route | restock | `grade == 'new' and (not blockers)` | `factory-sealed and intact` | 220 |
+| R13 | 3 route | restock | `grade in inp.restock_used_grades and inp.completeness_status == 'complete'` | `f'used grade {grade} is restockable by policy'` | 224 |
+| R13 | 3 route | restock | `grade in inp.restock_used_grades and inp.completeness_status == 'incomplete' and (not essential_missing) and (grade in GRADES_ALLOWING_NONESSENTIAL_MISSING)` | `f'{grade}: rubric allows non-essential material to be missing'` | 230 |
+| R14 | 3 route | liquidate | `grade in inp.restock_used_grades and inp.completeness_status == 'incomplete' and (not essential_missing)` | `f'non-essential parts missing; not permitted at grade {grade}'` | 234 |
+| R14 | 3 route | liquidate | `grade is not None and grade != 'new' and (grade not in inp.restock_used_grades)` | `f'used grade {grade} is outside restock_used_grades (business policy)'` | 239 |
+| R99 | 3 route | no recommendation (review required) | `always (fallthrough)` | `rule_gap` | 243 |
+| S01 | sign-off | route stands; human sign-off required | `r.route == 'dispose'` | `S01_dispose_always` | 314 |
+| S02 | sign-off | route stands; human sign-off required | `r.route not in (None, 'restock') and inp.list_price_minor >= inp.high_value_threshold_minor` | `S02_high_value` | 316 |
+| S03 | sign-off | route stands; human sign-off required | `inp.escalation_disagreement_resolved_by_reviewer` | `S03_escalation_disagreement_resolved` | 318 |
+<!-- rule-table:end -->
 
-### Phase 4: Durable Job Queue, Worker Engine, & Fail-Open Guarantees
-- **Goal:** Ensure returns are processed asynchronously without dropping jobs during traffic spikes or AI provider outages.
-- **Actions:**
-  - Implemented durable database-backed job queue with lease-renewal heartbeats (`0005_jobs_and_operations.sql`).
-  - Created three-state Circuit Breaker (`Closed`, `Open`, `Half-Open`) to pause job polling if the AI API experiences upstream errors.
-  - Engineered token-bucket rate limiter with automatic Pacific Midnight quota reset tracking.
-  - **Fail-Open Policy:** If Gemini is unavailable or rate-limited, the return gracefully enters `needs_attention` for human review. Under no circumstances does the system fabricate or guess condition grades.
+S02's threshold is `RM_HIGH_VALUE_THRESHOLD_MINOR`, default 500000 paise (₹5,000). In the batch tool, a
+row without a CSV list price uses a configured default price. It is marked
+`value_source=synthetic_default`, and the UI shows "price assumed (synthetic)" next to any S02, R09 or
+R10 outcome.
 
-### Phases 5, 6 & 7: Gemini Multimodal Vision, Decision Engine & Hash-Chained Ledger
-- **Goal:** Combine multimodal vision reasoning with a deterministic disposition engine and cryptographic evidence storage.
-- **Actions:**
-  - Built `GeminiClient` supporting Google GenAI SDK (`gemini-2.5-flash`).
-  - Authored structured vision schemas (`schemas.py`) requesting unit presence, package seal status, identity match, condition grade, and observed defects.
-  - Implemented 14-rule deterministic decision engine (`engine.py`) executing Gate Rules R01–R05b and Routing Rules R06–R14.
-  - **Cryptographic Audit Ledger (`0008_event_chain.sql`):**
-    - RFC 8785 JSON Canonicalization Scheme (JCS) ensures identical JSON key ordering and byte-for-byte deterministic hashing.
-    - SHA-256 genesis hashes and sequence-linked chain heads.
-    - `SELECT FOR UPDATE` atomic row-level locks prevent race conditions or ledger forks.
-    - Automated export of ledger heads into public Git repository anchors (`anchors/ledger-anchors.jsonl`).
+**Batch auto-approve** (`batch/auto_approve.py`) is a flag, not an override. It lets the engine's own
+route stand only when all of these hold:
 
-### Phases 8 & 9: Human Review Queue, Four-Eyes Sign-Off, & Blind Escalation
-- **Goal:** Provide governance over high-risk decisions and monitor model drift.
-- **Actions:**
-  - Built human review and operator override queue (`0009_human_loop_and_audit.sql`).
-  - **Four-Eyes Sign-Off (Rules S01, S02, S03):**
-    - Mandatory sign-off required for any `dispose` routing (Rule S01).
-    - Mandatory sign-off required for high-value items ($\ge \text{₹}5,000$) routed to non-restock dispositions (Rule S02).
-    - Four-Eyes rule: The human operator signing off must be distinct from the intake operator who scanned the package (Rule S03).
-  - **Immutable Supersession:** When a supervisor overrides a decision, the old evidence record is never deleted. A new version `vN+1` is minted referencing `supersedes = vN`.
-  - **Blind Escalation Audit:** 2% of automated approvals are routed to human reviewers without showing the AI's preliminary grade to measure blind inter-rater agreement.
+- no review, sign-off or escalation;
+- every check PASS at a model-reported confidence ≥ `RM_BATCH_AUTO_APPROVE_MIN_CONFIDENCE_BP` (8500);
+- every sold-vs-returned ID present and equal.
 
-### Phase 10: Cross-Pod Contracts, OpenAPI 3.1, & Model Context Protocol (MCP)
-- **Goal:** Enable external automated logistics pods and autonomous agents to query the system.
-- **Actions:**
-  - Exported complete OpenAPI 3.1 specification for all endpoints (`GET /returns`, `POST /returns/{id}/disposition`, etc.).
-  - Implemented standalone `fastmcp` Model Context Protocol server (`agent/src/returns_manager/mcp/server.py`) allowing Claude and Gemini agents to invoke returns inspection tools natively.
-  - Implemented signed cryptographic evidence record bundle exporter (`.tar.gz` containing JSON records, photo signatures, and hash chains).
+**The threshold is not yet calibrated**: no threshold sweep has been run.
 
-### Phase 11: Observability, Metrics, Spend Guards, & Unit Economics
-- **Goal:** Track operational costs, latency, and model accuracy in real time.
-- **Actions:**
-  - Integrated Prometheus metrics tracking:
-    - Inspection latency histograms ($P_{50}, P_{95}, P_{99}$).
-    - Per-return AI cost calculation (input/output token metrics).
-    - Routing distribution gauges (`restock`, `refurbish`, `liquidate`, `dispose`).
-  - Spend Guard enforcement: Automatic hard limit shut-off if daily API spend crosses configured monetary thresholds.
+## 5. Problems found and how they were fixed
 
-### Phase 12: Statistical Evaluation Harness & Cohen's Kappa
-- **Goal:** Mathematically measure model accuracy against gold-standard ground truth datasets.
-- **Actions:**
-  - Implemented evaluation suite computing:
-    - **Cohen's Kappa ($\kappa$):** Inter-rater reliability against human expert grading.
-    - **Selective Accuracy:** Accuracy calculated only on cases where model confidence exceeds the decision threshold.
-    - **Coverage Curves:** Trade-off analysis between automation rate and classification precision.
-  - Cryptographically sealed run manifests verifying eval run parameters and data hashes.
+| # | Problem | Fix |
+|---|---|---|
+| 1 | The Gemini SDK retried 429s silently and burned daily quota (F-011). | SDK retries disabled, so 429s reach the app's own quota guard. |
+| 2 | A `tool_choice` shape accepted by the SDK's stubs was rejected by the live API (F-023). | Fixed to the shape the live API accepts; logged as a reminder that a live call is the real test. |
+| 3 | Git for Windows crashed intermittently (0xC0000005) during checks. | `scripts/check_boundary.py` and `cli/dev.py` retry on those exit codes. |
+| 4 | The chain-verification route took `org_id` from a query parameter and had no authentication. | The route now uses the authenticated principal's org and requires `Permission.EVIDENCE_READ` (`c792362`). |
+| 5 | Any `rmk_local_`/`rmk_demo_` string was accepted as an admin API key. | Removed; only keys in `rm.api_keys` authenticate (`b73fcc1`). A gitleaks rule now catches `rmk_` keys. |
+| 6 | The batch tool replayed a stored answer key and guessed verdicts from filenames when the model call failed. | Such rows now fail open with a `failure_reason` and no confidence (`9fa5d4d`). |
+| 7 | The batch layer and UI used a fifth disposition value for wrong items. | Four dispositions only; a wrong item is R03 plus a review flag (`96be452`). |
+| 8 | A UI heuristic overrode the engine's route and skipped required sign-offs. | Auto-approve is a backend flag on engine-settled rows only; sign-off needs the permission and a second person (`b29c256`). |
+| 9 | The CSV importer invented IDs, SKUs and timestamps for blank fields, and an ID check could "match" on them. | Blank required fields are a 400; a blank ID is "not checked", never "matched" (`06c5c85`). |
 
-### Phase 13: Load Testing & Resilience Drills
-- **Goal:** Prove system stability under extreme warehouse peak conditions.
-- **Actions:**
-  - Conducted concurrent batch ingestion stress tests (simulating 50+ concurrent warehouse conveyor belts).
-  - Simulated simulated upstream outages (injected 503 errors and network timeouts) to verify circuit breaker trip and graceful fail-open recovery.
-  - Verified zero database connection pool starvation under sustained worker loops.
+## 6. Not done yet
 
-### Phase 14: Extensions (Webhooks & Grounded Explainer Agent)
-- **Goal:** Integrate external notifications and customer-facing explanations.
-- **Actions:**
-  - Webhook delivery engine signing payloads with HMAC-SHA256 headers (`X-Signature-SHA256`).
-  - Built grounded **Explainer Agent** generating plain-English return explanations for customers and warehouse managers.
-  - Strict anti-hallucination validation: The explainer agent's text must cite verified observation IDs from the evidence record.
+- **Evaluation (C1):** no sealed, independently labelled eval set, so no reported accuracy.
+  `eval/runs/manual-30row-self-labeled-20260927` is a single-labeller 30-unit run; read its `NOTES.md`.
+- **Contract examples (C2):** 1 of the 14 required examples exists (`agent/contract/examples/`).
+- **Database tests:** the `db` tests have not been run for the current numbers (no local Supabase).
+- **Open findings:**
+  - **F-018:** an over-length model field is caught only by local validation.
+  - **F-019:** a battery/label misread was reduced but not eliminated.
+  - **F-020:** the batch tool has no duplicate-photo check.
+- **Findings files:** `findings/` holds F-001 and F-007…F-013; F-014…F-024 are only in `build-log.md`.
+- **Committed key:** a `rmk_local_` key literal committed in `8409211` remains in public history. It no
+  longer authenticates by prefix. Whether it exists in `rm.api_keys` needs the database.
+- **No demo video is committed.**
 
-### Full-Stack Frontend & End-to-End Integration (Sessions Sept 27–29)
-- **Goal:** Build a state-of-the-art UI, connect all backend pipelines, enable real batch CSV processing, and eliminate all remaining edge cases.
-- **Actions:**
-  - **Frontend Architecture:** Modern React 19 + TypeScript + Tailwind CSS + Lucide icons + Vite.
-  - **GPU Accelerated Transitions:** Implemented fluid, jitter-free 60–120 FPS page navigation with hardware-accelerated CSS animations.
-  - **Navigation & Routing:** Added Overview marketing/architectural portal, Operations Dashboard, Returns Console, Visual Inspection Detail, Analytics, and Settings.
-  - **Unified CSV Batch Ingestion:** Converted intake pipeline to accept a single unified CSV containing both pre-sale reference details and returned package data with image URLs.
-  - **Live Dynamic Inspection:** Integrated live Gemini 2.5 Flash multimodal vision engine to download photos, run inference, evaluate category rules, and output verified dispositions.
-  - **High-Confidence Auto-Approval:** Added auto-approval bypass ($\ge 85\%$ confidence) and dedicated UI tracking cards.
-  - **Auto-Disapproval Classification:** Explicitly separated and highlighted counterfeit, swapped, and severely damaged returns in a dedicated `Auto-disapproved` tab.
-  - **Background Worker Persistence:** Decoupled batch processing from the active view so background jobs continue uninterrupted when users navigate between tabs.
-  - **RFC 4180 CSV Download:** Formatted real, compliant CSV export downloads for warehouse logistics teams.
-  - **Settings Cache Evacuation:** Added a full cache purge mechanism in the Settings panel.
-
-### Video Demonstration Production Pipeline
-- **Goal:** Produce a comprehensive, high-definition project walkthrough video (`cube26_returns_manager_demo.mp4`).
-- **Actions:**
-  - Automated Playwright browser interaction script (`scratch/record_ui_playwright.py`) capturing UI interactions across all 5 screens.
-  - Programmatic presentation slide generator (`scratch/generate_slides.py`) rendering high-resolution architectural overview slides.
-  - Multi-scene Text-To-Speech (TTS) voiceover generator (`scratch/generate_voiceover.py`) providing professional audio narration.
-  - FFmpeg compilation pipeline (`scratch/assemble_demo_video.py`) synchronizing video tracks, slide graphics, and audio narration into a production-ready 1080p MP4.
-
----
-
-## 4. Deep-Dive: Problems Faced, Root Causes, & Exact Solutions
-
-| # | Problem / Obstacle Encountered | Root Cause | Exact Engineering Fix / Resolution |
-|---|---|---|---|
-| **1** | **Gemini API Silent Retries Burning Quota (F-011)** | Google GenAI SDK by default silently retries on HTTP 429 rate limit errors with exponential backoff, exhausting the user's daily quota in seconds during batch processing. | Cleared `sdk_configuration.retry_config` directly on both internal client interaction objects, forcing immediate 429 bubbling to the application rate limiter. |
-| **2** | **Gemini `tool_choice` 400 Bad Request Error (F-023)** | Setting `generation_config.tool_choice = {"allowed_tools": {"mode": "auto"}}` violated Gemini REST API expectations. | Reverted configuration to bare string format: `"tool_choice": "auto"`. |
-| **3** | **Windows Git 0xC0000005 Transient Access Violation** | Git for Windows occasionally crashed with memory access violation `0xC0000005` when invoked from child processes during rapid pre-commit checks. | Implemented retry loop in `check_boundary.py` catching non-zero exit codes and re-attempting git diff operations with backoff. |
-| **4** | **OneDrive Git `mmap failed: Invalid argument` on Push** | OneDrive background synchronization locked Git index files and packed refs during branch updates, preventing normal git appending. | Configured Git repository options:<br>`git config windows.appendAtomically false`<br>`git config core.packedGitWindowSize 128m`<br>`git config http.postBuffer 524288000` |
-| **5** | **Cross-Tenant Data Leak in Audit Chain Routes** | In P10, event chain read queries fetched events by `unit_id` without filtering by `org_id` in SQL WHERE clauses. | Added strict `org_id` equality checks on all chain head lookups and reinforced Supabase RLS policies. |
-| **6** | **All Uploaded Returns Stuck in "Pending Review / Uncertain"** | Initial batch test runs returned uniform "uncertain" results because: (a) Gemini free-tier key hit 429 quota limits, triggering the fail-open fallback; (b) batch processor lacked multi-modal image URL fetching. | Injected fresh working Gemini API key, added asynchronous image downloading directly from image URLs, and tuned the multimodal prompt to analyze pre-sale vs post-return image deltas. |
-| **7** | **Duplicate Product Rows on Returns Console** | Re-uploading CSV batches created duplicate return items because items lacked distinct idempotency keys. | Added `product_id` and `return_id` deduplication checks in the batch runner, and built a "Clear Cache" button in Settings. |
-| **8** | **Downloaded Output File Was Corrupted / Not CSV** | Frontend downloaded raw in-memory JSON payloads using a `.csv` extension instead of converting rows to standard comma-delimited text. | Rewrote export generator in [jobs_service.py](file:///c:/Users/UPESH%20CHOWDARY/OneDrive/Desktop/cube26-rtn-0045-upeshchowdary-main/cube26-rtn-0045-upeshchowdary/agent/src/returns_manager/batch/jobs_service.py) using Python's native `csv.writer` with RFC 4180 escaping and `text/csv` MIME headers. |
-| **9** | **Batch Processing Halting on Tab Navigation** | The inspection process was tied to the `Inspection.tsx` React component lifecycle; switching to Dashboard unmounted the component and canceled the request. | Elevated batch state to global application level with background worker polling, decoupling job execution from UI view unmounting. |
-| **10** | **UI Frame Drops & Scrolling Stuttering** | Complex SVG background gradients and unoptimized backdrop blur filters caused frame rates to drop below 30 FPS on high-refresh monitors. | Optimized CSS with `will-change: transform`, GPU hardware acceleration (`transform: translateZ(0)`), and streamlined CSS animations to sustain 60–120 FPS. |
-| **11** | **Absence of "Refurbish" Dispositions in Early Runs** | Synthetic test data contained binary extremes (brand new unopened vs destroyed items); routing rule R09/R10 required specific combinations of intact components and minor wear. | Expanded test dataset and calibrated confidence grading to recognize intermediate wear (packaging tears, minor surface scuffs) suitable for refurbishment. |
-| **12** | **Lack of Distinct "Auto-Disapproved" Separation** | Highly fraudulent or mismatched returns were lumped together with normal returns in the UI, requiring manual triage. | Created dedicated `Auto-disapproved` categorization, UI status badge, and distinct console tab to separate fraudulent and wrong-product returns immediately. |
-
----
-
-## 5. Algorithmic Rules Engine Specification (Pin-to-Pin)
-
-### 5.1 The 5 Gate Rules (Eligibility Filters)
-Every return must pass all 5 gates to be eligible for automated disposition. If any gate fails, automated routing halts and the return is flagged for human inspection.
-- **Gate R01 (No Usable Evidence):**
-  $$\text{len}(\text{valid\_photos}) = 0 \implies \text{Route} = \text{None}, \text{Rule} = \text{"R01\_NO\_USABLE\_EVIDENCE"}$$
-- **Gate R02 (Wrong Product / Swapped Return):**
-  $$\text{identity\_match} = \text{"no"} \implies \text{Route} = \text{"wrong\_product"}, \text{Rule} = \text{"R02\_IDENTITY\_MISMATCH"}$$
-- **Gate R03 (Unverified Identity):**
-  $$\text{identity\_match} = \text{"uncertain"} \land \neg \text{barcode\_confirmed} \implies \text{Route} = \text{None}, \text{Rule} = \text{"R03\_IDENTITY\_UNVERIFIED"}$$
-- **Gate R04 (Empty Box / Missing Core Component):**
-  $$\text{observed\_state} = \text{"empty\_box"} \lor \text{core\_part\_missing} \implies \text{Route} = \text{"liquidate"}, \text{Rule} = \text{"R04\_EMPTY\_BOX"}$$
-- **Gate R05 (Condition Uncertain):**
-  $$\text{condition\_grade} \text{ is None} \lor \text{condition\_uncertain} \implies \text{Route} = \text{None}, \text{Rule} = \text{"R05\_CONDITION\_UNCERTAIN"}$$
-
-### 5.2 The 9 Routing Rules (Disposition Decisioning)
-- **Route R06 (Restock New):** Item is `New`, complete, factory seals intact.
-  $$\text{Disposition} = \text{"restock"}$$
-- **Route R07 (Category Ingestible/Hygiene Restriction):** Category is `beauty_topical`, `grocery_ingestible`, or `personal_hygiene`, and package seal is opened.
-  $$\text{Disposition} = \text{"liquidate"}$$
-- **Route R08 (Restock Open Box / Used Like New):** Item is `Open Box` or `Used - Like New`, complete, no cosmetic defects.
-  $$\text{Disposition} = \text{"restock"}$$
-- **Route R09 (Refurbish Replaceable Parts):** Item has missing replaceable accessories (e.g., power cable) and base item is functional.
-  $$\text{Disposition} = \text{"refurbish"}$$
-- **Route R10 (Grade Used Good/Acceptable Refurbish):** Item is `Used - Very Good` or `Used - Good`, repair/refurbishment cost $\le$ recovery threshold.
-  $$\text{Disposition} = \text{"refurbish"}$$
-- **Route R11 (Economic Liquidate):** Item is `Used - Acceptable` or repair cost exceeds threshold.
-  $$\text{Disposition} = \text{"liquidate"}$$
-- **Route R12 (Safety Hazard / Biohazard Disposal):** Chemical leak, swollen battery, or broken glass detected.
-  $$\text{Disposition} = \text{"dispose"}$$
-- **Route R13 (Damaged Uneconomic Disposal):** Expected liquidation recovery is lower than processing/shipping fees.
-  $$\text{Disposition} = \text{"dispose"}$$
-- **Route R14 (Default Policy Fallback):** Baseline route according to category-specific fallback policy.
-
-### 5.3 The 3 Accountability Sign-Off Rules
-- **Rule S01 (Mandatory Disposal Sign-Off):** Any `dispose` routing requires verified human supervisor authorization.
-- **Rule S02 (High-Value Non-Restock Sign-Off):** Any item with $\text{list\_price} \ge \text{₹}5,000$ routed to a non-restock route requires secondary review.
-- **Rule S03 (Four-Eyes Enforcement):** The authorizer must be distinct from the intake operator:
-  $$\text{authorizer\_id} \ne \text{operator\_id}$$
-
----
-
-## 6. Comprehensive Test Suite & Verification Proof
-
-The codebase undergoes continuous automated verification across unit, property-based, pipeline, and diagnostic layers:
-
-1. **Hypothesis Property-Based Fuzzing (`tests/unit/test_disposition.py`):**
-   - 48 tests running over 1,200 randomized state permutations verifying engine monotonicity, invariant preservation, and rule precedence.
-   - **Result: 48 / 48 PASSED.**
-2. **Judgment Pipeline Integration Suite (`tests/unit/test_judgment_pipeline.py`):**
-   - 60 comprehensive pipeline tests verifying JSON schema validation, exception tool calling, referential consistency (C01–C14), and circuit breaker states.
-   - **Result: 60 / 60 PASSED.**
-3. **Deep System Diagnostic Suite (`scratch/deep_system_diagnostic.py`):**
-   - 19 end-to-end integration tests validating real image ingestion, barcode scanning, Gemini live calls, hash-chain verification, CSV export formatting, and Four-Eyes sign-off logic.
-   - **Result: 19 / 19 PASSED.**
-4. **Static Code Quality & Frontend Builds:**
-   - `ruff check .`: 0 lint errors.
-   - `tsc -p tsconfig.app.json`: 0 TypeScript compiler errors.
-   - `vite build`: Production bundle generated cleanly in 1.78s.
-   - **Total Verification Score:** **127 / 127 Passing (100% Green).**
-
----
-
-## 7. Master System Prompt for Future AI Agents
-
-*Use the following prompt verbatim when onboarding any new AI coding agent, subagent, or auditor to this repository:*
+## 7. Prompt for a new coding agent on this repository
 
 ```markdown
-You are an expert principal software engineer and reverse-logistics domain specialist working on the "Cube26 Returns Manager" codebase (Track RTN-0045).
+You are working on Returns Manager (Cube Buildathon 04, track RTN-0045). Read CLAUDE.md first.
 
-### Core Architectural Laws You Must Uphold:
-1. NEVER violate the Separation of Perception and Policy:
-   - The multimodal model (Gemini) ONLY extracts visual observations and factual attributes.
-   - The deterministic engine in `agent/src/returns_manager/disposition/engine.py` decides the disposition. Never let an LLM directly choose disposition routing.
-2. Maintain Multi-Tenancy & Cryptographic Security:
-   - All database tables in `rm.*` use Supabase PostgreSQL Row Level Security (RLS) filtered by `org_id`.
-   - Never write an unauthenticated query or cross-tenant join.
-3. Cryptographic Audit Integrity:
-   - Events are hashed using RFC 8785 Canonical JSON and SHA-256 in `agent/src/returns_manager/chain/crypto.py`.
-   - Records are never mutated in place. Supersessions produce `vN+1` pointing to `vN`.
-   - Strictly adhere to ADR-007: Do NOT use buzzwords like "blockchain" or "tamper-proof". The accurate terminology is "tamper-evident within the database".
-4. Fail-Open Architecture:
-   - If AI quota is exhausted or an upstream call fails, jobs must fail open to `needs_attention`. Never guess, hallucinate, or fabricate condition grades.
-5. High-Confidence Thresholding:
-   - Returns with confidence >= 85% and no gating violations are auto-approved.
-   - Flagged mismatches (wrong item / serial mismatch) are classified as auto-disapproved.
-6. Test Verification Requirement:
-   - Any code modifications must maintain 100% passing status across `tests/unit/test_disposition.py`, `tests/unit/test_judgment_pipeline.py`, and `scratch/deep_system_diagnostic.py` (127 passing tests total).
+1. The rules engine (agent/src/returns_manager/disposition/engine.py) computes the disposition from the
+   inspection evidence. The model reports observations only; its output has no disposition field.
+   Dispositions are restock, refurbish, liquidate, dispose; otherwise no recommendation plus a reason,
+   held for review. Grades are the five Amazon grades. Do not add values to either.
+2. Tenancy: RLS forced on every rm.* tenant table; open transactions only via db.tenant.transaction(org_id).
+3. Rule 2: one Judgment session per inspection, all checks in one structured output, at most
+   RM_MAX_ROUND_TRIPS requests.
+4. Fail open: a model or provider failure leaves the return pending with a reason. Never guess a grade,
+   never invent input data, never replay stored answers.
+5. Wording: "tamper-evident within the database (hash-chained)"; follow the forbidden-language table in
+   CLAUDE.md.
+6. Run `uv run returns-manager dev check` (from agent/) before committing. State test counts with the date
+   and command, and say how many database tests were skipped.
 ```
 
----
-
-## 8. Repository File Directory Index
+## 8. Repository layout
 
 ```
 cube26-rtn-0045-upeshchowdary/
-├── agent/                                # Backend Python Application
+├── agent/
 │   ├── src/returns_manager/
-│   │   ├── api/                          # FastAPI REST Endpoints & OpenAPI
-│   │   ├── batch/                        # CSV Batch Importer & Gemini Orchestrator
-│   │   ├── chain/                        # RFC 8785 Canonical JSON & SHA-256 Hash Chains
-│   │   ├── disposition/                  # 14-Rule Deterministic Disposition Engine
-│   │   ├── explainer/                    # Grounded Explainer Agent (with Citation Check)
-│   │   ├── intake/                       # Image Processing, Security & Barcode Gate
-│   │   ├── jobs/                         # Durable Job Queue, Worker & Circuit Breaker
-│   │   ├── judgment/                     # Consistency Checks (C01-C14)
-│   │   ├── llm/                          # Gemini Async Client & Structured Schemas
-│   │   ├── mcp/                          # Model Context Protocol (FastMCP) Server
-│   │   ├── observability/                # Prometheus Metrics, Spend Guards & Latency
-│   │   └── review/                       # Human Review Loop & Four-Eyes Sign-Off
-├── ui/                                   # Modern React + Vite Frontend
-│   ├── src/
-│   │   ├── components/                   # Navigation, Layout & Metric Cards
-│   │   ├── screens/                      # Overview, Dashboard, Returns, Inspection, Settings
-│   │   └── App.tsx                       # Global State & Background Batch Polling
-├── decisions/                            # Architectural Decision Records (ADR-000 to ADR-010)
-├── findings/                             # Engineering Discoveries (F-001 to F-013)
-├── fixtures/                             # Synthetic Return Batches & Reference Images
-├── supabase/                             # Migrations (0001 to 0009) & RLS Policies
-├── scratch/                              # Diagnostic Test Suite & Playwright Video Pipeline
-├── tests/                                # 127 Automated Pytest & Hypothesis Test Cases
-├── MASTER_PROJECT_PROMPT.md              # Master Technical Dossier & Pin-to-Pin Prompt
-├── ARCHITECTURE.md                       # Comprehensive System Architecture Guide
-├── README.md                             # Quickstart & Verification Instructions
-└── cube26_returns_manager_demo.mp4       # Full HD Project Walkthrough Video
+│   │   ├── api/            FastAPI app and routers
+│   │   ├── batch/          standalone CSV + image-URL pipeline, auto-approve flag
+│   │   ├── chain/          canonical JSON, per-unit hash chain, ledger anchor
+│   │   ├── disposition/    the rules engine
+│   │   ├── explainer/      grounded explainer agent
+│   │   ├── intake/         image sniffing, quality gate, barcodes
+│   │   ├── jobs/           job queue, worker, retry, rate limiting
+│   │   ├── judgment/       identity fusion, consistency rules, pipeline
+│   │   ├── llm/            Gemini client, session loop, output schemas, quota guard
+│   │   ├── review/         review queue, overrides, sign-off
+│   │   ├── webhooks/       delivery and RM-Signature signing
+│   │   └── mcp_server.py   MCP server (official mcp SDK)
+│   ├── migrations/         0001…0011
+│   ├── contract/           evidence-record schema, flat view, examples, MCP tool docs
+│   └── tests/              unit tests (db-marked tests need local Supabase)
+├── ui/                     React + Vite operator console
+├── decisions/              ADR-000…ADR-010
+├── findings/               F-001, F-007…F-013
+├── reference/              rubrics, policies, product cards
+├── eval/                   eval runs (sealed/ and labels/ are empty)
+├── scripts/                check_boundary.py, rule_table.py
+├── scratch/                ad hoc scripts (read the API key from RM_API_KEY)
+├── ARCHITECTURE.md
+├── MASTER_PROJECT_PROMPT.md
+└── build-log.md
 ```
-
----
-*End of Master Project Dossier & Technical Prompt.*

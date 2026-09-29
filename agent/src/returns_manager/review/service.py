@@ -1,6 +1,6 @@
 """Human decision workflow (§7.5, §12.4, P8).
 
-Inspection results are immutable observations.  This service records every human action
+Inspection results are never edited in place.  This service records every human action
 separately, calculates an effective decision view, and only then finalizes (or
 supersedes) an evidence record.  It is the only write path for P8 endpoints.
 """

@@ -32,7 +32,7 @@ async def explain_decision(
     principal: PrincipalDep,
     svc: ServicesDep,
 ) -> ExplainResponse:
-    """Answer question about unit_id using immutable evidence and events.
+    """Answer question about unit_id using the stored evidence records and hash-chained events.
 
     Read-only; citations are strictly validated against stored records.
     """
