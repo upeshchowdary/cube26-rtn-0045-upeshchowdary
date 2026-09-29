@@ -9,3 +9,15 @@ id = "google-api-key-aq"
 description = "Google API key (AQ. prefix)"
 regex = '''\bAQ\.[A-Za-z0-9_\-]{30,}'''
 keywords = ["aq."]
+
+# Returns Manager machine API keys (`rmk_<env>_<base62>`, see security/api_keys.py). The default rule set
+# does not know this shape, which is how a working local key got committed into scratch/ (audit A12).
+[[rules]]
+id = "returns-manager-api-key"
+description = "Returns Manager API key (rmk_<env>_ prefix)"
+regex = '''\brmk_(local|test|demo|live)_[A-Za-z0-9]{20,}'''
+keywords = ["rmk_"]
+
+[rules.allowlist]
+# Fixture key that exists only to be rejected by the MCP auth tests (env="test", never minted).
+paths = ['''agent/tests/unit/test_mcp_server\.py''']

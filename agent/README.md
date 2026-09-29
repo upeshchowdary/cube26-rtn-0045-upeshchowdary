@@ -32,6 +32,19 @@ uv run returns-manager api serve    # start the HTTP API (/health, /ready, and t
                                      # webhooks/metrics)
 ```
 
+### Connecting the UI (API key)
+
+The API accepts only keys that exist in `rm.api_keys`; there is no built-in local or demo key.
+With the database running and seeded, mint one for the UI:
+
+```sh
+uv run returns-manager keys create --org org_demo_alpha --scope admin --name ui-dev
+```
+
+The key is printed once. Paste it into the UI's Connect screen, or put it in `ui/.env` as
+`VITE_API_KEY=<key>` to pre-fill that screen (`ui/.env` is git-ignored; never commit a key).
+The key's `rmk_<env>_` prefix must match `RM_ENV`, and `returns-manager keys revoke` retires it.
+
 `returns-manager --help` lists every command group. The ones most relevant to reviewing this
 submission:
 
