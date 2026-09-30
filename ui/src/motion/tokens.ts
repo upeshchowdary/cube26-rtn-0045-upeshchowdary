@@ -126,3 +126,19 @@ export const three = {
   fadeIn: 0.35,
   dprMax: 2,
 } as const
+
+/** Evidence stack (Part F9): where each photo starts (stacked) and ends (fanned), in CSS px and
+ *  degrees. The fan plays over the first half of the section's scroll, then holds. Level 2 and 3 share it. */
+export const evidenceFan = {
+  from: (i: number) => ({ x: 0, y: i * 10, rotate: (i - 1) * 2, z: -i * 30 }),
+  out: [
+    { x: -70, y: -18, rotate: -5, z: 40 },
+    { x: 0, y: 0, rotate: 0, z: 0 },
+    { x: 70, y: 22, rotate: 5, z: -40 },
+  ],
+  /** Level 3 only: each side photo turns toward the centre as it fans (rad), and the active
+   *  photo comes forward to this far in front of the fan (world units), eased with `activeDamp`. */
+  yaw: [0.14, 0, -0.14],
+  activeLift: 0.35,
+  activeDamp: 0.12,
+} as const

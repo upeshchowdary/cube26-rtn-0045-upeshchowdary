@@ -58,8 +58,11 @@ export function canRender3D(): boolean {
  * True once `target` is within `margin` of the viewport (and the main thread is idle) on a device
  * that passes `canRender3D()`; the caller then renders its React.lazy scene. Turns false again
  * (back to Level 2) if the viewport narrows below the desktop width or reduced motion is switched on.
+ * The default, one screen ahead, gives the fetch, decode, uploads and shader compile time to finish
+ * before the section is in view, so the swap from Level 2 happens off-screen (at 600 px it
+ * landed ~750 px into the section, in view).
  */
-export function useSceneGate(target: RefObject<HTMLElement | null>, margin = '600px 0px'): boolean {
+export function useSceneGate(target: RefObject<HTMLElement | null>, margin = '100% 0px'): boolean {
   const [allowed, setAllowed] = useState(false)
   const [near, setNear] = useState(false)
 
@@ -86,8 +89,11 @@ export function useSceneGate(target: RefObject<HTMLElement | null>, margin = '60
         if (!entries.some((e) => e.isIntersecting)) return
         io.disconnect()
         // Start the fetch when the main thread is free, so it never competes with first paint.
+        // Once the page has loaded, wait at most 200 ms: during a scroll there is no idle time, so
+        // the 1200 ms cap was always reached, ~1500 px of scrolling at an ordinary pace.
         const start = () => setNear(true)
-        idle = hasIdle ? window.requestIdleCallback(start, { timeout: 1200 }) : window.setTimeout(start, 200)
+        const cap = document.readyState === 'complete' ? 200 : 1200
+        idle = hasIdle ? window.requestIdleCallback(start, { timeout: cap }) : window.setTimeout(start, 200)
       },
       { rootMargin: margin },
     )

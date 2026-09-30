@@ -1,14 +1,19 @@
 // E4 Identity (two separate checks), E5 Parts, E6 Condition and evidence.
-import { useLayoutEffect, useRef } from 'react'
+import { lazy, Suspense, useCallback, useLayoutEffect, useRef, useState } from 'react'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { Check, EyeOff, X } from 'lucide-react'
 import { Eyebrow, SampleTag } from '../design/components'
 import { KineticHeadline, Reveal } from '../motion/components'
 import { prefersReducedMotion } from '../motion/scroll'
-import { duration, ease, scroll, stagger } from '../motion/tokens'
+import { duration, ease, evidenceFan, scroll, stagger } from '../motion/tokens'
 import { BarcodeArt, CableArt, IllustrationNote, LampArt, ManualArt } from './art'
 import { condition, identity, parts, records, unit } from './sample'
+import { SceneBoundary } from './three/SceneBoundary'
+import { useSceneGate } from './three/support'
+
+// Level 3 evidence stack (Part H): its own chunk, fetched only when the section nears the viewport.
+const EvidenceScene = lazy(() => import('./three/EvidenceScene'))
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -303,6 +308,12 @@ export function Parts() {
 
 export function Condition() {
   const section = useRef<HTMLElement>(null)
+  const wrap = useRef<HTMLDivElement>(null)
+  const progress = useRef(0)
+  const use3d = useSceneGate(wrap)
+  const [ready3d, setReady3d] = useState(false)
+  const onLive = useCallback((live: boolean) => setReady3d(live), [])
+  const live3d = use3d && ready3d
 
   // Evidence stack (Part F9): photos spread as the section scrolls and the active one comes forward.
   useLayoutEffect(() => {
@@ -328,16 +339,14 @@ export function Condition() {
           start: 'top 65%',
           end: 'bottom 55%',
           scrub: 0.5,
-          onUpdate: (self) => setActive(self.progress),
+          onUpdate: (self) => {
+            progress.current = self.progress // drives the Level 3 stack too
+            setActive(self.progress)
+          },
         },
       })
-      const out = [
-        { x: -70, y: -18, rotate: -5, z: 40 },
-        { x: 0, y: 0, rotate: 0, z: 0 },
-        { x: 70, y: 22, rotate: 5, z: -40 },
-      ]
       cards.forEach((c, i) => {
-        tl.fromTo(c, { x: 0, y: i * 10, rotate: (i - 1) * 2, z: -i * 30 }, { ...out[i], duration: 0.5 }, 0)
+        tl.fromTo(c, evidenceFan.from(i), { ...evidenceFan.out[i], duration: 0.5 }, 0)
       })
       tl.to({}, { duration: 0.5 })
     }, root)
@@ -359,7 +368,14 @@ export function Condition() {
       </Reveal>
 
       <div className="cd-grid">
-        <div className="ev-stack-wrap">
+        <div ref={wrap} className={`ev-stack-wrap${live3d ? ' is-3d' : ''}`}>
+          {use3d && (
+            <SceneBoundary>
+              <Suspense fallback={null}>
+                <EvidenceScene wrap={wrap} progress={progress} onLive={onLive} />
+              </Suspense>
+            </SceneBoundary>
+          )}
           <div className="ev-stack">
             {[0, 1, 2].map((a) => (
               <figure className="ev-photo" key={a}>

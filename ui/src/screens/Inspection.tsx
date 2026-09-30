@@ -422,7 +422,7 @@ export default function Inspection() {
                     <b>Fused identity match</b>
                     <small>{`${detail.identity?.strength || 'unknown'} strength · barcode ${detail.identity?.barcode_status || 'not read'}`}</small>
                   </span>
-                  <Pill value={verdictOf(detail, 'identity')?.verdict ?? detail.identity?.identity_match?.toUpperCase() ?? row.identity_match.toUpperCase()} />
+                  <Pill value={verdictOf(detail, 'identity')?.verdict ?? detail.identity?.identity_match?.toUpperCase() ?? (row.identity_match ? row.identity_match.toUpperCase() : 'NOT GIVEN')} />
                 </div>
                 {(detail.identity?.risk_flags || []).length > 0 && (
                   <div className="compare-mini">
@@ -618,7 +618,7 @@ export default function Inspection() {
             {detail?.decision?.requires_signoff && (
               <div className="functional">
                 <LockKeyhole size={14} /> Requires sign-off
-                {detail.decision.signoff_reasons.length > 0 && `: ${detail.decision.signoff_reasons.map(titleCase).join(', ')}`}
+                {(detail.decision?.signoff_reasons || []).length > 0 && `: ${detail.decision.signoff_reasons.map(titleCase).join(', ')}`}
                 {priceAssumed && detail.value?.value_driven_outcomes.includes('S02_high_value') && (
                   <small className="price-assumed"> · price assumed (synthetic)</small>
                 )}

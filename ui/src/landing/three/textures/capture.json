@@ -3,18 +3,126 @@
   "w": 300,
   "h": 159.69,
   "pad": 72,
-  "bytes": 27362
+  "bytes": 27362,
+  "scale": 2
  },
  "hero-record": {
   "w": 460,
   "h": 511.52,
   "pad": 72,
-  "bytes": 71246
+  "bytes": 71246,
+  "scale": 2
  },
  "hero-decision": {
   "w": 300,
   "h": 152.72,
   "pad": 72,
-  "bytes": 61640
+  "bytes": 61640,
+  "scale": 2
+ },
+ "ev-photo-1": {
+  "w": 336,
+  "h": 291.06,
+  "pad": 96,
+  "bytes": 20572,
+  "scale": 2
+ },
+ "ev-photo-2": {
+  "w": 336,
+  "h": 291.06,
+  "pad": 96,
+  "bytes": 20878,
+  "scale": 2
+ },
+ "ev-photo-3": {
+  "w": 336,
+  "h": 291.06,
+  "pad": 96,
+  "bytes": 21224,
+  "scale": 2
+ },
+ "ev-photo-1-active": {
+  "w": 336,
+  "h": 291.06,
+  "pad": 96,
+  "bytes": 60088,
+  "scale": 2
+ },
+ "ev-photo-2-active": {
+  "w": 336,
+  "h": 291.06,
+  "pad": 96,
+  "bytes": 60374,
+  "scale": 2
+ },
+ "ev-photo-3-active": {
+  "w": 336,
+  "h": 291.06,
+  "pad": 96,
+  "bytes": 60202,
+  "scale": 2
+ },
+ "ev-photo-1-1.5x": {
+  "w": 336,
+  "h": 291.06,
+  "pad": 96,
+  "bytes": 14140,
+  "scale": 1.5
+ },
+ "ev-photo-2-1.5x": {
+  "w": 336,
+  "h": 291.06,
+  "pad": 96,
+  "bytes": 14210,
+  "scale": 1.5
+ },
+ "ev-photo-3-1.5x": {
+  "w": 336,
+  "h": 291.06,
+  "pad": 96,
+  "bytes": 14200,
+  "scale": 1.5
+ },
+ "ev-photo-1-active-1.5x": {
+  "w": 336,
+  "h": 291.06,
+  "pad": 96,
+  "bytes": 40748,
+  "scale": 1.5
+ },
+ "ev-photo-2-active-1.5x": {
+  "w": 336,
+  "h": 291.06,
+  "pad": 96,
+  "bytes": 40774,
+  "scale": 1.5
+ },
+ "ev-photo-3-active-1.5x": {
+  "w": 336,
+  "h": 291.06,
+  "pad": 96,
+  "bytes": 40846,
+  "scale": 1.5
+ },
+ "hero-evidence-1.5x": {
+  "w": 300,
+  "h": 159.69,
+  "pad": 72,
+  "bytes": 18946,
+  "scale": 1.5
+ },
+ "hero-record-1.5x": {
+  "w": 460,
+  "h": 511.52,
+  "pad": 72,
+  "bytes": 52550,
+  "scale": 1.5
+ },
+ "hero-decision-1.5x": {
+  "w": 300,
+  "h": 152.72,
+  "pad": 72,
+  "bytes": 41476,
+  "scale": 1.5
  }
 }

@@ -4,128 +4,78 @@
 // fading). Lazy chunk: three.js and R3F load only here.
 //
 // Textures are captures of the Level 2 cards themselves (each card alone, with its CSS shadow, on a
-// transparent background, at 2x), so the 3D planes carry exactly the sample data and labels the
-// DOM shows. Regenerate them whenever the hero cards change. Planes are unlit (MeshBasicMaterial,
-// no tone mapping) so the UI colours match the design tokens exactly; no post-processing.
-import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
-import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { LinearMipmapLinearFilter, SRGBColorSpace, TextureLoader, type Group, type Mesh, type MeshBasicMaterial, type Texture } from 'three'
+// transparent background, at 2x and 1.5x; see `textureSet`), so the 3D planes carry exactly the
+// sample data and labels the DOM shows. Regenerate them whenever the hero cards change. Planes are
+// unlit (MeshBasicMaterial, no tone mapping) so the UI colours match the design tokens exactly; no
+// post-processing.
+import { useMemo, useRef, type RefObject } from 'react'
+import { useFrame, useThree } from '@react-three/fiber'
+import type { Group, Mesh, MeshBasicMaterial } from 'three'
 import { pointerState } from '../../motion/pointer'
 import { heroScroll, three as T } from '../../motion/tokens'
-import { useOnScreen } from './support'
+import { fitDistance, toWorld, useLayout, useLiveSignal, useTextures, PLANE_MATERIAL, textureSet, type SceneProps } from './common'
+import { SceneCanvas } from './SceneCanvas'
 import evidenceUrl from './textures/hero-evidence.webp'
 import recordUrl from './textures/hero-record.webp'
 import decisionUrl from './textures/hero-decision.webp'
+import evidenceLo from './textures/hero-evidence-1.5x.webp'
+import recordLo from './textures/hero-record-1.5x.webp'
+import decisionLo from './textures/hero-decision-1.5x.webp'
 
 /** Transparent margin baked around each capture (CSS px), holding the card's shadow. */
 const PAD = 72
-/** How far the canvas extends past the rig on every side (CSS px), so shadows and motion never clip. */
-export const HERO_MARGIN = 140
+/** How far the canvas extends past the rig on every side (CSS px); matches `.hero-3d` in landing.css. */
+const MARGIN = 140
 
 const CARDS = [
-  { selector: '.hc-evidence', url: evidenceUrl, seed: 0.21, period: 3.4 },
-  { selector: '.hc-record', url: recordUrl, seed: 0.57, period: 4.1 },
-  { selector: '.hc-disposition', url: decisionUrl, seed: 0.83, period: 3.7 },
+  { selector: '.hc-evidence', seed: 0.21, period: 3.4 },
+  { selector: '.hc-record', seed: 0.57, period: 4.1 },
+  { selector: '.hc-disposition', seed: 0.83, period: 3.7 },
 ] as const
+const URLS = textureSet([evidenceUrl, recordUrl, decisionUrl], [evidenceLo, recordLo, decisionLo])
 
 type Box = { cx: number; cy: number; w: number; h: number }
 
-export type HeroSceneProps = {
+export type HeroSceneProps = SceneProps & {
   rig: RefObject<HTMLDivElement | null>
   /** 0 at rest → 1 when the hero has scrolled away (same trigger as the Level 2 hand-off). */
   progress: RefObject<number>
-  /** true once the first complete 3D frame is on screen; false when the scene unmounts. */
-  onLive: (live: boolean) => void
-}
-
-function useTextures(): Texture[] | null {
-  const gl = useThree((s) => s.gl)
-  const [textures, setTextures] = useState<Texture[] | null>(null)
-  useEffect(() => {
-    let alive = true
-    const loader = new TextureLoader()
-    const loaded: Texture[] = []
-    const aniso = Math.min(8, gl.capabilities.getMaxAnisotropy())
-    Promise.all(
-      CARDS.map((c) =>
-        loader.loadAsync(c.url).then((t) => {
-          t.colorSpace = SRGBColorSpace
-          t.minFilter = LinearMipmapLinearFilter
-          t.anisotropy = aniso
-          loaded.push(t)
-          return t
-        }),
-      ),
-    )
-      .then((ts) => {
-        if (!alive) return
-        ts.forEach((t) => gl.initTexture(t)) // upload now, so the first visible frame is complete
-        setTextures(ts)
-      })
-      .catch(() => undefined) // Level 2 stays visible
-    return () => {
-      alive = false
-      loaded.forEach((t) => t.dispose())
-    }
-  }, [gl])
-  return textures
 }
 
 /** Card boxes in canvas CSS px, measured from the (untransformed) Level 2 layout. */
-function measure(rig: HTMLDivElement): Box[] {
+function measure(rig: HTMLElement): Box[] {
   return CARDS.map((c) => {
     const layer = rig.querySelector<HTMLElement>(c.selector)
     const card = layer?.querySelector<HTMLElement>('.hc-card')
     if (!layer || !card) return { cx: 0, cy: 0, w: 0, h: 0 }
     const w = card.offsetWidth
     const h = card.offsetHeight
-    return {
-      cx: HERO_MARGIN + layer.offsetLeft + card.offsetLeft + w / 2,
-      cy: HERO_MARGIN + layer.offsetTop + card.offsetTop + h / 2,
-      w,
-      h,
-    }
+    return { cx: MARGIN + layer.offsetLeft + card.offsetLeft + w / 2, cy: MARGIN + layer.offsetTop + card.offsetTop + h / 2, w, h }
   })
 }
 
 function Cards({ rig, progress, onLive }: HeroSceneProps) {
-  const textures = useTextures()
+  const textures = useTextures(URLS)
+  const boxes = useLayout(rig, measure)
   const size = useThree((s) => s.size)
   const camera = useThree((s) => s.camera)
   const pivot = useRef<Group>(null)
   const meshes = useRef<(Mesh | null)[]>([])
-  const [boxes, setBoxes] = useState<Box[] | null>(null)
   const t0 = useRef(0)
-  const ready = useRef(false)
-
-  // Measure the Level 2 layout now and whenever the rig changes size (the observer fires on observe).
-  useEffect(() => {
-    const el = rig.current
-    if (!el) return
-    const ro = new ResizeObserver(() => setBoxes(measure(el)))
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [rig])
+  const live = useLiveSignal(onLive)
 
   const W = size.width
   const H = size.height
-  const D = H / T.pxPerUnit / 2 / Math.tan(((T.fov / 2) * Math.PI) / 180)
+  const D = fitDistance(H)
   // The rig's transform-origin (50% 20%) is the pivot for the scroll tilt, as in Level 2.
-  const rigH = H - HERO_MARGIN * 2
-  const pivotY = -(HERO_MARGIN + rigH * 0.2 - H / 2) / T.pxPerUnit
+  const pivotY = -(MARGIN + (H - MARGIN * 2) * 0.2 - H / 2) / T.pxPerUnit
 
   const layout = useMemo(
     () =>
       boxes?.map((b, i) => {
-        // Scale each plane by its depth so that, at rest, it projects to exactly its DOM size.
-        const k = (D - T.layerZ[i]) / D
-        return {
-          x: ((b.cx - W / 2) / T.pxPerUnit) * k,
-          y: (-(b.cy - H / 2) / T.pxPerUnit) * k - pivotY,
-          z: T.layerZ[i],
-          w: ((b.w + PAD * 2) / T.pxPerUnit) * k,
-          h: ((b.h + PAD * 2) / T.pxPerUnit) * k,
-        }
+        // Scaled by depth so that, at rest, each plane projects to exactly its DOM size.
+        const p = toWorld(b.cx, b.cy, T.layerZ[i], W, H, D)
+        return { x: p.x, y: p.y - pivotY, z: T.layerZ[i], w: ((b.w + PAD * 2) / T.pxPerUnit) * p.k, h: ((b.h + PAD * 2) / T.pxPerUnit) * p.k }
       }) ?? null,
     [boxes, W, H, D, pivotY],
   )
@@ -163,11 +113,7 @@ function Cards({ rig, progress, onLive }: HeroSceneProps) {
       m.rotation.set(py * T.cardRot[i], px * T.cardRot[i], f * T.floatRoll)
       ;(m.material as MeshBasicMaterial).opacity = opacity
     })
-
-    if (!ready.current) {
-      ready.current = true
-      requestAnimationFrame(() => onLive(true)) // after this frame is on screen
-    }
+    live()
   })
 
   if (!layout || !textures) return null
@@ -183,7 +129,7 @@ function Cards({ rig, progress, onLive }: HeroSceneProps) {
           renderOrder={i}
         >
           <planeGeometry args={[l.w, l.h]} />
-          <meshBasicMaterial map={textures[i]} transparent depthWrite={false} depthTest={false} toneMapped={false} />
+          <meshBasicMaterial map={textures[i]} {...PLANE_MATERIAL} />
         </mesh>
       ))}
     </group>
@@ -191,21 +137,9 @@ function Cards({ rig, progress, onLive }: HeroSceneProps) {
 }
 
 export default function HeroScene(props: HeroSceneProps) {
-  const host = useRef<HTMLDivElement>(null)
-  const onScreen = useOnScreen(host)
-  const { onLive } = props
-  useEffect(() => () => onLive(false), [onLive])
   return (
-    <div ref={host} className="hero-3d" aria-hidden="true">
-      <Canvas
-        frameloop={onScreen ? 'always' : 'never'}
-        dpr={[1, T.dprMax]}
-        flat
-        gl={{ antialias: false, alpha: true, powerPreference: 'default' }}
-        camera={{ fov: T.fov, near: 0.1, far: 100, position: [0, 0, 10] }}
-      >
-        <Cards {...props} />
-      </Canvas>
-    </div>
+    <SceneCanvas className="hero-3d" onLive={props.onLive}>
+      <Cards {...props} />
+    </SceneCanvas>
   )
 }
