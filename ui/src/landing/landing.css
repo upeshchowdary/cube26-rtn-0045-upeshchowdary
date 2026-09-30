@@ -86,6 +86,14 @@
   text-align: left;
 }
 .hc { position: absolute; will-change: transform; }
+/* Level 3 hero (three/HeroScene): the canvas fades in over the DOM cards, which then hide underneath.
+   They stay in the DOM (opacity only), so screen readers still read them. */
+.hero-stage-inner { position: relative; }
+.hero-3d { position: absolute; inset: -140px; z-index: 4; pointer-events: none; opacity: 0; transition: opacity 0.35s var(--ease); }
+.hero-3d canvas { display: block; }
+.is-3d .hero-3d { opacity: 1; }
+.hero-rig .hc { transition: opacity 0s linear 0s; }
+.is-3d .hero-rig .hc { opacity: 0; transition-delay: 0.35s; will-change: auto; }
 .hc-card { background: rgba(255, 255, 255, 0.94); border: 1px solid var(--border); border-radius: var(--r-xl); box-shadow: var(--shadow-lg); padding: 18px; }
 .hc-evidence { left: 0; top: 64px; width: 300px; }
 .hc-record { left: 50%; top: 0; width: 460px; margin-left: -230px; z-index: 2; }

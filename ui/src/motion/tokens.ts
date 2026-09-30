@@ -107,3 +107,22 @@ export const heroScroll = {
   rotateX: 6,
   opacity: 0.55,
 } as const
+
+/** Level 3 (Part H). World scale: 1 unit = 100 CSS px at z = 0, so the 3D cards sit exactly
+ *  where the Level 2 cards do and the swap between them is seamless. */
+export const three = {
+  pxPerUnit: 100,
+  fov: 30,
+  /** Card planes: slight Z separation, back / middle / front, in world units. */
+  layerZ: [-0.3, 0, 0.3],
+  /** Pointer influence, radians at pointer = ±1 (Part H: camera 0.02–0.05, cards 0.01–0.03). */
+  cameraRot: 0.04,
+  cardRot: [0.012, 0.018, 0.026],
+  /** Floating: CSS px of travel and radians of roll; reaches full strength after `settle` s. */
+  floatY: [3, 2, 4],
+  floatRoll: 0.004,
+  settle: 2.4,
+  /** Cross-fade from the Level 2 DOM to the canvas once textures are on the GPU (s). */
+  fadeIn: 0.35,
+  dprMax: 2,
+} as const

@@ -1,6 +1,8 @@
 // E1 Hero: kinetic headline over the particle field, and a layered 2.5D composition of real
-// Return Manager card types built from the sample unit (labelled Sample data).
-import { useLayoutEffect, useRef } from 'react'
+// Return Manager card types built from the sample unit (labelled Sample data). On capable desktops
+// the same cards are swapped for a Level 3 scene (three/HeroScene), loaded as its own chunk; the
+// DOM cards stay in place underneath (still read by screen readers) and remain the fallback.
+import { lazy, Suspense, useCallback, useLayoutEffect, useRef, useState } from 'react'
 import gsap from 'gsap'
 import { Check, Camera, CircleDot, ScanLine, X } from 'lucide-react'
 import { Button, Eyebrow, SampleTag } from '../design/components'
@@ -9,11 +11,20 @@ import { ParticleField } from '../motion/ParticleField'
 import { prefersReducedMotion } from '../motion/scroll'
 import { ease, heroScroll, pointer as P } from '../motion/tokens'
 import { LampArt } from './art'
+import { SceneBoundary } from './three/SceneBoundary'
+import { useSceneGate } from './three/support'
 import { condition, identity, parts, recommendation, unit } from './sample'
+
+const HeroScene = lazy(() => import('./three/HeroScene'))
 
 export function Hero() {
   const stage = useRef<HTMLDivElement>(null)
   const rig = useRef<HTMLDivElement>(null)
+  const progress = useRef(0)
+  const use3d = useSceneGate(stage)
+  const [ready3d, setReady3d] = useState(false)
+  const onLive = useCallback((live: boolean) => setReady3d(live), [])
+  const live3d = use3d && ready3d // Level 2 returns the moment the scene is dropped
 
   // Scroll-linked hand-off (Part F7): the visual moves up, scales, tilts and recedes as the page scrolls.
   useLayoutEffect(() => {
@@ -25,7 +36,13 @@ export function Hero() {
         rotateX: heroScroll.rotateX,
         opacity: heroScroll.opacity,
         ease: ease.linear,
-        scrollTrigger: { trigger: stage.current, start: 'top 60%', end: 'bottom top', scrub: true },
+        scrollTrigger: {
+          trigger: stage.current,
+          start: 'top 60%',
+          end: 'bottom top',
+          scrub: true,
+          onUpdate: (self) => (progress.current = self.progress), // drives the Level 3 hand-off too
+        },
       })
     })
     return () => ctx.revert()
@@ -64,7 +81,14 @@ export function Hero() {
       </Reveal>
 
       <Reveal className="hero-stage" immediate>
-        <div ref={stage} className="hero-stage-inner" data-reveal="visual">
+        <div ref={stage} className={`hero-stage-inner${live3d ? ' is-3d' : ''}`} data-reveal="visual">
+          {use3d && (
+            <SceneBoundary>
+              <Suspense fallback={null}>
+                <HeroScene rig={rig} progress={progress} onLive={onLive} />
+              </Suspense>
+            </SceneBoundary>
+          )}
           <div ref={rig} className="hero-rig">
             {/* back layer: evidence */}
             <Depth depth={P.heroBack} seed={0.21} className="hc hc-evidence">

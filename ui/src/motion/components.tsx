@@ -1,5 +1,10 @@
 // Reusable motion components (Part F1): Reveal, KineticHeadline, Depth.
-import { Fragment, useEffect, useRef, type ElementType, type ReactNode } from 'react'
+import { Fragment, useEffect, useRef, type ReactNode } from 'react'
+
+// Plain HTML tags only. (A bare React ElementType also admits the three.js elements that
+// @react-three/fiber adds to JSX, which collapses the tag's props to `never`.) Rendered through a
+// 'div'-typed alias: each of these is an HTMLElement for the ref and takes the same attributes.
+type HtmlTag = 'div' | 'section' | 'span' | 'p' | 'ul' | 'li' | 'h1' | 'h2' | 'h3'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { useIsoLayoutEffect, useReveal } from './hooks'
@@ -16,13 +21,14 @@ export function Reveal({
   id,
   immediate,
   ...rest
-}: { as?: ElementType; children: ReactNode; className?: string; id?: string; immediate?: boolean } & Record<string, unknown>) {
-  const ref = useRef<HTMLElement>(null)
+}: { as?: HtmlTag; children: ReactNode; className?: string; id?: string; immediate?: boolean } & Record<string, unknown>) {
+  const ref = useRef<HTMLDivElement>(null)
   useReveal(ref, { immediate })
+  const El = Tag as 'div'
   return (
-    <Tag ref={ref} className={className} id={id} {...rest}>
+    <El ref={ref} className={className} id={id} {...rest}>
       {children}
-    </Tag>
+    </El>
   )
 }
 
@@ -41,13 +47,13 @@ export function KineticHeadline({
   delay = 0,
 }: {
   parts: HeadlinePart[]
-  as?: ElementType
+  as?: HtmlTag
   className?: string
   id?: string
   immediate?: boolean
   delay?: number
 }) {
-  const ref = useRef<HTMLElement>(null)
+  const ref = useRef<HTMLDivElement>(null)
   useIsoLayoutEffect(() => {
     const root = ref.current
     if (!root) return
@@ -68,8 +74,9 @@ export function KineticHeadline({
 
   const label = parts.map((p) => p.text).join(' ')
   let key = 0
+  const El = Tag as 'div'
   return (
-    <Tag ref={ref} className={`kinetic ${className ?? ''}`} id={id} aria-label={label}>
+    <El ref={ref} className={`kinetic ${className ?? ''}`} id={id} aria-label={label}>
       {parts.map((part) => {
         const words = part.text.split(' ').filter(Boolean)
         return [
@@ -83,7 +90,7 @@ export function KineticHeadline({
           part.br ? <br key={key++} /> : null,
         ]
       })}
-    </Tag>
+    </El>
   )
 }
 
