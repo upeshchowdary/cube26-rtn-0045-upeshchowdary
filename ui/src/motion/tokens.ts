@@ -142,3 +142,12 @@ export const evidenceFan = {
   activeLift: 0.35,
   activeDamp: 0.12,
 } as const
+
+/** Decision stack (Part F11): modest depth and vertical separation that keeps every layer readable. */
+export const decisionStack = {
+  margin: 56,
+  depth: 16,
+  spread: 70,
+  damping: 0.1,
+  layerZ: [-0.18, -0.1, -0.02, 0.06, 0.14, 0.22],
+} as const

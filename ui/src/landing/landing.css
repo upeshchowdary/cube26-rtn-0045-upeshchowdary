@@ -289,6 +289,9 @@
 /* =============================== E8 decision =============================== */
 .ds-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(32px, 6vw, 96px); align-items: center; }
 .ds-stack-wrap { position: relative; display: grid; gap: 16px; padding-left: 26px; }
+.ds-stack-wrap.is-3d > .ds-stack { opacity: 0; }
+.ds-stack-wrap .decision-3d { position: absolute; z-index: 3; pointer-events: none; opacity: 0; animation: lp-3d-in var(--t-page) var(--ease) forwards; }
+.ds-stack-wrap.is-3d .decision-3d { opacity: 1; }
 .ds-spine { position: absolute; left: 6px; top: 12px; bottom: 44px; width: 2px; background: var(--border); border-radius: 2px; overflow: hidden; }
 .ds-spine-fill { position: absolute; inset: 0; background: linear-gradient(180deg, var(--blue), var(--cyan)); transform-origin: 50% 0; }
 .ds-stack { position: relative; height: 470px; perspective: 1400px; transform-style: preserve-3d; }
@@ -479,4 +482,10 @@
   /* no scrubbed depth: the decision stack is a plain list */
   .ds-stack { height: auto; display: grid; gap: 10px; perspective: none; }
   .ds-layer { position: relative; }
+  .decision-3d { display: none !important; }
+}
+
+@keyframes lp-3d-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }

@@ -1,6 +1,6 @@
 // E7 From observations to a recommendation (pinned on desktop), E8 Human review and disposition,
 // E9 Exceptions.
-import { useLayoutEffect, useRef } from 'react'
+import { lazy, Suspense, useCallback, useLayoutEffect, useRef, useState } from 'react'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { AlertTriangle, Check, Cpu, FileCheck2, Package, ScanLine, ShieldAlert, Sparkles, UserCheck } from 'lucide-react'
@@ -9,8 +9,12 @@ import { KineticHeadline, Reveal } from '../motion/components'
 import { prefersReducedMotion } from '../motion/scroll'
 import { duration, ease, scroll } from '../motion/tokens'
 import { condition, dispositions, exceptions, identity, otherOutcomes, parts, recommendation } from './sample'
+import { SceneBoundary } from './three/SceneBoundary'
+import { useSceneGate } from './three/support'
 
 gsap.registerPlugin(ScrollTrigger)
+
+const DecisionScene = lazy(() => import('./three/DecisionScene'))
 
 // Node geometry in a 1000 × 480 viewBox; DOM nodes are placed at the same percentages.
 const INPUTS = [
@@ -211,6 +215,12 @@ const LAYERS = [
 
 export function Decision() {
   const section = useRef<HTMLElement>(null)
+  const stackWrap = useRef<HTMLDivElement>(null)
+  const progress = useRef(0)
+  const use3d = useSceneGate(stackWrap)
+  const [ready3d, setReady3d] = useState(false)
+  const onLive = useCallback((live: boolean) => setReady3d(live), [])
+  const live3d = use3d && ready3d
 
   // Decision stack (Part F11): layers start overlapping, separate in depth, then align.
   useLayoutEffect(() => {
@@ -220,6 +230,7 @@ export function Decision() {
     const stack = root.querySelector<HTMLElement>('.ds-stack')
     const spine = root.querySelector<HTMLElement>('.ds-spine-fill')
     const setState = (p: number) => {
+      progress.current = p
       layers.forEach((l, i) => l.classList.toggle('on', p > 0.18 + i * 0.1))
       stack?.classList.toggle('decided', p > 0.86)
     }
@@ -249,7 +260,14 @@ export function Decision() {
   return (
     <section ref={section} className="lp-section lp-decision" id="decision" aria-labelledby="decision-title">
       <div className="ds-grid">
-        <div className="ds-stack-wrap">
+        <div ref={stackWrap} className={`ds-stack-wrap${live3d ? ' is-3d' : ''}`}>
+          {use3d && (
+            <SceneBoundary>
+              <Suspense fallback={null}>
+                <DecisionScene wrap={stackWrap} progress={progress} onLive={onLive} />
+              </Suspense>
+            </SceneBoundary>
+          )}
           <div className="ds-spine" aria-hidden="true">
             <span className="ds-spine-fill" />
           </div>
