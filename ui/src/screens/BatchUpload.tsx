@@ -55,7 +55,7 @@ function SingleFilePicker({
       >
         {file ? (
           <>
-            <FileCheck2 size={34} style={{ color: '#4ade80' }} />
+            <FileCheck2 size={34} style={{ color: 'var(--success)' }} />
             <strong style={{ fontSize: '15px' }}>{file.name}</strong>
             <span>
               {(file.size / 1024).toFixed(1)} KB ·{' '}
@@ -65,7 +65,7 @@ function SingleFilePicker({
             <div className="single-upload-badges">
               <span
                 className="single-upload-badge"
-                style={{ color: '#4ade80', borderColor: 'rgba(74, 222, 128, 0.3)' }}
+                style={{ color: 'var(--success)', borderColor: 'var(--success-line)' }}
               >
                 ✓ Unified before-sale & after-sale dataset
               </span>
@@ -76,7 +76,7 @@ function SingleFilePicker({
           </>
         ) : (
           <>
-            <Upload size={32} style={{ color: '#57e389' }} />
+            <Upload size={32} style={{ color: 'var(--blue)' }} />
             <strong style={{ fontSize: '15px' }}>
               Choose a unified returns batch CSV file or drag and drop here
             </strong>
@@ -352,7 +352,7 @@ export default function BatchUpload() {
             <span>
               {file ? (
                 <>
-                  <Check size={13} style={{ color: '#4ade80' }} /> {file.name}{' '}
+                  <Check size={13} style={{ color: 'var(--success)' }} /> {file.name}{' '}
                   {rowCount !== null ? `(${rowCount} items)` : ''}
                 </>
               ) : (

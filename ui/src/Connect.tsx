@@ -39,7 +39,7 @@ export default function Connect() {
   }
 
   return (
-    <div className="overlay connect-screen">
+    <div className="overlay connect-screen rm-app">
       <motion.div className="dialog connect-dialog" initial={{ y: 12, scale: 0.98, opacity: 0 }} animate={{ y: 0, scale: 1, opacity: 1 }}>
         <div className="dialog-head">
           <div>

@@ -66,7 +66,7 @@ export function InspectionComparison({
             <h2>Inspection comparison</h2>
           </div>
         </div>
-        <div className="functional" style={{ color: '#d97706' }}>
+        <div className="functional" style={{ color: 'var(--warning)' }}>
           <CircleAlert size={14} /> Not inspected: {reason}
         </div>
       </section>

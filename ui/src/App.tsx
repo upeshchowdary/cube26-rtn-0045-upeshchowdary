@@ -6,11 +6,11 @@ import {
   Bell,
   Boxes,
   CheckCircle2,
-  ChevronDown,
   ChevronRight,
   ClipboardCheck,
   Command,
   Download,
+  KeyRound,
   FileCheck2,
   LayoutDashboard,
   Menu,
@@ -28,7 +28,7 @@ import {
 import { AnimatePresence, motion } from 'framer-motion'
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 
-import AmbientCanvas from './AmbientCanvas'
+import { Mark } from './design/components'
 import Connect from './Connect'
 import { SessionProvider, useSession } from './lib/session'
 import { BatchStoreProvider, useBatchStore } from './lib/store'
@@ -48,6 +48,7 @@ import Integrations from './screens/Integrations'
 import SettingsPage from './screens/Settings'
 
 import './styles.css'
+import './design/app-theme.css'
 
 // The landing page (and the GSAP + Lenis motion stack it carries) is a separate chunk.
 const Landing = lazy(() => import('./landing/Landing'))
@@ -63,7 +64,7 @@ const groups: { title: string; items: [string, string, LucideIcon][] }[] = [
     ],
   },
   {
-    title: 'INTELLIGENCE',
+    title: 'RECORDS',
     items: [
       ['Product catalogue', '/catalogue', Boxes],
       ['Unit passports', '/units/UNIT-0001', Smartphone],
@@ -85,7 +86,7 @@ function Shell({ children }: { children: ReactNode }) {
   const [mobile, setMobile] = useState(false)
   const [search, setSearch] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [dark, setDark] = useState(true)
+  const [dark, setDark] = useState(false)
   const [toast, setToast] = useState('')
   const location = useLocation()
   const navigate = useNavigate()
@@ -93,6 +94,8 @@ function Shell({ children }: { children: ReactNode }) {
   const { rows, inFlightJob, justCompletedJob, dismissCompletedJob, downloadOutput } = useBatchStore()
   const queueCount = reviewQueue(rows).length
   const defaultUnitId = rows[0]?.unit_id || 'UNIT-0001'
+  // The org the connected API key belongs to, as the batch rows report it; never an invented name.
+  const orgId = rows[0]?.org_id || ''
 
   const title = (() => {
     const p = location.pathname
@@ -111,12 +114,7 @@ function Shell({ children }: { children: ReactNode }) {
     return 'Returns'
   })()
 
-  const shellClass =
-    location.pathname === '/overview'
-      ? 'shell overview-shell'
-      : dark
-        ? 'shell dark dashboard-shell'
-        : 'shell dashboard-shell'
+  const shellClass = `shell rm-app${dark ? ' dark' : ''}`
 
   const q = searchQuery.trim().toLowerCase()
   const results = q
@@ -155,7 +153,6 @@ function Shell({ children }: { children: ReactNode }) {
 
   return (
     <div className={shellClass}>
-      {location.pathname !== '/overview' && <AmbientCanvas intensity={0.75} />}
       {mobile && <button className="scrim" onClick={() => setMobile(false)} aria-label="Close menu" />}
       <aside className={`sidebar ${collapsed ? 'collapsed' : ''} ${mobile ? 'mobile-open' : ''}`}>
         <div className="brand">
@@ -163,15 +160,10 @@ function Shell({ children }: { children: ReactNode }) {
             to="/overview"
             style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: 'inherit' }}
           >
-            <span className="cube-mark">
-              <i />
-              <i />
-              <i />
-              <i />
-            </span>
+            <Mark size={26} />
             {!collapsed && (
               <strong>
-                cube<span>returns</span>
+                Return <span>Manager</span>
               </strong>
             )}
           </Link>
@@ -185,14 +177,14 @@ function Shell({ children }: { children: ReactNode }) {
         </div>
 
         <button className="workspace" onClick={() => navigate('/dashboard')}>
-          <span className="workspace-logo">N</span>
+          <span className="workspace-logo">{(orgId[0] || 'W').toUpperCase()}</span>
           {!collapsed && (
             <>
               <span>
-                <b>Northstar Goods</b>
-                <small>Enterprise workspace</small>
+                <b>{orgId || 'Workspace'}</b>
+                <small>Organisation</small>
               </span>
-              <ChevronDown size={14} />
+              <ChevronRight size={14} />
             </>
           )}
         </button>
@@ -231,19 +223,17 @@ function Shell({ children }: { children: ReactNode }) {
         <div className="side-bottom">
           <div className="system-health">
             <i />
-            {!collapsed && (
-              <>
-                All systems operational <span>99.98%</span>
-              </>
-            )}
+            {!collapsed && <>Connected with an API key</>}
           </div>
           <button className="user-profile" onClick={() => navigate('/settings')}>
-            <span className="user-avatar">OP</span>
+            <span className="user-avatar">
+              <KeyRound size={14} />
+            </span>
             {!collapsed && (
               <>
                 <span>
-                  <b>Operations Lead</b>
-                  <small>Demo Operator</small>
+                  <b>API key session</b>
+                  <small>Keys and controls in Settings</small>
                 </span>
                 <MoreHorizontal size={17} />
               </>
@@ -259,7 +249,7 @@ function Shell({ children }: { children: ReactNode }) {
               <Menu size={20} />
             </button>
             <div className="crumb">
-              Northstar Goods <ChevronRight size={13} />
+              {orgId || 'Workspace'} <ChevronRight size={13} />
               <b>{title}</b>
             </div>
           </div>
@@ -301,8 +291,8 @@ function Shell({ children }: { children: ReactNode }) {
             >
               <span />
             </button>
-            <button className="top-avatar" aria-label="User account" onClick={() => navigate('/settings')}>
-              OP
+            <button className="top-avatar" aria-label="API key and settings" onClick={() => navigate('/settings')}>
+              <KeyRound size={14} />
             </button>
           </div>
         </header>

@@ -199,15 +199,15 @@ function CachePanel() {
         </div>
         <div style={{ padding: '12px', background: 'var(--canvas)', borderRadius: '8px', border: '1px solid var(--line)' }}>
           <small style={{ color: 'var(--muted)', fontSize: '9.5px', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '5px' }}>
-            <CheckCircle2 size={12} color="#347d70" /> Client Cache
+            <CheckCircle2 size={12} color="#2563eb" /> Where it is held
           </small>
-          <div style={{ fontSize: '13px', fontWeight: 600, marginTop: '10px', color: '#347d70' }}>Active & Ready</div>
-          <small style={{ color: 'var(--muted)', fontSize: '9px', marginTop: '4px', display: 'block' }}>Browser session & cache maps</small>
+          <div style={{ fontSize: '13px', fontWeight: 600, marginTop: '10px', color: 'var(--blue)' }}>This browser tab</div>
+          <small style={{ color: 'var(--muted)', fontSize: '9px', marginTop: '4px', display: 'block' }}>Reloading the page fetches the rows from the API again</small>
         </div>
       </div>
 
       <div style={{ padding: '16px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.06)', border: '1px solid rgba(239, 68, 68, 0.25)', margin: '8px 0 16px' }}>
-        <b style={{ color: '#ef4444', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <b style={{ color: 'var(--danger)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
           <Trash2 size={15} /> Erase All Stored Cache Data
         </b>
         <p style={{ margin: '8px 0 14px', fontSize: '11px', color: 'var(--muted)', lineHeight: '1.6' }}>
@@ -250,7 +250,7 @@ function CachePanel() {
             borderRadius: '6px',
             background: statusMsg.type === 'success' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
             border: `1px solid ${statusMsg.type === 'success' ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
-            color: statusMsg.type === 'success' ? '#22c55e' : '#ef4444',
+            color: statusMsg.type === 'success' ? 'var(--success)' : 'var(--danger)',
             fontSize: '11px',
             fontWeight: 500,
           }}
@@ -319,7 +319,7 @@ export default function SettingsPage() {
           {tab === 'API keys' && <ApiKeysPanel />}
           {tab === 'Data & cache' && <CachePanel />}
           {tab === 'Users & roles' &&
-            ['Operator · Capture returns and submit observations', 'Reviewer · Resolve findings and exceptions', 'Administrator · Manage workspace and policy'].map((r) => (
+            ['Operator · Create returns, upload batches, accept or override decisions', 'Reviewer · Resolve reviews and give the second-person sign-off', 'Admin · Kill switches, API keys and reference data'].map((r) => (
               <div className="role-row" key={r}>
                 <Users size={16} />
                 {r}
@@ -342,7 +342,7 @@ export default function SettingsPage() {
                 title="Erase all stored cache data"
                 style={{
                   borderColor: 'rgba(239, 68, 68, 0.45)',
-                  color: '#ef4444',
+                  color: 'var(--danger)',
                 }}
               >
                 <Trash2 size={13} /> {footerClearing ? 'Clearing cache...' : 'Clear cache'}
@@ -353,7 +353,7 @@ export default function SettingsPage() {
             </div>
           </div>
           {footerMsg && (
-            <div style={{ marginTop: '8px', fontSize: '10.5px', color: '#22c55e', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ marginTop: '8px', fontSize: '10.5px', color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <CheckCircle2 size={13} /> {footerMsg}
             </div>
           )}
