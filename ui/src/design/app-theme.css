@@ -92,6 +92,8 @@
 .rm-app .icon-button:hover { background: var(--bg-2); color: var(--text); }
 .rm-app .bell-btn > i { background: var(--warning); }
 .rm-app .page { max-width: 1480px; padding: 32px 40px 48px; }
+/* Placeholder while a screen's own chunk loads: holds the page height so the shell doesn't jump. */
+.rm-app .rm-screen-loading { min-height: 60vh; }
 
 /* ---------- page header ---------- */
 .rm-app .page-header { margin: 4px 0 28px; }
