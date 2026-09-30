@@ -1,0 +1,287 @@
+/* Workspace theme (Part G): the same tokens, type, borders, buttons, cards and status colours as
+   the landing page, applied over the existing screen styles. Changes how the screens look, never
+   what they show or do. Level 1 motion only: hover, row transitions, the entrance. */
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
+@import './tokens.css';
+
+/* ---------- legacy variables → design tokens ---------- */
+.rm-app {
+  --paper: #ffffff;
+  --canvas: #f8fafc;
+  --ink: var(--text);
+  --muted: var(--text-2);
+  --line: var(--border);
+  --soft-green: var(--blue-50);
+  --shadow: var(--shadow-sm);
+  --teal: var(--blue);
+  --teal-dark: var(--blue-hover);
+  --amber: var(--warning);
+  --red: var(--danger);
+  --violet: var(--warning);
+  background: var(--canvas);
+  color: var(--text);
+  font-family: var(--font);
+}
+.rm-app.dark {
+  --bg: #0b0f19;
+  --bg-2: #111827;
+  --text: #e5e7eb;
+  --text-2: #9ca3af;
+  --text-3: #6b7280;
+  --border: #1f2937;
+  --border-soft: #1f2937;
+  --border-strong: #374151;
+  --blue-50: rgba(37, 99, 235, 0.14);
+  --blue-25: rgba(37, 99, 235, 0.08);
+  --blue-line: rgba(59, 130, 246, 0.35);
+  --success-50: rgba(21, 128, 61, 0.16);
+  --success-line: rgba(34, 197, 94, 0.3);
+  --success: #4ade80;
+  --warning-50: rgba(180, 83, 9, 0.18);
+  --warning-line: rgba(245, 158, 11, 0.32);
+  --warning: #fbbf24;
+  --danger-50: rgba(185, 28, 28, 0.18);
+  --danger-line: rgba(248, 113, 113, 0.32);
+  --danger: #f87171;
+  --paper: #111827;
+  --canvas: #0b0f19;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+/* F14: the landing page leads into the working product with a short fade + rise. */
+@keyframes rm-app-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes rm-app-fade { from { opacity: 0; } to { opacity: 1; } }
+.shell.rm-app { animation: rm-app-in 520ms var(--ease) both; }
+@media (prefers-reduced-motion: reduce) {
+  .shell.rm-app { animation-name: rm-app-fade; }
+}
+
+/* ---------- shell ---------- */
+.rm-app .sidebar { width: 256px; flex-basis: 256px; background: var(--paper); border-right: 1px solid var(--border); padding: 20px 14px 14px; }
+.rm-app .sidebar.collapsed { width: 72px; flex-basis: 72px; }
+.rm-app .brand { height: 40px; margin-bottom: 18px; }
+.rm-app .brand strong { font-size: 17px; font-weight: 500; letter-spacing: -0.02em; color: var(--text); }
+.rm-app .brand strong span { font-weight: 700; color: var(--text); margin-left: 4px; }
+.rm-app .workspace { height: 56px; border-radius: 12px; border-color: var(--border); background: var(--bg-2); }
+.rm-app .workspace-logo { width: 32px; height: 32px; border-radius: 9px; background: var(--blue-50); color: var(--blue); }
+.rm-app .workspace b, .rm-app .user-profile b { font-size: 13.5px; }
+.rm-app .workspace small, .rm-app .user-profile small { font-size: 12px; }
+.rm-app .nav-label { font-size: 11px; letter-spacing: var(--tracking-label); color: var(--text-3); height: 18px; }
+.rm-app .nav-link { height: 40px; border-radius: 10px; font-size: 14.5px; color: #4b5563; gap: 12px; transition: background-color var(--t-hover) var(--ease), color var(--t-hover) var(--ease); }
+.rm-app.dark .nav-link { color: var(--text-2); }
+.rm-app .nav-link:hover { background: var(--bg-2); color: var(--text); }
+.rm-app .nav-link.active, .rm-app.dark .nav-link.active { background: var(--blue-50); color: var(--blue); font-weight: 600; }
+.rm-app .nav-link.active:before { background: var(--blue); left: -14px; }
+.rm-app .nav-badge { background: var(--warning-50); color: var(--warning); font-size: 11.5px; font-weight: 600; padding: 2px 8px; }
+.rm-app .system-health { font-size: 12.5px; height: 36px; }
+.rm-app .system-health > i { background: var(--blue); box-shadow: 0 0 0 3px var(--blue-50); }
+.rm-app .user-avatar, .rm-app .top-avatar { background: var(--blue-50); color: var(--blue); width: 32px; height: 32px; }
+.rm-app .topbar { height: 64px; background: rgba(255, 255, 255, 0.86); backdrop-filter: saturate(1.4) blur(12px); -webkit-backdrop-filter: saturate(1.4) blur(12px); border-bottom: 1px solid var(--border); padding: 0 32px; }
+.rm-app.dark .topbar { background: rgba(11, 15, 25, 0.86); }
+.rm-app .crumb { font-size: 14px; }
+.rm-app .global-search { height: 38px; width: 260px; border-radius: 10px; font-size: 13.5px; background: var(--bg-2); border-color: var(--border); }
+.rm-app .global-search kbd { font-size: 11.5px; border-radius: 6px; }
+.rm-app .theme-switch { width: 40px; height: 22px; border-color: var(--border); background: var(--bg-2); }
+.rm-app .theme-switch span { width: 16px; height: 16px; background: var(--blue); }
+.rm-app.dark .theme-switch span { transform: translateX(18px); background: var(--blue-2); }
+.rm-app .icon-button { width: 36px; height: 36px; border-radius: 10px; color: var(--text-2); }
+.rm-app .icon-button:hover { background: var(--bg-2); color: var(--text); }
+.rm-app .bell-btn > i { background: var(--warning); }
+.rm-app .page { max-width: 1480px; padding: 32px 40px 48px; }
+/* Placeholder while a screen's own chunk loads: holds the page height so the shell doesn't jump. */
+.rm-app .rm-screen-loading { min-height: 60vh; }
+
+/* ---------- page header ---------- */
+.rm-app .page-header { margin: 4px 0 28px; }
+.rm-app .page-header h1 { font-size: 30px; font-weight: 600; letter-spacing: -0.025em; }
+.rm-app .page-header p { font-size: 15px; color: var(--text-2); margin-top: 8px; max-width: 720px; line-height: 1.55; }
+.rm-app .eyebrow, .rm-app .kicker { color: var(--blue); font-size: 11.5px; font-weight: 600; letter-spacing: var(--tracking-label); text-transform: uppercase; }
+
+/* ---------- buttons (D2) ---------- */
+.rm-app .button {
+  height: 40px;
+  padding: 0 16px;
+  border-radius: var(--r-md);
+  font-size: 14px;
+  font-weight: 600;
+  border-color: var(--border);
+  background: var(--paper);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--t-hover) var(--ease), box-shadow var(--t-hover) var(--ease), background-color var(--t-hover) var(--ease), border-color var(--t-hover) var(--ease);
+}
+.rm-app .button:hover:not(:disabled) { background: var(--paper); border-color: var(--border-strong); box-shadow: var(--shadow-md); transform: translateY(var(--lift)); }
+.rm-app .button:active:not(:disabled) { transform: scale(0.98); }
+.rm-app .button.primary { background: var(--blue); border-color: var(--blue); color: #fff; box-shadow: var(--shadow-blue); }
+.rm-app .button.primary:hover:not(:disabled) { background: var(--blue-hover); border-color: var(--blue-hover); box-shadow: var(--shadow-blue-lg); }
+.rm-app .button:disabled { opacity: 0.5; }
+
+/* ---------- cards / panels (C5, D3) ---------- */
+.rm-app .panel { border-radius: var(--r-lg); border-color: var(--border); box-shadow: var(--shadow-sm); }
+.rm-app .panel-head h2, .rm-app .panel h2 { font-size: 17px; font-weight: 600; letter-spacing: -0.015em; }
+.rm-app .panel-head p, .rm-app .panel-head > div > p { font-size: 13.5px; }
+.rm-app .metric { border-radius: 14px; min-height: 118px; padding: 16px; border-color: var(--border); box-shadow: var(--shadow-sm); transition: transform var(--t-hover) var(--ease), box-shadow var(--t-hover) var(--ease), border-color var(--t-hover) var(--ease); }
+.rm-app .metric:hover { border-color: var(--border-strong); box-shadow: var(--shadow-md); }
+.rm-app .metric > strong { font-size: 28px; letter-spacing: -0.03em; font-weight: 600; }
+.rm-app .metric-label { font-size: 13px; }
+.rm-app .metric > small { font-size: 12px; color: var(--text-3); }
+.rm-app .metric-icon { width: 32px; height: 32px; border-radius: 9px; }
+.rm-app .metric-icon.teal, .rm-app .metric-icon.blue { background: var(--blue-50); color: var(--blue); }
+.rm-app .metric-icon.green { background: var(--success-50); color: var(--success); }
+.rm-app .metric-icon.amber, .rm-app .metric-icon.violet { background: var(--warning-50); color: var(--warning); }
+.rm-app .metric-icon.red { background: var(--danger-50); color: var(--danger); }
+.rm-app .metric-arrow { color: var(--text-3); }
+.rm-app .metrics { gap: 14px; margin-bottom: 16px; }
+.rm-app .dashboard-grid, .rm-app .bottom-grid { gap: 16px; margin-bottom: 16px; }
+.rm-app .chart-panel, .rm-app .disposition, .rm-app .attention { padding: 20px 22px 14px; }
+
+/* ---------- status pills (Part G status colours) ---------- */
+.rm-app .pill { border-radius: var(--r-pill); padding: 3px 10px; min-height: 24px; font-size: 12px; font-weight: 600; background: var(--bg-2); color: var(--text-2); border: 1px solid var(--border); }
+.rm-app .pill.pass, .rm-app .pill.complete, .rm-app .pill.restock, .rm-app .pill.finalized, .rm-app .pill.auto-approved,
+.rm-app .pill.enabled, .rm-app .pill.connected, .rm-app .pill.matched, .rm-app .pill.real { background: var(--success-50); color: var(--success); border-color: var(--success-line); }
+.rm-app .pill.fail, .rm-app .pill.disapproved, .rm-app .pill.high-priority { background: var(--danger-50); color: var(--danger); border-color: var(--danger-line); }
+.rm-app .pill.uncertain, .rm-app .pill.awaiting-review, .rm-app .pill.awaiting-sign-off, .rm-app .pill.incomplete,
+.rm-app .pill.awaiting-operator, .rm-app .pill.needs-attention, .rm-app .pill.pending-review { background: var(--warning-50); color: var(--warning); border-color: var(--warning-line); }
+.rm-app .pill.refurbish, .rm-app .pill.inspecting, .rm-app .pill.recovery { background: var(--blue-50); color: var(--blue); border-color: var(--blue-line); }
+.rm-app .pill.liquidate, .rm-app .pill.dispose { background: var(--bg-2); color: #475569; border-color: var(--border); }
+.rm-app.dark .pill.liquidate, .rm-app.dark .pill.dispose { color: var(--text-2); }
+
+/* ---------- tables, tabs, search ---------- */
+.rm-app .return-toolbar { padding: 0 18px; }
+.rm-app .tabs { gap: 22px; }
+.rm-app .tab { height: 50px; font-size: 14px; }
+.rm-app .tab small { font-size: 11.5px; padding: 2px 7px; }
+.rm-app .tab.selected { color: var(--blue); border-bottom-color: var(--blue); }
+.rm-app .table-search { height: 38px; border-radius: 10px; }
+.rm-app .table-search input { font-size: 14px; width: 240px; }
+.rm-app th { height: 42px; font-size: 11.5px; letter-spacing: 0.08em; color: var(--text-3); background: var(--bg-2); text-transform: uppercase; }
+.rm-app td { height: 60px; font-size: 13.5px; }
+.rm-app td > b, .rm-app .product-cell b { font-size: 14px; }
+.rm-app td > small, .rm-app .product-cell small { font-size: 12px; }
+.rm-app tbody tr { transition: background-color var(--t-fast) var(--ease); }
+.rm-app tbody tr:hover { background: var(--blue-25); }
+.rm-app .product-cell img { width: 40px; height: 40px; border-radius: 9px; border: 1px solid var(--border); }
+.rm-app .table-footer { height: 52px; font-size: 13px; }
+.rm-app .table-footer button { width: 32px; height: 32px; border-radius: 8px; }
+.rm-app .select { height: 36px; border-radius: 9px; font-size: 13px; }
+.rm-app .empty { font-size: 14px; }
+
+/* ---------- lists on the dashboard / queue ---------- */
+.rm-app .attention-row { min-height: 60px; grid-template-columns: 24px minmax(200px, 1fr) 160px 80px 16px; transition: background-color var(--t-fast) var(--ease); border-radius: 10px; }
+.rm-app .attention-row b { font-size: 14px; }
+.rm-app .attention-row small { font-size: 12.5px; }
+.rm-app .count { font-size: 12px; border-radius: 999px; padding: 2px 8px; }
+.rm-app .text-link, .rm-app .inspection-crumb a, .rm-app .audit-mini a, .rm-app .evidence-ref, .rm-app .defect > button { color: var(--blue); }
+.rm-app .chart-legend { font-size: 12.5px; }
+.rm-app .disposition-list { font-size: 13.5px; }
+.rm-app .donut-label b { font-size: 26px; letter-spacing: -0.03em; }
+
+/* ---------- inspection ---------- */
+.rm-app .inspection-title h1 { font-size: 28px; letter-spacing: -0.025em; }
+.rm-app .inspection-meta { font-size: 13px; flex-wrap: wrap; row-gap: 4px; }
+.rm-app .inspection-meta > span { white-space: nowrap; }
+.rm-app .inspection-crumb { font-size: 13px; }
+.rm-app .inspection-grid { gap: 16px; }
+.rm-app .evidence-panel, .rm-app .decision-panel, .rm-app .finding-panel { padding: 18px; }
+.rm-app .viewer { border-radius: 12px; }
+.rm-app .viewer-controls { height: 36px; background: var(--bg-2); font-size: 11.5px; }
+.rm-app .viewer-image { background: var(--bg-2); }
+.rm-app .photo-strip button { width: 64px; height: 56px; border-radius: 9px; }
+.rm-app .photo-strip button.chosen { border-color: var(--blue); }
+.rm-app .evidence-tabs button.active { border-color: var(--blue); color: var(--blue); }
+.rm-app .recommend-card { border-radius: 12px; border: 1px solid var(--blue-line); border-left: 3px solid var(--blue); background: var(--blue-25); padding: 14px 12px; }
+.rm-app .recommend-card > span { background: var(--blue-50); color: var(--blue); border-radius: 10px; width: 38px; height: 38px; }
+.rm-app .recommend-card b { font-size: 19px; letter-spacing: -0.015em; color: var(--blue); }
+.rm-app .decision-facts > div { height: 34px; }
+.rm-app .decision-facts > div > span, .rm-app .decision-facts > div > b { font-size: 13.5px; }
+.rm-app .why > b { color: var(--warning); font-size: 13.5px; }
+.rm-app .why p { font-size: 13.5px; color: var(--text-2); }
+.rm-app .identity-summary { border-radius: 12px; background: var(--success-50); border-color: var(--success-line); color: var(--success); }
+.rm-app .identity-summary b { font-size: 14px; }
+.rm-app .identity-summary small { font-size: 12px; }
+.rm-app .component-row { height: 46px; font-size: 13.5px; }
+.rm-app .component-row > span:nth-child(2) small { font-size: 11.5px; }
+.rm-app .check-list button { min-height: 38px; }
+.rm-app .check-list button span { font-size: 13.5px; }
+.rm-app .check-list button > b { font-size: 12px; }
+.rm-app .grade { border-color: var(--blue-line); background: var(--blue-25); color: var(--blue); border-radius: 8px; width: 30px; height: 30px; }
+.rm-app .defect > span { background: var(--warning-50); color: var(--warning); border-radius: 8px; }
+.rm-app .defect > b { font-size: 13.5px; }
+.rm-app .functional, .rm-app .evidence-disclaimer, .rm-app .inspection-foot { font-size: 12.5px; }
+.rm-app .reviewer > span { background: var(--blue-50); color: var(--blue); }
+
+/* ---------- dialogs, forms, search, toast ---------- */
+.rm-app .overlay, .overlay.rm-app { background: rgba(11, 15, 25, 0.32); backdrop-filter: blur(4px); }
+.rm-app .dialog, .rm-app .search-modal { border-radius: var(--r-xl); border-color: var(--border); box-shadow: 0 30px 80px rgba(15, 23, 42, 0.18); padding: 24px; }
+.rm-app .search-modal { padding: 0; }
+.rm-app .dialog-head small { font-size: 11.5px; letter-spacing: var(--tracking-label); color: var(--blue); font-weight: 600; }
+.rm-app .dialog-head h2 { font-size: 22px; letter-spacing: -0.02em; font-weight: 600; }
+.rm-app .dialog > p { font-size: 14.5px; }
+.rm-app .field > span { font-size: 13px; }
+.rm-app .field input, .rm-app .field select, .rm-app .field textarea { font-size: 14px; padding: 10px 12px; border-radius: 10px; border-color: var(--border); }
+.rm-app .field input:focus, .rm-app .field select:focus, .rm-app .field textarea:focus { outline: 2px solid var(--blue-line); border-color: var(--blue); }
+.rm-app .search-input { height: 58px; }
+.rm-app .search-input input { font-size: 16px; }
+.rm-app .search-results b { font-size: 14px; }
+.rm-app .search-results small { font-size: 12px; }
+.rm-app .search-results > button:hover { background: var(--blue-25); }
+.rm-app .toast { border-radius: 12px; font-size: 14px; }
+.rm-app .demo-note { font-size: 12.5px; color: var(--text-2); }
+.rm-app .float-icon { border-radius: 10px; }
+.rm-app .float-icon.green { background: var(--blue-50); color: var(--blue); }
+
+/* ---------- the in-flight / completed batch banner ---------- */
+.rm-app .inflight-banner { background: var(--blue-25); border-bottom: 1px solid var(--blue-line); color: var(--text); font-size: 13.5px; }
+.rm-app .inflight-banner.completed { background: var(--success-50); border-bottom-color: var(--success-line); }
+.rm-app .inflight-pulse { background: var(--blue); }
+.rm-app .inflight-mini-bar { background: var(--blue-50); }
+.rm-app .inflight-mini-fill { background: var(--blue); }
+
+/* ---------- Connect ---------- */
+.connect-screen.rm-app { background: radial-gradient(circle at 50% 30%, rgba(37, 99, 235, 0.08), transparent 60%), var(--canvas); animation: rm-app-in 520ms var(--ease) both; }
+.connect-screen.rm-app .dialog { width: min(460px, 92vw); padding: 28px; }
+.connect-screen.rm-app code { font-family: var(--mono); font-size: 12.5px; background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; color: var(--text); }
+.connect-screen.rm-app .connect-footnote { font-size: 12.5px; color: var(--text-2); }
+@media (prefers-reduced-motion: reduce) { .connect-screen.rm-app { animation-name: rm-app-fade; } }
+
+@media (max-width: 620px) {
+  .rm-app .page { padding: 20px 16px 36px; }
+  .rm-app .topbar { padding: 0 14px; }
+  .rm-app .global-search { width: 44px; }
+  .rm-app .global-search span, .rm-app .global-search kbd { display: none; }
+  .rm-app .page-header h1 { font-size: 26px; }
+  .rm-app .attention-row { grid-template-columns: 22px minmax(0, 1fr) auto; }
+  .rm-app .attention-row > small, .rm-app .attention-row > svg:last-child { display: none; }
+}
+
+/* information notes are blue, never success-green */
+.rm-app .integrity { background: var(--blue-25); border: 1px solid var(--blue-line); color: var(--text); border-radius: 12px; }
+.rm-app .integrity > svg { color: var(--blue); }
+.rm-app .integrity b { color: var(--text); }
+
+/* extra.css was written for the old dark theme: its translucent-white surfaces and near-white text
+   are re-expressed with tokens here so they read on white (and still on the dark variant). */
+.rm-app .upload-progress-bar { background: var(--blue-50); }
+.rm-app .upload-progress-bar i { background: var(--blue); }
+.rm-app .upload-progress-stats b, .rm-app .decision-entry b, .rm-app .control-row b { color: var(--text); }
+.rm-app .upload-notes, .rm-app .decision-entry, .rm-app .control-row { border: 1px solid var(--border); background: var(--bg-2); border-radius: 12px; }
+.rm-app .spend-checkbox { color: var(--text); border: 1px solid var(--warning-line); background: var(--warning-50); border-radius: 12px; }
+.rm-app .spend-checkbox small { color: var(--text-2); }
+.rm-app .single-upload-area { background: var(--blue-25); border: 1.5px dashed var(--blue-line); border-radius: 14px; color: var(--text-2); transition: background-color var(--t-hover) var(--ease), border-color var(--t-hover) var(--ease); }
+.rm-app .single-upload-area:hover, .rm-app .single-upload-area.dragging { background: var(--blue-50); border-color: var(--blue); }
+.rm-app .single-upload-area strong { color: var(--text); }
+.rm-app .single-upload-badge { background: var(--paper); border: 1px solid var(--border); color: var(--text-2); border-radius: 8px; }
+.rm-app .pill.auto-disapproved, .rm-app .pill.rejected, .rm-app .pill.disapproved { background: var(--danger-50) !important; color: var(--danger) !important; border-color: var(--danger-line) !important; }
+
+@media (max-width: 620px) {
+  /* the breadcrumb collapses to the page title on phones */
+  .rm-app .crumb { font-size: 0; gap: 0; }
+  .rm-app .crumb > svg { display: none; }
+  .rm-app .crumb b { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; display: block; }
+  .rm-app .top-actions { gap: 6px; }
+  .rm-app .queue-row > svg:last-child { display: none; }
+}

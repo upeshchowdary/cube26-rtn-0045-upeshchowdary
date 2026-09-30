@@ -1,7 +1,7 @@
 import { useParams, Link } from 'react-router-dom'
 import { ArrowUpRight, Check, History, Package, PackageCheck, Upload } from 'lucide-react'
 import { useBatchStore } from '../lib/store'
-import { formatDateTime } from '../lib/format'
+import { formatDateTime, observedStateLabel } from '../lib/format'
 import { Header, Note, Pill } from './shared'
 
 export default function Passport() {
@@ -12,7 +12,7 @@ export default function Passport() {
   if (!r) {
     return (
       <>
-        <Header eyebrow="INTELLIGENCE / UNIT HISTORY" title="Unit digital passport" subtitle="No processed row found for this unit id." />
+        <Header eyebrow="RECORDS / UNIT HISTORY" title="Unit digital passport" subtitle="No processed row found for this unit id." />
         <div className="empty">
           <Package size={22} />
           <b>Unknown unit</b>
@@ -25,7 +25,7 @@ export default function Passport() {
   const decision = r.latest_decision
   const stages = [
     { label: 'Upload', time: formatDateTime(r.job_created_at), done: true, detail: `Job ${r.job_id.slice(0, 10)}` },
-    { label: 'Inspection', time: r.captured_at, done: true, detail: `${r.observed_state} · ${r.amazon_condition}` },
+    { label: 'Inspection', time: r.captured_at, done: true, detail: `${observedStateLabel(r.observed_state)} · ${r.amazon_condition}` },
     {
       label: 'Decision',
       time: decision ? formatDateTime(decision.at) : 'No decision yet',
@@ -36,7 +36,7 @@ export default function Passport() {
 
   return (
     <>
-      <Header eyebrow="INTELLIGENCE / UNIT HISTORY" title="Unit digital passport" subtitle="Documented events for this physical unit; missing history is not inferred." />
+      <Header eyebrow="RECORDS / UNIT HISTORY" title="Unit digital passport" subtitle="Documented events for this physical unit; missing history is not inferred." />
       <section className="panel passport">
         {r.image ? <img src={r.image} alt="" /> : <Package size={40} />}
         <div>

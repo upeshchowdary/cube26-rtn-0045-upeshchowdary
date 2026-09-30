@@ -23,7 +23,7 @@ export default function Reviews() {
       <div className="metrics review-metrics">
         <Metric label="Awaiting review" value={String(queue.length)} note="Across this workspace" icon={Eye} tone="violet" />
         <Metric label="Sold-vs-returned mismatches" value={String(mismatches)} note="Order/SKU/ASIN disagreement" icon={CircleAlert} tone="red" />
-        <Metric label="Uncertain / fail-open" value={String(uncertain)} note="No real pipeline run" icon={Image} tone="amber" />
+        <Metric label="Uncertain / fail-open" value={String(uncertain)} note="No reliable evidence; held for review" icon={Image} tone="amber" />
         <Metric label="Retake requested" value={String(retakeRequests)} note="Waiting on a new photo" icon={LockKeyhole} tone="blue" />
       </div>
       <section className="panel queue">

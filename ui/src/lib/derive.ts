@@ -4,11 +4,11 @@
 import type { BatchJob, DerivedRow } from './types'
 
 export const DISPOSITION_COLORS: Record<string, string> = {
-  restock: '#2fa866',
-  refurbish: '#347d70',
-  liquidate: '#477e9b',
-  dispose: '#caa255',
-  pending_review: '#8da296',
+  restock: '#2563eb',
+  refurbish: '#60a5fa',
+  liquidate: '#94a3b8',
+  dispose: '#cbd5e1',
+  pending_review: '#f59e0b',
 }
 
 export function dispositionLabel(value: string): string {

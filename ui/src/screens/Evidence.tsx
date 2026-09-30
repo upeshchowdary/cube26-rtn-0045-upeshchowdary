@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { CircleAlert, Download, Search, ShieldCheck, X } from 'lucide-react'
+import { dispositionLabel } from '../lib/derive'
 import { ApiError, getChainVerification } from '../lib/api'
 import type { ChainVerificationResponse } from '../lib/types'
 import { useBatchStore } from '../lib/store'
@@ -34,7 +35,7 @@ export default function Evidence() {
   return (
     <>
       <Header
-        eyebrow="INTELLIGENCE / AUDIT TRAIL"
+        eyebrow="RECORDS / AUDIT TRAIL"
         title="Evidence & audit"
         subtitle="Batch-processed rows and their decision history, plus a real hash-chain lookup for any DB-backed unit."
       />
@@ -80,7 +81,7 @@ export default function Evidence() {
                     <small>{r.ordered_sku}</small>
                   </td>
                   <td>{r.unit_id}</td>
-                  <td>{r.operator_disposition || '—'}</td>
+                  <td>{dispositionLabel(r.operator_disposition)}</td>
                   <td>
                     <span className="verified">
                       <ShieldCheck size={14} />

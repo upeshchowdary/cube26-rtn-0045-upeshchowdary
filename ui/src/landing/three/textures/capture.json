@@ -1,0 +1,20 @@
+{
+ "hero-evidence": {
+  "w": 300,
+  "h": 159.69,
+  "pad": 72,
+  "bytes": 27362
+ },
+ "hero-record": {
+  "w": 460,
+  "h": 511.52,
+  "pad": 72,
+  "bytes": 71246
+ },
+ "hero-decision": {
+  "w": 300,
+  "h": 152.72,
+  "pad": 72,
+  "bytes": 61640
+ }
+}

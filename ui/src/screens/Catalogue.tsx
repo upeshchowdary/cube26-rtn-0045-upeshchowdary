@@ -13,9 +13,9 @@ export default function Catalogue() {
   return (
     <>
       <Header
-        eyebrow="INTELLIGENCE / PRODUCT DATA"
+        eyebrow="RECORDS / PRODUCT DATA"
         title="Product catalogue"
-        subtitle="Every SKU seen across processed batch uploads, with its own real reference photo."
+        subtitle="Every SKU seen across processed batch uploads, shown with the first returned photo on file for it."
       />
       <div className="metrics compact-metrics">
         <Metric label="Distinct SKUs" value={String(products.length)} note="Seen in processed returns" icon={Boxes} tone="teal" />
@@ -55,7 +55,7 @@ export default function Catalogue() {
           </div>
         )}
       </section>
-      <Note>Reference images are the exact before-sale photo URL supplied for that SKU.</Note>
+      <Note>Each image is the first returned-photo URL from a row with that SKU, not a before-sale reference photo.</Note>
     </>
   )
 }

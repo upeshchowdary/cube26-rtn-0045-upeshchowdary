@@ -22,7 +22,7 @@ import {
 } from 'lucide-react'
 import { ApiError } from '../lib/api'
 import { useBatchStore } from '../lib/store'
-import { moneyMinor, titleCase } from '../lib/format'
+import { moneyMinor, titleCase, observedStateLabel } from '../lib/format'
 import { dispositionLabel, idCheckLabel } from '../lib/derive'
 import type { DecisionAction, RowDetail } from '../lib/types'
 import { Pill } from './shared'
@@ -269,13 +269,13 @@ export default function Inspection() {
 
         <div className="findings">
           {row.sold_vs_returned_id_check && row.sold_vs_returned_id_check.startsWith('NOT MATCHED') && (
-            <section className="panel finding-panel" style={{ border: '1px solid rgba(248, 113, 113, 0.45)', background: 'rgba(239, 68, 68, 0.09)' }}>
+            <section className="panel finding-panel" style={{ border: '1px solid var(--danger-line)', background: 'var(--danger-50)' }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '4px 0' }}>
-                <CircleAlert size={24} style={{ color: '#f87171', flexShrink: 0, marginTop: 2 }} />
+                <CircleAlert size={24} style={{ color: 'var(--danger)', flexShrink: 0, marginTop: 2 }} />
                 <div>
-                  <h3 style={{ margin: '0 0 4px', color: '#fca5a5', fontSize: '14.5px', fontWeight: 600 }}>Paperwork & Identity Mismatch Detected</h3>
-                  <p style={{ margin: '0 0 6px', color: '#fecaca', fontSize: '12.5px', fontFamily: 'monospace' }}>{row.sold_vs_returned_id_check}</p>
-                  <small style={{ color: '#fda4af', fontSize: '11.5px', lineHeight: 1.4, display: 'block' }}>
+                  <h3 style={{ margin: '0 0 4px', color: 'var(--danger)', fontSize: '14.5px', fontWeight: 600 }}>Sold vs returned records don't match</h3>
+                  <p style={{ margin: '0 0 6px', color: 'var(--text)', fontSize: '12.5px', fontFamily: 'monospace' }}>{row.sold_vs_returned_id_check}</p>
+                  <small style={{ color: 'var(--text-2)', fontSize: '11.5px', lineHeight: 1.4, display: 'block' }}>
                     The paperwork or order identifiers on this returned item do not match the original sold record. The row is held for review (<b>{dispositionLabel(row.operator_disposition || 'pending_review').toUpperCase()}</b>); a mismatch is a review flag, not a disposition.
                   </small>
                 </div>
@@ -293,7 +293,7 @@ export default function Inspection() {
               <Pill value={row.failure_reason ? 'Needs attention' : 'Inspected'} />
             </div>
             {row.failure_reason ? (
-              <div className="functional" style={{ color: '#d97706' }}>
+              <div className="functional" style={{ color: 'var(--warning)' }}>
                 <CircleAlert size={14} /> Failed open: <code>{row.failure_reason}</code>. The row stays pending review with no grade and no
                 disposition; nothing was inferred in its place.
               </div>
@@ -327,7 +327,7 @@ export default function Inspection() {
           {!detailLoading && !detail && (
             <>
               {detailError && (
-                <div style={{ padding: '0.75rem 1rem', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '8px', color: '#fca5a5', fontSize: '0.85rem', marginBottom: '1rem' }}>
+                <div style={{ padding: '0.75rem 1rem', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '8px', color: 'var(--danger)', fontSize: '0.85rem', marginBottom: '1rem' }}>
                   {detailError}
                 </div>
               )}
@@ -398,7 +398,7 @@ export default function Inspection() {
                 <div className="defect">
                   <span><CircleAlert size={15} /></span>
                   <b>
-                    {titleCase(row.observed_state || 'uncertain')}
+                    {observedStateLabel(row.observed_state)}
                     <small>Disposition: {row.operator_disposition || 'pending_review'}</small>
                   </b>
                 </div>
@@ -479,7 +479,7 @@ export default function Inspection() {
                   <span className="grade">{(detail.condition?.cosmetic_grade ?? row.amazon_condition ?? '?').slice(0, 1).toUpperCase()}</span>
                 </div>
                 {(detail.judgment?.condition?.observations || []).length === 0 ? (
-                  <div className="functional" style={{ color: '#34d399', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <div className="functional" style={{ color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <CheckCircle2 size={14} /> No damage observed in the provided photos
                   </div>
                 ) : (
@@ -599,7 +599,7 @@ export default function Inspection() {
               </div>
             )}
             {detail?.auto_approval && (
-              <div className="functional" style={{ color: detail.auto_approval.approved ? '#2fa866' : undefined }}>
+              <div className="functional" style={{ color: detail.auto_approval.approved ? '#2563eb' : undefined }}>
                 {detail.auto_approval.approved ? <CheckCircle2 size={14} /> : <CircleAlert size={14} />}{' '}
                 {detail.auto_approval.approved
                   ? 'Auto-approved: the engine route stands (no review or sign-off required)'
@@ -611,7 +611,7 @@ export default function Inspection() {
               </div>
             )}
             {(detail?.decision?.requires_review || !detail || row.wrong_item_flag || row.operator_disposition === 'pending_review') && row.auto_approved !== 'true' && (
-              <div className="functional" style={{ color: '#d97706' }}>
+              <div className="functional" style={{ color: 'var(--warning)' }}>
                 <CircleAlert size={14} /> Requires review: {detail?.decision?.review_reasons?.map(titleCase).join(', ') || (row.failure_reason ? titleCase(row.failure_reason) : row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') ? 'Paperwork mismatch' : 'No inspection detail')}
               </div>
             )}

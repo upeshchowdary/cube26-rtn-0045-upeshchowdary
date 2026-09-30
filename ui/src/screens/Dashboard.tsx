@@ -17,19 +17,20 @@ import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContaine
 import { useBatchStore } from '../lib/store'
 import { DISPOSITION_COLORS, dispositionMix, needsAttention, rowsPerJob } from '../lib/derive'
 import { Button, Header, Metric, Note } from './shared'
+import { observedStateLabel } from '../lib/format'
 
 const CHART_TOOLTIP = {
   contentStyle: {
-    backgroundColor: 'rgba(12, 21, 16, 0.94)',
-    border: '1px solid rgba(47, 168, 102, 0.28)',
+    backgroundColor: 'rgba(255, 255, 255, 0.97)',
+    border: '1px solid #e5e7eb',
     borderRadius: 8,
     fontSize: 12,
-    color: '#f3f7f4',
+    color: '#0b0f19',
     backdropFilter: 'blur(12px)',
-    boxShadow: '0 12px 32px rgba(0,0,0,0.6)',
+    boxShadow: '0 12px 32px rgba(15,23,42,0.12)',
   },
-  itemStyle: { color: '#f3f7f4' },
-  labelStyle: { color: '#8da296', fontWeight: 600 },
+  itemStyle: { color: '#0b0f19' },
+  labelStyle: { color: '#9ca3af', fontWeight: 600 },
 } as const
 
 export default function Dashboard() {
@@ -114,17 +115,17 @@ export default function Dashboard() {
                 <AreaChart data={activity} margin={{ top: 12, right: 8, left: -20, bottom: 0 }}>
                   <defs>
                     <linearGradient id="fillA" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#2fa866" stopOpacity={0.35} />
-                      <stop offset="60%" stopColor="#0f2b35" stopOpacity={0.12} />
-                      <stop offset="100%" stopColor="#050706" stopOpacity={0} />
+                      <stop offset="0%" stopColor="#2563eb" stopOpacity={0.35} />
+                      <stop offset="60%" stopColor="#60a5fa" stopOpacity={0.12} />
+                      <stop offset="100%" stopColor="#ffffff" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid vertical={false} stroke="rgba(255, 255, 255, 0.07)" strokeDasharray="3 5" />
-                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#8da296', fontSize: 11 }} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fill: '#8da296', fontSize: 11 }} />
+                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#9ca3af', fontSize: 11 }} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: '#9ca3af', fontSize: 11 }} />
                   <Tooltip {...CHART_TOOLTIP} />
-                  <Area type="monotone" dataKey="processed" name="Processed" stroke="#2fa866" strokeWidth={2.4} fill="url(#fillA)" dot={{ fill: '#2fa866', r: 3 }} />
-                  <Area type="monotone" dataKey="uncertain" name="Uncertain" stroke="#caa255" strokeWidth={2} fill="transparent" dot={{ fill: '#caa255', r: 3 }} />
+                  <Area type="monotone" dataKey="processed" name="Processed" stroke="#2563eb" strokeWidth={2.4} fill="url(#fillA)" dot={{ fill: '#2563eb', r: 3 }} />
+                  <Area type="monotone" dataKey="uncertain" name="Uncertain" stroke="#f59e0b" strokeWidth={2} fill="transparent" dot={{ fill: '#f59e0b', r: 3 }} />
                 </AreaChart>
               </ResponsiveContainer>
             )}
@@ -160,7 +161,7 @@ export default function Dashboard() {
                 <PieChart>
                   <Pie data={mix} dataKey="value" nameKey="name" innerRadius={59} outerRadius={78} paddingAngle={4} stroke="none">
                     {mix.map((m) => (
-                      <Cell key={m.key} fill={DISPOSITION_COLORS[m.key] ?? '#8da296'} />
+                      <Cell key={m.key} fill={DISPOSITION_COLORS[m.key] ?? '#9ca3af'} />
                     ))}
                   </Pie>
                   <Tooltip {...CHART_TOOLTIP} />
@@ -176,7 +177,7 @@ export default function Dashboard() {
             {mix.map((m) => (
               <div key={m.key}>
                 <span>
-                  <i className="dot" style={{ background: DISPOSITION_COLORS[m.key] ?? '#8da296' }} />
+                  <i className="dot" style={{ background: DISPOSITION_COLORS[m.key] ?? '#9ca3af' }} />
                   {m.name}
                 </span>
                 <b>{Math.round((m.value / totalMix) * 100)}%</b>
@@ -209,7 +210,7 @@ export default function Dashboard() {
               <b>
                 {r.record_id} <i>·</i> {r.ordered_sku}
               </b>
-              <small>{r.sold_vs_returned_id_check?.startsWith('NOT MATCHED') ? r.sold_vs_returned_id_check : r.observed_state}</small>
+              <small>{r.sold_vs_returned_id_check?.startsWith('NOT MATCHED') ? r.sold_vs_returned_id_check : observedStateLabel(r.observed_state)}</small>
             </span>
             <span className={`pill ${r.status.toLowerCase().replaceAll(' ', '-')}`}>{r.status}</span>
           </motion.button>

@@ -9,11 +9,11 @@ import { Header, Note } from './shared'
 
 const CHART_TOOLTIP = {
   contentStyle: {
-    backgroundColor: 'rgba(12, 21, 16, 0.94)',
-    border: '1px solid rgba(47, 168, 102, 0.28)',
+    backgroundColor: 'rgba(255, 255, 255, 0.97)',
+    border: '1px solid #e5e7eb',
     borderRadius: 8,
     fontSize: 12,
-    color: '#f3f7f4',
+    color: '#0b0f19',
     backdropFilter: 'blur(12px)',
   },
 } as const
@@ -37,7 +37,7 @@ export default function Analytics() {
 
   return (
     <>
-      <Header eyebrow="INTELLIGENCE / PERFORMANCE" title="Analytics" subtitle="Distributions computed from every processed batch row - never a fixed sample." />
+      <Header eyebrow="RECORDS / PERFORMANCE" title="Analytics" subtitle="Distributions computed from every processed batch row - never a fixed sample." />
 
       <div className="analytics-grid">
         <section className="panel chart-panel">
@@ -57,10 +57,10 @@ export default function Analytics() {
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={condition}>
                   <CartesianGrid vertical={false} stroke="rgba(255, 255, 255, 0.07)" strokeDasharray="3 5" />
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#8da296', fontSize: 11 }} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fill: '#8da296', fontSize: 11 }} allowDecimals={false} />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#9ca3af', fontSize: 11 }} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: '#9ca3af', fontSize: 11 }} allowDecimals={false} />
                   <Tooltip {...CHART_TOOLTIP} />
-                  <Bar dataKey="value" fill="#2fa866" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="value" fill="#2563eb" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}

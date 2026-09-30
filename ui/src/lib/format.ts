@@ -32,3 +32,18 @@ export function formatDateTime(unixSeconds: number): string {
     minute: '2-digit',
   })
 }
+
+// Official observed_state values (llm/schemas.py:99-101) as readable labels.
+const OBSERVED_STATE_LABELS: Record<string, string> = {
+  factory_sealed: 'Factory sealed',
+  opened_unused: 'Opened, unused',
+  signs_of_use: 'Signs of use',
+  damaged: 'Damaged',
+  empty_box: 'Empty box',
+  uncertain: 'Uncertain',
+}
+
+export function observedStateLabel(value: string | undefined): string {
+  if (!value) return 'Uncertain'
+  return OBSERVED_STATE_LABELS[value] ?? titleCase(value)
+}
