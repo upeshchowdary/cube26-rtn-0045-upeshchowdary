@@ -177,7 +177,7 @@ export function DashboardPreview() {
             <div className="dp-frame" aria-hidden="true">
               <aside className="dp-side">
                 <span className="dp-brand">
-                  <i /> sydon
+                  <i /> sydon returns
                 </span>
                 {nav.map((n) => {
                   const Icon = n.icon
@@ -266,7 +266,7 @@ export function FinalCta() {
           <p data-reveal="text">Open the workspace, upload a batch, and review what the evidence says.</p>
           <div data-reveal="text" className="cta-buttons">
             <Button to="/dashboard" size="lg" arrow>
-              Open sydon
+              Open sydon returns
             </Button>
             <Button to="/returns/new" size="lg" variant="secondary">
               Start a batch inspection

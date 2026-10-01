@@ -67,12 +67,12 @@ export function Hero() {
           parts={[{ text: 'Turn every return into a' }, { text: 'clear decision.', accent: true }]}
         />
         <p className="lp-hero-sub" data-reveal="text">
-          sydon checks a returned item's identity, parts and condition from photos, records the evidence, and
+          sydon returns checks a returned item's identity, parts and condition from photos, records the evidence, and
           computes one of four dispositions for your team to confirm.
         </p>
         <div className="lp-hero-ctas" data-reveal="text">
           <Button to="/dashboard" size="lg" arrow>
-            Open sydon
+            Open sydon returns
           </Button>
           <Button href="#journey" variant="secondary" size="lg">
             See how it works

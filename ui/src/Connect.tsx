@@ -43,7 +43,7 @@ export default function Connect() {
       <motion.div className="dialog connect-dialog" initial={{ y: 12, scale: 0.98, opacity: 0 }} animate={{ y: 0, scale: 1, opacity: 1 }}>
         <div className="dialog-head">
           <div>
-            <small>SYDON</small>
+            <small>SYDON RETURNS</small>
             <h2>Connect to the backend</h2>
           </div>
           <span className="float-icon green">

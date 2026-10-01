@@ -10,7 +10,7 @@ export function Mark({ size = 26, className = '' }: { size?: number; className?:
   return (
     <img
       src="/sydon-mark.png"
-      alt="sydon mark"
+      alt="sydon returns mark"
       width={size}
       height={size}
       className={`rm-mark sydon-mark ${className}`.trim()}
@@ -21,9 +21,9 @@ export function Mark({ size = 26, className = '' }: { size?: number; className?:
 
 export function Wordmark({ to = '/overview' }: { to?: string }) {
   return (
-    <Link to={to} className="rm-wordmark sydon-wordmark" aria-label="sydon home">
-      <img src="/sydon-logo.png" alt="sydon" className="sydon-logo-img sydon-logo-light" />
-      <img src="/sydon-logo-dark.png" alt="sydon" className="sydon-logo-img sydon-logo-dark" />
+    <Link to={to} className="rm-wordmark sydon-wordmark" aria-label="sydon returns home">
+      <img src="/sydon-logo.png" alt="sydon returns" className="sydon-logo-img sydon-logo-light" />
+      <img src="/sydon-logo-dark.png" alt="sydon returns" className="sydon-logo-img sydon-logo-dark" />
     </Link>
   )
 }
@@ -194,7 +194,7 @@ export function SiteHeader({ anchors, appLinks }: { anchors: NavItem[]; appLinks
           </nav>
           <div className="rm-header-cta">
             <Button to="/dashboard" arrow>
-              Open sydon
+              Open sydon returns
             </Button>
             <button
               type="button"
@@ -211,7 +211,7 @@ export function SiteHeader({ anchors, appLinks }: { anchors: NavItem[]; appLinks
         <nav id="rm-mobile-nav" className={`rm-mobile-nav ${menu ? 'open' : ''}`} aria-label="Menu" inert={!menu}>
           {links(true)}
           <Button to="/dashboard" arrow className="rm-mobile-cta">
-            Open sydon
+            Open sydon returns
           </Button>
         </nav>
       </header>
@@ -256,7 +256,7 @@ export function SiteFooter({ statement, links }: { statement: ReactNode; links: 
       <div className="rm-footer-rule" />
       <div className="rm-footer-bottom">
         <Wordmark />
-        <p className="rm-footer-copy">© 2026 sydon. Built for Cube Buildathon 04.</p>
+        <p className="rm-footer-copy">© 2026 sydon returns. Built for Cube Buildathon 04.</p>
         <nav className="rm-footer-nav" aria-label="Footer">
           {links.map((l) =>
             l.to ? (

@@ -8,7 +8,7 @@ import { SessionProvider } from './lib/session'
 const Landing = lazy(() => import('./landing/Landing'))
 const Workspace = lazy(() => import('./Workspace'))
 
-const loading = <div className="rm-loading" aria-label="Loading sydon" />
+const loading = <div className="rm-loading" aria-label="Loading sydon returns" />
 
 export default function App() {
   return (

@@ -158,14 +158,14 @@ function Shell({ children }: { children: ReactNode }) {
           <Link
             to="/overview"
             className="brand-link"
-            title="sydon"
+            title="sydon returns"
           >
             {collapsed ? (
               <Mark size={28} />
             ) : (
               <div className="sydon-brand-wrap">
-                <img src="/sydon-logo.png" alt="sydon" className="sydon-logo-img sydon-logo-light" />
-                <img src="/sydon-logo-dark.png" alt="sydon" className="sydon-logo-img sydon-logo-dark" />
+                <img src="/sydon-logo.png" alt="sydon returns" className="sydon-logo-img sydon-logo-light" />
+                <img src="/sydon-logo-dark.png" alt="sydon returns" className="sydon-logo-img sydon-logo-dark" />
               </div>
             )}
           </Link>
