@@ -65,7 +65,7 @@ export function Audit() {
             Tamper-evident within the database (hash-chained); not immutable.
           </p>
           <p className="au-note" data-reveal="text">
-            Batch uploads keep an append-only decision log per job instead. Batch rows are not hash-chained.
+            Batch uploads keep an append-only, hash-chained decision log per job instead. It is tamper-evident, not immutable.
           </p>
         </Reveal>
         <div className="au-timeline">

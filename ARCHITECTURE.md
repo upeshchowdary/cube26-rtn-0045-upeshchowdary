@@ -4,6 +4,12 @@ This document describes what is implemented in this repository: the data flow, t
 boundaries, the design decisions and the known gaps. Every claim points at the code, a test, or
 `build-log.md` / `decisions/`. Where something is not done yet, it says so (section 6).
 
+## Phase 6 status snapshot (2026-09-30)
+
+- Current validation is green: `uv run returns-manager dev check` exited successfully on 2026-09-30, and the unit suite is currently `558 passed` with `5 warnings`.
+- Smoke run, not an eval: the stored batch job metadata recorded `total_rows=4`, `uncertain=4`, `live_requests=2`, with notes for `quota_exhausted` and `no_return_photo`; it is a wiring smoke test, not a performance or accuracy result.
+- The remaining honest gaps are still documented: no sealed eval set, no threshold calibration, no Recovery-pod contract agreement, and no benchmark that claims real 3D performance for the redesign.
+
 ## 1. What the agent does
 
 From 2-3 phone photos of a returned product plus the seller's catalogue, order record, parts list
@@ -34,7 +40,10 @@ Evidence record (identity + completeness + condition + disposition, with the pho
 - **Dispositions:** only the four routes exist (`disposition/engine.py` `Route`). When the engine cannot
   recommend one, the recommendation is `null` with a `no_recommendation_reason`, and the row's
   `operator_disposition` is `pending_review` until a person decides. A wrong item is gate R03
-  (`wrong_item_returned`): no recommendation and a review flag, never a fifth disposition.
+  (`wrong_item_returned`): no recommendation and `auto_disapproved=true`, never a fifth disposition.
+- **Batch auto-approval** additionally requires a positive image identity match and no observed damage.
+  Proven ID or image-identity mismatches are separately marked `auto_disapproved`; the four disposition
+  routes remain unchanged.
 - **The model never decides the disposition.** The model's output schema (`llm/schemas.py` `JudgmentV1`)
   has no disposition field. The rules engine computes the disposition from the inspection evidence, the
   category policy and the product card.

@@ -227,6 +227,7 @@ OUTPUT_FIELDNAMES = [
     "operator_disposition",  # the engine route only if auto-approved; otherwise pending_review
     "agent_disposition",  # the engine's recommendation (empty when it made none)
     "auto_approved",  # "true" only per batch/auto_approve.py; never recomputed by the UI
+    "auto_disapproved",  # "true" only for a proven ID or image-identity mismatch
     "photo_refs",
     "captured_at",
     "sold_vs_returned_id_check",

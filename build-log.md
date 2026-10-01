@@ -87,8 +87,7 @@ method is written next to it. Sections `## Findings` and `## Open questions` are
 - **Repository layout:** the repo root of the participant's own fork, not `submissions/<user>/`
   (human's decision; see finding F-007). Organiser-owned files are never modified (see
   `scripts/check_boundary.py`).
-- **Location:** clone at `C:\Users\UPESH CHOWDARY\Desktop\cube26-rtn-0045-upeshchowdary-main\cube26-rtn-0045-upeshchowdary`,
-  outside OneDrive (OneDrive is full, and syncing a `.venv` causes file locks).
+- **Location:** clone the repo in a local worktree outside any sync folder; syncing a `.venv` can cause file locks.
 - **Git:** work on branch `upeshchowdary`; one PR into the fork's `main` per phase, merged after the
   human approves. Repo-local `core.autocrlf=false`, `core.eol=lf`, plus `.gitattributes`, because the
   global `autocrlf=true` had checked files out as CRLF.

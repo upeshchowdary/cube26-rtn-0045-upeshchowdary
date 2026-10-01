@@ -131,7 +131,7 @@ export const faq: FaqItem[] = [
         </p>
         <p>
           Batch uploads append each decision to the job's decision log (the new disposition, the reason, who and when).
-          Batch rows are not hash-chained.
+          That decision log is hash-chained and tamper-evident within the database, not immutable.
         </p>
       </>
     ),

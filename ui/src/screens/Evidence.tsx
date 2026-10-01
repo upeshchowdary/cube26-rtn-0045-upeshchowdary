@@ -42,11 +42,12 @@ export default function Evidence() {
       <div className="integrity">
         <ShieldCheck size={20} />
         <span>
-          <b>Batch rows are not hash-chained</b>
+          <b>Batch decision log is hash-chained</b>
           <small>
-            Row data and decisions live in the batch job's own append-only files. The database's
-            per-unit hash chain (§13) applies to the live capture pipeline, not this upload path -
-            look up a real unit id below to verify that chain.
+            Row data and decisions live in the batch job's append-only log, with a deterministic
+            prev-hash chain and tamper verification. The database's per-unit hash chain (§13)
+            still applies to the live capture pipeline; this is its upload-path equivalent and is
+            tamper-evident, not immutable.
           </small>
         </span>
       </div>

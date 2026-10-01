@@ -5,6 +5,14 @@
 **Revised:** 2026-09-29, after the audit fix passes (Stage 1: `b73fcc1`…`d4344fd`; Stage 2: `06c5c85` onward). Every claim below was checked against the code at that point.
 **Tests:** `uv run returns-manager dev check` (from `agent/`) on 2026-09-29: 453 passed, 97 skipped; ruff, ruff format, mypy, reference validate and the boundary check all ok. The 97 skipped tests are the database tests; they were **not run** (no local Supabase).
 
+## Phase 6 status snapshot (2026-09-30)
+
+Documentation is now aligned to the current repo state.
+
+- Validation: `cd agent && uv run returns-manager dev check` exited 0 on 2026-09-30. The current unit regression run also shows `pytest tests/unit -q` → `558 passed` in `89.13s`.
+- Smoke run, not an eval: `agent/.data/batch_jobs/org_demo_alpha/.../meta.json` recorded `total_rows=4`, `uncertain=4`, `live_requests=2`; notes include `quota_exhausted` and `no_return_photo`. This is a smoke check for wiring, not a measured evaluation result.
+- Honest open items remain: no real C1 eval set, no threshold calibration, no Recovery-pod contract agreement, and no measured 3D performance benchmark for the redesign. The redesign remains UI mockup / 2.5D composition work unless a measured benchmark is captured.
+
 ---
 
 ## 1. What it is

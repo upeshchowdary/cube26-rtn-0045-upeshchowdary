@@ -1,0 +1,15 @@
+{
+  "run_id": "phase7-devmini",
+  "dev_mini": true,
+  "units_requested": 8,
+  "units_evaluated": 8,
+  "seed": 20260925,
+  "spend_preflight": {
+    "confirm_spend": true,
+    "note": "dev-mini spends no quota"
+  },
+  "actual_cost_usd": 0.012,
+  "actual_requests": 0,
+  "started_at": "2026-09-30T18:35:57.663506+00:00",
+  "completed_at": "2026-09-30T18:36:05.073885+00:00"
+}

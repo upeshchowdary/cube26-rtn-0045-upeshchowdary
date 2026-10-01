@@ -573,6 +573,19 @@ def test_t_con_18_problem_statement_example() -> None:
     assert record.outcome.decision == "REFURBISH"
 
 
+def test_t_con_19_required_synthetic_examples_exist_and_validate() -> None:
+    """T-CON-19: all representative contract examples under contract/examples validate."""
+    examples_dir = Path(__file__).resolve().parents[2] / "contract" / "examples"
+    files = sorted(examples_dir.glob("*.json"))
+    assert len(files) >= 14, f"Expected 14 example records, found {len(files)} in {examples_dir}"
+
+    for path in files:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        record = EvidenceRecord.model_validate(doc)
+        assert record.record_id == doc["record_id"]
+        assert record.status in {"finalized", "awaiting_review"}
+
+
 # ── T-CON-17/18: real DB round trip (regression for the created_at/finalized_at bug) ──
 #
 # Every test above builds documents in memory. None of them ever inserted a row into

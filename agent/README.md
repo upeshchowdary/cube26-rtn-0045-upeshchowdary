@@ -4,23 +4,44 @@ Evidence-backed returns inspection: identity, completeness and condition from a 
 seller's own catalogue and Amazon's published condition guidelines. A deterministic rules engine then
 computes one of four dispositions, `restock` / `refurbish` / `liquidate` / `dispose`, from the
 inspection evidence. When it cannot recommend one, the recommendation is `null` with a reason, and the
-row stays `pending_review` until a person decides. The model never decides the disposition.
+row stays `pending_review` until a person decides. A proven sold/returned ID or image-identity mismatch
+is separately marked `auto_disapproved`; it is not a disposition route. The model never decides the
+disposition.
 
 See [`../ARCHITECTURE.md`](../ARCHITECTURE.md) for the data flow, the generated rule table and the
 known gaps, and [`../ui/`](../ui/) for the operator console (React + Vite).
 
+## Phase 6 status snapshot (2026-09-30)
+
+- Current validation is green: the project-level `dev check` exited successfully on 2026-09-30, and the unit suite is currently `558 passed` with `5 warnings`.
+- Smoke run, not an eval: a recorded smoke batch had `total_rows=4`, `uncertain=4`, `live_requests=2`, with notes for `quota_exhausted` and `no_return_photo`; it is a wiring smoke test rather than a measured evaluation result.
+- The honest remaining work is still: no real C1 eval set, no threshold calibration, no Recovery-pod contract agreement, and no measured 3D performance claim for the redesign.
+
 ## Setup
+
+The repo is intentionally path-neutral: it must work from any checkout location and must not assume
+machine-specific absolute paths. Keep commands repo-relative and create a fresh `.env` from the repo
+root's `.env.example` on every new machine.
 
 ```sh
 cd agent
 uv sync                      # Python 3.12, exact pins from uv.lock
 ```
 
-Copy `.env.example` to `.env` (repo root). Fill in a Gemini API key (free tier,
+Copy `.env.example` to `.env` in the repo root. Fill in a Gemini API key (free tier,
 [aistudio.google.com](https://aistudio.google.com) → Get API key). For the database-backed system, also
 fill in the Supabase values that `npx supabase start` prints on first run. The model IDs are set per
 role in `.env` (`RM_JUDGMENT_MODEL`, `RM_JUDGMENT_FALLBACK_MODEL`, `RM_ESCALATION_MODEL`,
 `RM_AUDIT_MODEL`, `RM_EXPLAINER_MODEL`); see `src/returns_manager/config.py` for the defaults.
+
+### Fresh-clone flow
+
+1. Clone the repo anywhere you like.
+2. Copy `.env.example` to `.env` in the repo root and fill in your own values.
+3. Start Docker Desktop (or the local container runtime) before `npx supabase start`.
+4. Run `cd agent && uv sync` and then the usual `db migrate`, `seed demo`, and `dev check` commands.
+5. Never commit `.env`, API keys, or personal paths; if a setup step fails on a different machine,
+   fix the docs or the command rather than baking in a local absolute path.
 
 ## Running the database-backed system
 
@@ -84,9 +105,10 @@ uv run returns-manager batch process \
 - **`photo_identity_match`**: the model's identity verdict on the returned photos.
 - **`agent_disposition`**: the engine's recommendation.
 - **`operator_disposition`**: that route only if **`auto_approved`** is `true`, otherwise `pending_review`.
-  - Auto-approve needs an engine route with no review, no sign-off and no escalation.
+  - Auto-approve also requires a positive image identity match, no observed damage, no review, no sign-off and no escalation.
   - Every check must PASS at a model-reported confidence ≥ `RM_BATCH_AUTO_APPROVE_MIN_CONFIDENCE_BP` (8500 by default, **not yet calibrated**).
   - Every sold-vs-returned ID must be present and equal.
+- **`auto_disapproved`**: `true` for a proven sold/returned ID mismatch or explicit model image-identity mismatch. Uncertain or missing evidence is not a mismatch.
 - **`sold_vs_returned_id_check`**: `matched`, `NOT MATCHED: …` or `not checked: <field> missing (sold|returned)`. A mismatch is a review flag, not a disposition.
 - **`failure_reason`**: why a row failed open (empty on a real model + engine result).
 - **`value_source`**: `csv_list_price`, or `synthetic_default` when the before-file gave no price. The UI then shows "price assumed (synthetic)" next to S02, R09 and R10 outcomes.

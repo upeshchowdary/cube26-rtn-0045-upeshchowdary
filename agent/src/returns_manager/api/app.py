@@ -65,6 +65,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 root=AGENT_ROOT / ".data" / "batch_jobs",
                 settings=settings,
                 client=gemini_client,
+                db=db,
             )
         app.state.services = Services(
             settings=settings, db=db, jwt=jwt, storage=storage, batch_jobs=batch_jobs

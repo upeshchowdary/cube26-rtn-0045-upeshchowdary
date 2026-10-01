@@ -12,8 +12,8 @@ It works on either laptop (the original one or a friend's, after a hand-over via
 
 ### 0.1 Where things are
 
-All paths are relative to the **workspace folder**: the folder containing both the repo folder and
-`audit-report.md` (on the original laptop, `D:\cube2026`).
+All paths are relative to the **workspace folder**: the folder containing the repo checkout and
+`audit-report.md` in a local development workspace.
 
 | What | Where |
 |---|---|
@@ -295,9 +295,8 @@ One commit each, with tests.
 
 **5.1 Find every machine-specific thing.** Grep the repo (excluding .git, node_modules, .venv)
 for:
-- absolute paths: `C:\`, `c:/`, `D:\`, `/Users/`, `/home/`, `/mnt/c`, `OneDrive`, `Desktop`
-  (including the scratch/ scripts with `c:\Users\UPESH CHOWDARY\OneDrive\...`);
-- usernames and personal names: `UPESH`, `ROHIT`, etc.;
+- absolute paths: `C:\`, `c:/`, `D:\`, local macOS/Linux home directories, and local-root path examples from a contributor's checkout;
+- usernames and personal names: `<user>`, `UPESH`, `ROHIT`, etc.;
 - hardcoded hosts or ports that should come from config;
 - Windows-only commands (PowerShell, `.bat`, `cmd /c`) with no cross-platform equivalent.
 List every hit with file:line in the report BEFORE changing anything.

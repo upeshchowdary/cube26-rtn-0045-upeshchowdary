@@ -256,7 +256,16 @@ async def test_t_q_09_every_job_processed_exactly_once(db: Database, quiet_queue
 
     calls: list[str] = []
     settings = _settings(rm_max_inflight_per_org=4)
-    workers = [Worker(db, settings, concurrency=2, handler=_ok_handler(calls, 0.05)) for _ in range(3)]
+    workers = [
+        Worker(
+            db,
+            settings,
+            concurrency=2,
+            handler=_ok_handler(calls, 0.05),
+            bypass_operational_guards=True,
+        )
+        for _ in range(3)
+    ]
     runs = [asyncio.create_task(w.run()) for w in workers]
     try:
         for _ in range(200):
@@ -382,7 +391,13 @@ async def test_t_q_15_run_max_jobs_returns_count(db: Database, quiet_queue: set[
     for i in range(3):
         await _queued_return(db, org, i + 1)
     calls: list[str] = []
-    worker = Worker(db, _settings(), concurrency=2, handler=_ok_handler(calls))
+    worker = Worker(
+        db,
+        _settings(),
+        concurrency=2,
+        handler=_ok_handler(calls),
+        bypass_operational_guards=True,
+    )
     finished = await asyncio.wait_for(worker.run(max_jobs=3), timeout=20)
     assert finished == 3
     assert len(calls) == 3

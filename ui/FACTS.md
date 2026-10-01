@@ -14,9 +14,9 @@ were not opened.
 | # | Issue | Evidence | Proposed handling |
 |---|---|---|---|
 | 0.1 | `dev check` can never be green on branch `ui-sydon`: its boundary check requires the branch to be named exactly `upeshchowdary`. On `ui-sydon` today: ruff, mypy, pytest (553 passed), reference validate all **ok**; boundary check **FAILED** only on the branch name. | `scripts/check_boundary.py`; run on 2026-09-29 | Report `dev check` as "all green except the branch-name boundary rule" each step, or you tell me to work on `upeshchowdary`. I will not weaken the check. |
-| 0.2 | **No real, fully-inspected batch row exists on disk.** The only genuine run of the current runner (`D:\cube2026\smoke-stage3\out_cli.csv`, outside the repo) failed open on every row (image fetch HTTP 403 / no return photo). `agent/manual_test_images/returns_output_30.csv` is an answer key, not output. `scratch/downloaded_output_*.csv` came from a deleted heuristic and contain the forbidden value `wrong_product`. | §10 | Every mockup is labelled **"Sample data"**. Each sample scenario is run through `disposition/engine.py` with current params before it goes on screen, so condition → route pairs are ones the engine really produces. |
+| 0.2 | **No real, fully-inspected batch row exists on disk.** The only genuine run of the current runner (`./smoke-stage3/out_cli.csv`, outside the repo) failed open on every row (image fetch HTTP 403 / no return photo). `agent/manual_test_images/returns_output_30.csv` is an answer key, not output. `scratch/downloaded_output_*.csv` came from a deleted heuristic and contain the forbidden value `wrong_product`. | §10 | Every mockup is labelled **"Sample data"**. Each sample scenario is run through `disposition/engine.py` with current params before it goes on screen, so condition → route pairs are ones the engine really produces. |
 | 0.3 | **No legally showable real product photos in the repo.** | §11 | Use the app's existing placeholder / neutral product silhouettes, labelled. Optionally the synthetic fixture diagrams (watermarked "SYNTHETIC TEST FIXTURE"). Wikimedia photos only if you want me to check and attribute each file's licence. |
-| 0.4 | The app's **"Auto-disapproved"** view is a UI-side filter (`wrong_item_flag && !latest_decision`), not backend logic. There is no auto-disapprove/auto-reject anywhere in the backend. | `ui/src/lib/store.tsx` isWrongItemFlag; no match for disapprove/auto_reject in `rm/` | Keep the view (feature preservation), relabel it honestly, e.g. "Flagged: possible wrong item". Never describe it as an automatic rejection. |
+| 0.4 | Auto-disapproval is now recorded by batch output as a separate boolean, not as a fifth disposition route. It is set only for a proven sold/returned ID mismatch or explicit model image-identity mismatch; uncertain evidence is not disapproval. | `rm/batch/runner.py` and `rm/batch/io_csv.py` | Show the Auto-disapproved outcome distinctly from the four disposition routes; keep uncertain/fail-open rows in review. |
 | 0.5 | **Batch overrides don't store the original value.** The DB review service does (`rm.overrides.original_value`), but the batch decision log (the path the UI uses) records only `record_id, action, new_disposition, reason, actor, at`. | `rm/review/service.py:377-395`; `rm/batch/jobs_service.py:305-312` | Site copy says "overrides are recorded with the new value, the reason and who made it", and mentions the original value only for the inspection-review path. Alternatively add `original_disposition` to the batch decision entry, with a test (a backend change, so only with your OK). |
 | 0.6 | The existing app contains **invented content**: "Northstar Goods / Enterprise workspace", "All systems operational 99.98%", "Operations Lead / Demo Operator", Catalogue captions claiming "real reference photo … exact before-sale photo URL" (it's the returned photo), Passport falling back to `rows[0]`, "Client Cache: Active & Ready", 3 hard-coded "Users & roles", the landing page's "RECOVERY VALUE $684", "REFUND / REJECT" badges, "ALL SYSTEMS OPERATIONAL · VERIFIED". | §1.2 | In step 4, remove or relabel these (they break Part B/J), without removing any working feature. Please confirm this is inside "change how they look". |
 | 0.7 | The Sydon screenshots folder was never specified (`<SCREENSHOTS_FOLDER>` is still a placeholder) and no reference video was provided. | prompt A1 | I'll study sydon.ai live. Send the folder path if screenshots exist. |
@@ -232,7 +232,8 @@ A batch row is auto-approved only if **none** of these block it:
 **"NOT yet calibrated by a threshold sweep (§21.5); 8500 is a placeholder, not a measured operating point"**
 (`config.py:103-104`); the result records `threshold_calibrated: false`.
 
-Approval never changes the route; it only lets `operator_disposition` equal the engine's route. No auto-disapprove exists.
+Approval never changes the route; it only lets `operator_disposition` equal the engine's route.
+Auto-approval also requires `photo_identity_match=yes` and no observed damage. A confirmed ID or photo mismatch is recorded in `auto_disapproved`; it is an outcome flag, not a fifth disposition route. Missing or uncertain evidence remains pending review.
 
 ## 9b. Identity, parts, decisions (supporting facts)
 
@@ -262,7 +263,7 @@ Approval never changes the route; it only lets `operator_disposition` equal the 
   - "Overrides are recorded as labelled data; no automatic retraining."
 - **Batch output columns** (`batch/io_csv.py:214-235`): record_id, unit_id, org_id, order_id, ordered_sku,
   ordered_asin, identity_match, photo_identity_match, parts_list, parts_missing, observed_state, amazon_condition,
-  operator_disposition, agent_disposition, auto_approved, photo_refs, captured_at, sold_vs_returned_id_check,
+  operator_disposition, agent_disposition, auto_approved, auto_disapproved, photo_refs, captured_at, sold_vs_returned_id_check,
   failure_reason, value_source.
 - **Field labels for step 4:** ordered_sku → Ordered SKU · ordered_asin → Ordered ASIN · identity_match → Identity (sold record) ·
   photo_identity_match → Product identity (photo) · parts_missing → Missing parts · observed_state → Observed state ·
@@ -290,7 +291,7 @@ No fully-inspected real row exists (see 0.2). Candidates, with their status:
   - Under the current engine R09 needs the complete item to route refurbish or better. That requires the
     functional_test_required blocker (→ R11), which the example does not list. **Treat as illustrative; re-derive with the engine.**
 
-**C. Uncertain: genuine run output** (`D:\cube2026\smoke-stage3\out_cli.csv:4`)
+**C. Uncertain: genuine run output** (`./smoke-stage3/out_cli.csv:4`)
 - RTN-AIR-02 · UNIT-AIR-02 · ORD-AIR-02 · SKU-AIR-A · B0AIR001.
 - Parts: AirPods case · identity_match yes · photo_identity_match uncertain · observed_state uncertain · amazon_condition uncertain · pending_review.
 - Records matched. failure_reason image_fetch_failed (HTTP 403).

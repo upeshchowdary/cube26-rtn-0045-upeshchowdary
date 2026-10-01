@@ -94,6 +94,12 @@ async def run_kill_switch_drill(
     settings: Settings,
 ) -> DrillReport:
     """Kill-switch drill (§6.7, §23): toggle model_calls_enabled and auto_disposition_enabled."""
+    worker_settings = settings.model_copy(
+        update={
+            "rm_judgment_model": f"drill-worker-{new_id()[:8]}",
+            "rm_daily_request_budget_judgment": max(settings.rm_daily_request_budget_judgment, 100),
+        }
+    )
     org_id = f"org_t{uuid.uuid4().hex[:12]}"
     async with db.transaction(org_id) as conn:
         await conn.execute(
@@ -122,7 +128,7 @@ async def run_kill_switch_drill(
         called.append(j.job_id)
         return HandlerResult(target_return_status=ReturnStatus.AWAITING_OPERATOR)
 
-    worker = Worker(db, settings, concurrency=1, kinds=["judgment"], handler=h)
+    worker = Worker(db, worker_settings, concurrency=1, kinds=["judgment"], handler=h)
     task = asyncio.create_task(worker.run())
     await asyncio.sleep(0.5)
     await worker.stop()
@@ -148,7 +154,14 @@ async def run_kill_switch_drill(
             (org_id, job.job_id),
         )
 
-    worker2 = Worker(db, settings, concurrency=1, kinds=["judgment"], handler=h)
+    worker2 = Worker(
+        db,
+        worker_settings,
+        concurrency=1,
+        kinds=["judgment"],
+        handler=h,
+        bypass_operational_guards=True,
+    )
     await worker2.run(max_jobs=1)
 
     async with db.transaction(org_id) as conn:

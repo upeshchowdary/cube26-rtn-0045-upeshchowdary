@@ -36,13 +36,31 @@ export default function Returns() {
     return isNaN(parsed) ? 0 : parsed
   }
 
-  const tabs = ['All returns', 'Awaiting review', 'Needs attention', 'Finalized', 'Auto-disapproved']
-  // "Auto-disapproved" lists rows flagged as a possible wrong item. It is a review flag, not a
+  const tabs = [
+    'All returns',
+    'Awaiting review',
+    'Needs attention',
+    'Finalized',
+    'Possible wrong item',
+    'Auto approved',
+    'Auto disapproved',
+  ]
+  // "Possible wrong item" lists rows flagged as a likely mismatch. It is a review flag, not a
   // decision: those rows stay pending review until a person accepts or overrides them.
   const inTab = (row: DerivedRow) => {
     if (tab === 'All returns') return true
-    if (tab === 'Auto-disapproved') return row.wrong_item_flag && !row.latest_decision
+    if (tab === 'Possible wrong item') return row.wrong_item_flag && !row.latest_decision
+    if (tab === 'Auto approved') return row.auto_approved === 'true'
+    if (tab === 'Auto disapproved') return row.status === 'Auto-disapproved' && !row.latest_decision
     return tab === row.status
+  }
+  const tabCount = (name: string) => {
+    if (name === 'All returns') return rows.length
+    if (name === 'Possible wrong item' || name === 'Auto disapproved') {
+      return rows.filter((row) => row.status === 'Auto-disapproved' && !row.latest_decision).length
+    }
+    if (name === 'Auto approved') return rows.filter((row) => row.auto_approved === 'true').length
+    return rows.filter((row) => row.status === name).length
   }
   const filtered = rows
     .filter((r) => `${r.record_id} ${r.order_id} ${r.unit_id} ${r.ordered_sku} ${r.ordered_asin}`.toLowerCase().includes(query.toLowerCase()))
@@ -80,7 +98,7 @@ export default function Returns() {
       />
       <section className="panel returns-panel">
         <div className="return-toolbar">
-          <div className="tabs">
+          <div className="tabs" style={{ flexWrap: 'wrap', overflow: 'visible' }}>
             {tabs.map((t) => (
               <button
                 className={tab === t ? 'tab selected' : 'tab'}
@@ -91,13 +109,7 @@ export default function Returns() {
                 }}
               >
                 {t}
-                <small>
-                  {t === 'All returns'
-                    ? rows.length
-                    : t === 'Auto-disapproved'
-                    ? rows.filter((r) => r.wrong_item_flag && !r.latest_decision).length
-                    : rows.filter((r) => r.status === t).length}
-                </small>
+                <small>{tabCount(t)}</small>
               </button>
             ))}
           </div>
@@ -163,7 +175,15 @@ export default function Returns() {
                   </td>
                   <td>{r.parts_missing || '—'}</td>
                   <td>{r.amazon_condition}</td>
-                  <td>{r.operator_disposition ? <Pill value={dispositionLabel(r.operator_disposition)} /> : '—'}</td>
+                  <td>
+                    {r.status === 'Auto-disapproved' ? (
+                      <Pill value="Auto-disapproved" />
+                    ) : r.operator_disposition ? (
+                      <Pill value={dispositionLabel(r.operator_disposition)} />
+                    ) : (
+                      '—'
+                    )}
+                  </td>
                   <td>
                     <Pill value={r.status} />
                   </td>

@@ -12,9 +12,8 @@ import httpx
 API_URL = "http://127.0.0.1:8000/api/v1/batch"
 API_KEY = RM_API_KEY
 HEADERS = {"X-API-Key": API_KEY}
-CSV_PATH = Path(
-    r"c:\Users\UPESH CHOWDARY\OneDrive\Desktop\cube26-rtn-0045-upeshchowdary-main\cube26-rtn-0045-upeshchowdary\agent\manual_test_images\returns_input_30.csv"
-)
+REPO_ROOT = Path(__file__).resolve().parents[1]
+CSV_PATH = REPO_ROOT / "agent" / "manual_test_images" / "returns_input_30.csv"
 
 
 def test_full_clear_cache_cycle():

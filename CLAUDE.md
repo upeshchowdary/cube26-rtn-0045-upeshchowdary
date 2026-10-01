@@ -8,6 +8,12 @@ dispose, with "uncertain" and human review as first-class outcomes.
 The full specification is the build prompt, kept **outside** this repo at
 `../RETURNS_MANAGER_PROMPT_PART1_BACKEND.md` (Part 1, backend). Section numbers (§) below refer to it.
 
+## Phase 6 status snapshot (2026-09-30)
+
+- Current validation status is green: the project-level `dev check` exited successfully, and the unit suite is currently `558 passed` with `5 warnings`.
+- Smoke run, not an eval: the stored smoke batch metadata says `total_rows=4`, `uncertain=4`, `live_requests=2`, with notes for `quota_exhausted` and `no_return_photo`; that is a smoke test, not a scored evaluation.
+- The honest remaining work is set out in the project prompt: no real C1 eval set, no threshold calibration, no Recovery-pod contract agreement, and no measured 3D performance claim for the redesign.
+
 ## Where things live (fork root; see finding F-007)
 
 | Path | What |
@@ -70,14 +76,27 @@ Organiser-owned files are never modified: `.github/`, `data/`, `submissions/`, r
 
 ## How to run
 
+### Fresh-clone checklist
+
+This repository is intentionally portable: all commands are repo-relative, and the repo must not depend
+on any absolute machine-specific home path. On a new machine:
+
 ```sh
+# from any checkout location
+cp .env.example .env
+# fill in your own Gemini key and local Supabase values; never copy another person's .env
+
 cd agent
 uv sync                                   # Python 3.12, exact pins from uv.lock
-npx supabase start                        # local Supabase (Docker Desktop must be running)
+npx supabase start                        # Docker Desktop must be running
 uv run returns-manager db migrate
 uv run returns-manager seed demo
 uv run returns-manager dev check          # ruff + mypy + pytest (non-live) + reference validate + boundary check
 ```
+
+Keep `.env` in the repo root, keep it git-ignored, and do not store secrets in logs or checked-in files.
+If a local environment needs a one-off override, prefer environment variables set in the shell rather than
+hard-coded paths in the repo.
 
 Exit codes: 0 ok · 1 failure · 2 usage error · 3 verification failed · 4 spend guard refused · 5 configuration invalid.
 

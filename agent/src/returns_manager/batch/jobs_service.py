@@ -19,17 +19,21 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import hashlib
 import json
 import logging
 import shutil
 import time
 from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
 from io import StringIO
 from pathlib import Path
 from typing import Any, Literal
 
 from returns_manager.batch.runner import run_batch
+from returns_manager.canonical.jcs import canonical_bytes
 from returns_manager.config import Settings
+from returns_manager.db.pool import Database
 from returns_manager.disposition.engine import Route
 from returns_manager.ids import new_id
 from returns_manager.llm.client import ModelClient
@@ -59,10 +63,13 @@ class BatchJob:
 
 
 class BatchJobsService:
-    def __init__(self, root: Path, settings: Settings, client: ModelClient) -> None:
+    def __init__(
+        self, root: Path, settings: Settings, client: ModelClient, db: Database | None = None
+    ) -> None:
         self.root = root
         self.settings = settings
         self.client = client
+        self.db = db
         self._jobs: dict[str, BatchJob] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self.root.mkdir(parents=True, exist_ok=True)
@@ -178,6 +185,7 @@ class BatchJobsService:
                 default_category=default_category,
                 max_requests=max_requests,
                 on_progress=_on_progress,
+                db=self.db,
             )
             from returns_manager.batch.io_csv import write_output_csv
 
@@ -266,6 +274,75 @@ class BatchJobsService:
             return []
         return list(json.loads(path.read_text(encoding="utf-8")))
 
+    def _decision_genesis_hash(self, org_id: str, job_id: str) -> str:
+        """Deterministic chain head for a job's decision log."""
+        raw = (
+            b"rm/job-decision-genesis/v1"
+            + b"\x00"
+            + org_id.encode("utf-8")
+            + b"\x00"
+            + job_id.encode("utf-8")
+        )
+        return hashlib.sha256(raw).hexdigest()
+
+    def _decision_entry_hash(self, org_id: str, job_id: str, prev_hash: str, entry: dict[str, Any]) -> str:
+        """Compute the RFC 8785 + SHA-256 chain hash for one decision entry."""
+        payload = dict(entry)
+        payload.pop("hash", None)
+        payload.pop("prev_hash", None)
+        occurred_at = payload.get("occurred_at") or datetime.fromtimestamp(
+            float(payload.get("at", 0.0)), tz=UTC
+        ).strftime("%Y-%m-%dT%H:%M:%S.%f+00:00")
+        core = {
+            "org_id": org_id,
+            "job_id": job_id,
+            "record_id": payload.get("record_id"),
+            "action": payload.get("action"),
+            "new_disposition": payload.get("new_disposition"),
+            "reason": payload.get("reason"),
+            "actor": payload.get("actor"),
+            "occurred_at": occurred_at,
+            "prev_hash": prev_hash,
+        }
+        data = b"rm/job-decision/v1" + b"\x00" + bytes.fromhex(prev_hash) + canonical_bytes(core)
+        return hashlib.sha256(data).hexdigest()
+
+    def verify_decision_log(self, org_id: str, job_id: str) -> tuple[bool, list[str]]:
+        """Recompute the job decision hash chain and return (valid, problems).
+
+        Design choice: the batch upload path is filesystem-backed, so this chain lives in the job's
+        `decisions.json` file rather than the database-backed per-unit event chain. It is still
+        tamper-evident: any mutation, insertion, reordering or deletion breaks the prev-hash chain.
+        """
+        job = self.get_job(org_id, job_id)
+        if job is None:
+            return False, ["job not found"]
+
+        decisions = self._load_decisions(org_id, job_id)
+        if not decisions:
+            return True, []
+
+        prev_hash = self._decision_genesis_hash(org_id, job_id)
+        problems: list[str] = []
+        for idx, decision in enumerate(decisions):
+            if not isinstance(decision, dict):
+                problems.append(f"decision {idx}: entry is not a JSON object")
+                continue
+            expected_prev = prev_hash
+            stored_prev = decision.get("prev_hash")
+            if stored_prev != expected_prev:
+                problems.append(
+                    f"decision {idx}: prev_hash mismatch (stored {stored_prev!r}, expected {expected_prev!r})"
+                )
+            expected_hash = self._decision_entry_hash(org_id, job_id, expected_prev, decision)
+            stored_hash = decision.get("hash")
+            if stored_hash != expected_hash:
+                problems.append(
+                    f"decision {idx}: hash mismatch (stored {stored_hash!r}, expected {expected_hash!r})"
+                )
+            prev_hash = stored_hash or expected_hash
+        return (not problems), problems
+
     def get_decisions(self, org_id: str, job_id: str, record_id: str) -> list[dict[str, Any]] | None:
         """Chronological (oldest first) decision history for one row. `None` if the job doesn't
         exist or isn't this org's; an empty list is a real, valid answer (no decision recorded
@@ -302,15 +379,23 @@ class BatchJobsService:
             # Four-eyes (§12.2 S01/S02, review/service.py): whoever submitted the returns cannot
             # also sign off a disposition that requires sign-off.
             raise Forbidden("four-eyes rule: the uploader of this batch cannot sign off this row")
+        all_decisions = self._load_decisions(org_id, job_id)
+        prev_hash = self._decision_genesis_hash(org_id, job_id)
+        if all_decisions:
+            prev_hash = all_decisions[-1].get("hash") or prev_hash
+        at = time.time()
+        occurred_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f+00:00")
         entry: dict[str, Any] = {
             "record_id": record_id,
             "action": action,
             "new_disposition": new_disposition,
             "reason": reason,
             "actor": actor,
-            "at": time.time(),
+            "at": at,
+            "occurred_at": occurred_at,
+            "prev_hash": prev_hash,
         }
-        all_decisions = self._load_decisions(org_id, job_id)
+        entry["hash"] = self._decision_entry_hash(org_id, job_id, prev_hash, entry)
         all_decisions.append(entry)
         self._decisions_path(org_id, job_id).write_text(json.dumps(all_decisions), encoding="utf-8")
 

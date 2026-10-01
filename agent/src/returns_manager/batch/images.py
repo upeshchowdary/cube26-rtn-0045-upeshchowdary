@@ -13,6 +13,7 @@ from PIL import Image
 from returns_manager.errors import ReturnsManagerError
 
 MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024  # matches llm.context.MAX_INLINE_BYTES headroom
+USER_AGENT = "ReturnManager/1.0 (+https://github.com/upeshchowdary/cube26-rtn-0045-upeshchowdary)"
 
 
 class ImageFetchError(ReturnsManagerError):
@@ -32,7 +33,7 @@ async def fetch_image(
     if not url:
         raise ImageFetchError("empty image URL")
     try:
-        resp = await client.get(url, follow_redirects=True)
+        resp = await client.get(url, headers={"User-Agent": USER_AGENT}, follow_redirects=True)
     except httpx.HTTPError as exc:
         raise ImageFetchError(f"could not fetch {url!r}: {exc}") from exc
     if resp.status_code != 200:

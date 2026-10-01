@@ -21,6 +21,7 @@ function deriveStatus(row: BatchRowFlat, latest: RowDecisionEntry | null): strin
     if (latest.action === 'retake_request') return 'Awaiting operator'
     if (latest.action === 'review_request') return 'Awaiting review'
   }
+  if (row.auto_disapproved === 'true' || isWrongItemFlag(row)) return 'Auto-disapproved'
   // The backend's flag (batch/auto_approve.py): the engine routed the row with no review and no
   // sign-off required. Not recomputed here, and not the same as a person finalizing it.
   if (row.auto_approved === 'true') return 'Auto-approved'
@@ -34,6 +35,7 @@ function deriveStatus(row: BatchRowFlat, latest: RowDecisionEntry | null): strin
 // identity verdict on the returned photo is "no", or the returned record's IDs disagree with a sold
 // record that exists. A missing sold record is a data gap, not a proven mismatch.
 export function isWrongItemFlag(row: BatchRowFlat): boolean {
+  if (row.auto_disapproved === 'true') return true
   const check = row.sold_vs_returned_id_check || ''
   const paperworkMismatch = check.startsWith('NOT MATCHED') && !check.includes('no sold-record')
   return row.photo_identity_match === 'no' || paperworkMismatch

@@ -97,7 +97,13 @@ export function needsAttention(rows: DerivedRow[]): DerivedRow[] {
 }
 
 export function reviewQueue(rows: DerivedRow[]): DerivedRow[] {
-  return rows.filter((r) => r.latest_decision?.action === 'review_request' || (!r.latest_decision && r.status !== 'Finalized'))
+  return rows.filter(
+    (r) =>
+      !r.wrong_item_flag &&
+      (r.latest_decision?.action === 'review_request' ||
+        r.status === 'Awaiting review' ||
+        r.status === 'Needs attention'),
+  )
 }
 
 export function distinctSkus(rows: DerivedRow[]): { sku: string; asin: string; image: string | null; count: number }[] {

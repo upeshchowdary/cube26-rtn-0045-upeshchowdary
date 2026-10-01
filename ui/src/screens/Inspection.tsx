@@ -276,7 +276,22 @@ export default function Inspection() {
                   <h3 style={{ margin: '0 0 4px', color: 'var(--danger)', fontSize: '14.5px', fontWeight: 600 }}>Sold vs returned records don't match</h3>
                   <p style={{ margin: '0 0 6px', color: 'var(--text)', fontSize: '12.5px', fontFamily: 'monospace' }}>{row.sold_vs_returned_id_check}</p>
                   <small style={{ color: 'var(--text-2)', fontSize: '11.5px', lineHeight: 1.4, display: 'block' }}>
-                    The paperwork or order identifiers on this returned item do not match the original sold record. The row is held for review (<b>{dispositionLabel(row.operator_disposition || 'pending_review').toUpperCase()}</b>); a mismatch is a review flag, not a disposition.
+                    {row.auto_disapproved === 'true'
+                      ? 'This return was automatically disapproved because its sold and returned identifiers do not match.'
+                      : 'The paperwork or order identifiers on this returned item do not match the original sold record.'}
+                  </small>
+                </div>
+              </div>
+            </section>
+          )}
+          {row.auto_disapproved === 'true' && !row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') && (
+            <section className="panel finding-panel" style={{ border: '1px solid var(--danger-line)', background: 'var(--danger-50)' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '4px 0' }}>
+                <CircleAlert size={24} style={{ color: 'var(--danger)', flexShrink: 0, marginTop: 2 }} />
+                <div>
+                  <h3 style={{ margin: '0 0 4px', color: 'var(--danger)', fontSize: '14.5px', fontWeight: 600 }}>Returned product image does not match</h3>
+                  <small style={{ color: 'var(--text-2)', fontSize: '11.5px', lineHeight: 1.4, display: 'block' }}>
+                    The product identity check found a mismatch, so this return was automatically disapproved.
                   </small>
                 </div>
               </div>
@@ -288,7 +303,7 @@ export default function Inspection() {
             <div className="panel-head">
               <div>
                 <small className="kicker">BATCH RUN RESULT</small>
-                <h2>{row.failure_reason ? 'No model result for this row' : 'Model inspection + rules engine'}</h2>
+                <h2>{row.auto_disapproved === 'true' ? 'Automatically disapproved' : row.failure_reason ? 'No model result for this row' : 'Model inspection + rules engine'}</h2>
               </div>
               <Pill value={row.failure_reason ? 'Needs attention' : 'Inspected'} />
             </div>
@@ -518,7 +533,9 @@ export default function Inspection() {
               <div>
                 <small>Disposition recommendation</small>
                 <b>
-                  {detail?.decision?.recommended_disposition
+                  {row.auto_disapproved === 'true'
+                    ? 'AUTO DISAPPROVED'
+                    : detail?.decision?.recommended_disposition
                     ? dispositionLabel(detail.decision.recommended_disposition).toUpperCase()
                     : row.operator_disposition
                     ? dispositionLabel(row.operator_disposition).toUpperCase()
@@ -526,6 +543,7 @@ export default function Inspection() {
                 </b>
                 <small style={{ color: 'var(--muted)', display: 'block', marginTop: 2, fontSize: '10px' }}>
                   {(() => {
+                    if (row.auto_disapproved === 'true') return 'Sold and returned IDs or product images do not match'
                     const disp = detail?.decision?.recommended_disposition || row.operator_disposition
                     if (disp === 'restock') return 'Item can go back on shelf'
                     if (disp === 'refurbish') return 'Item needs repair or repackaging'
@@ -610,7 +628,7 @@ export default function Inspection() {
                 {detail.auto_approval.threshold_calibrated ? '' : ' (not yet calibrated by a threshold sweep)'}
               </div>
             )}
-            {(detail?.decision?.requires_review || !detail || row.wrong_item_flag || row.operator_disposition === 'pending_review') && row.auto_approved !== 'true' && (
+            {!row.wrong_item_flag && (detail?.decision?.requires_review || !detail || row.operator_disposition === 'pending_review') && row.auto_approved !== 'true' && (
               <div className="functional" style={{ color: 'var(--warning)' }}>
                 <CircleAlert size={14} /> Requires review: {detail?.decision?.review_reasons?.map(titleCase).join(', ') || (row.failure_reason ? titleCase(row.failure_reason) : row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') ? 'Paperwork mismatch' : 'No inspection detail')}
               </div>
@@ -624,7 +642,7 @@ export default function Inspection() {
                 )}
               </div>
             )}
-            <div className="decision-actions">
+            {!row.wrong_item_flag && <div className="decision-actions">
               <button className="button primary" onClick={() => setModal('accept')}>
                 <Check size={15} /> Accept recommendation
               </button>
@@ -634,7 +652,7 @@ export default function Inspection() {
               <button onClick={() => setModal('review_request')}>
                 <Clock3 size={14} /> Request human review
               </button>
-            </div>
+            </div>}
           </section>
 
           <div className="reviewer">

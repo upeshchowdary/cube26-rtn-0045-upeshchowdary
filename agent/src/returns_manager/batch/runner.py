@@ -34,6 +34,7 @@ from returns_manager.batch.io_csv import (
 from returns_manager.batch.parts import parse_parts_list
 from returns_manager.canonical.hashing import sha256_hex
 from returns_manager.config import REPO_ROOT, Settings
+from returns_manager.db.pool import Database
 from returns_manager.errors import QuotaExhaustedError
 from returns_manager.jobs.budget import TokenBucketRateLimiter
 from returns_manager.jobs.retry import classify_error
@@ -42,6 +43,7 @@ from returns_manager.judgment.types import EffectivePolicy
 from returns_manager.llm.client import ModelClient
 from returns_manager.llm.context import ContextBundle, ReturnPhoto, assemble
 from returns_manager.llm.loop import SessionFailed, run_session
+from returns_manager.llm.quota import QuotaGuard, Role
 from returns_manager.reference.models import CategoryPolicyV1, ConditionRubricV1
 
 RETRYABLE_ATTEMPTS = 2  # this row's own retry budget for transient provider errors (§10.4 "retry" action)
@@ -124,15 +126,65 @@ class _NoDbQuota:
         return self._limiters[model_id]
 
     @asynccontextmanager
-    async def reserve(self, model_id: str, role: str, n: int) -> AsyncIterator[_NoDbReservation]:
+    async def reserve(self, model_id: str, role: Role, n: int) -> AsyncIterator[_NoDbReservation]:
         if self.is_exhausted:
             raise QuotaExhaustedError("daily request quota used up")
         if self.cap_reached:
             raise RequestCapReached(f"run request cap of {self.max_requests} reached")
         yield _NoDbReservation(self._limiter(model_id), self)
 
-    async def mark_exhausted(self, model_id: str, role: str) -> None:
+    async def mark_exhausted(self, model_id: str, role: Role) -> None:
         self.is_exhausted = True
+
+
+class _BatchQuota:
+    """Database-backed quota with the same API as the in-memory batch quota stub.
+
+    The real batch path should reserve and release live model requests through the existing
+    `QuotaGuard` ledger so `quota status` reflects the truth. The CLI/no-db path remains for
+    standalone batch runs that intentionally do not touch Postgres.
+    """
+
+    def __init__(self, db: Database, settings: Settings, max_requests: int | None = None) -> None:
+        self._db = db
+        self._settings = settings
+        self._guard = QuotaGuard(db, settings)
+        self._fallback = _NoDbQuota(settings.rm_rpm_limit_judgment, max_requests=max_requests)
+        self.max_requests = max_requests
+        self.requests_sent = 0
+        self.is_exhausted = False
+
+    @property
+    def cap_reached(self) -> bool:
+        return self.max_requests is not None and self.requests_sent >= self.max_requests
+
+    @asynccontextmanager
+    async def reserve(self, model_id: str, role: Role, n: int) -> AsyncIterator[Any]:
+        if self.is_exhausted:
+            raise QuotaExhaustedError("daily request quota used up")
+        if self.cap_reached:
+            raise RequestCapReached(f"run request cap of {self.max_requests} reached")
+
+        class _Reservation:
+            def __init__(self, quota: _BatchQuota, inner: Any) -> None:
+                self.quota = quota
+                self.inner = inner
+
+            async def take(self) -> None:
+                if (
+                    self.quota.max_requests is not None
+                    and self.quota.requests_sent >= self.quota.max_requests
+                ):
+                    raise RequestCapReached(f"run request cap of {self.quota.max_requests} reached")
+                await self.inner.take()
+                self.quota.requests_sent += 1
+
+        async with self._guard.reserve(model_id, role, n) as reservation:
+            yield _Reservation(self, reservation)
+
+    async def mark_exhausted(self, model_id: str, role: Role) -> None:
+        self.is_exhausted = True
+        await self._guard.mark_exhausted(model_id, role)
 
 
 @dataclass
@@ -309,8 +361,8 @@ def comparison_record(
 def _operator_disposition(recommended: str | None, *, auto_approved: bool) -> str:
     """`operator_disposition` before any human decision (§14.3): the engine's route only when the
     row is auto-approved (engine route, no review, no sign-off, IDs agree - see auto_approve.py);
-    otherwise `pending_review` until a person accepts or overrides it. The only values are the
-    four routes and `pending_review` - a wrong item is never a disposition."""
+    otherwise `pending_review`. A proven ID or image mismatch is separately recorded as
+    `auto_disapproved`; it is not a fifth disposition route."""
     if auto_approved and recommended:
         return recommended
     return "pending_review"
@@ -325,6 +377,11 @@ def _id_mismatch(before: BeforeRow | None, id_check: str) -> bool:
 def _id_not_checked(id_check: str) -> bool:
     """At least one ID field was blank on one side, so the records were not fully compared."""
     return "not checked:" in id_check
+
+
+def _is_auto_disapproved(before: BeforeRow | None, row: ReturnedRow, photo_identity_match: str) -> bool:
+    """Only a proven paperwork or visual identity mismatch is an automatic disapproval."""
+    return _id_mismatch(before, check_id_match(before, row)) or photo_identity_match == "no"
 
 
 def _uncertain_row(row: ReturnedRow, before: BeforeRow | None, reason: str) -> dict[str, str]:
@@ -347,11 +404,14 @@ def _uncertain_row(row: ReturnedRow, before: BeforeRow | None, reason: str) -> d
         "operator_disposition": "pending_review",
         "agent_disposition": "",
         "auto_approved": "false",
+        "auto_disapproved": "true" if _is_auto_disapproved(before, row, "uncertain") else "false",
         "photo_refs": ";".join(row.returned_photo_refs),
         "captured_at": row.time,
         "sold_vs_returned_id_check": id_check,
         "failure_reason": reason,
-        "value_source": _value_source(before),
+        # A fail-open row is not a real decision, so it must not claim a CSV-backed or synthetic
+        # value source that implies a model-derived price/condition outcome.
+        "value_source": "",
     }
 
 
@@ -428,7 +488,7 @@ async def process_returned_row(
     settings: Settings,
     client: ModelClient,
     http_client: httpx.AsyncClient,
-    quota: _NoDbQuota,
+    quota: Any,
     default_category: str | None,
     list_price_minor: int,
 ) -> RowResult:
@@ -540,14 +600,13 @@ async def process_returned_row(
     )
 
     id_check = check_id_match(before, row)
-    # A wrong item (model identity "no") is §12.2 R03: the engine already returns
-    # recommended_disposition=None with no_recommendation_reason="wrong_item_returned", so it
-    # lands here as pending_review like every other null recommendation.
-    # A sold-vs-returned paperwork mismatch is an independent signal a correct-looking photo can't
-    # excuse: it blocks auto-approve, so the row waits for a person.
+    id_mismatch = _id_mismatch(before, id_check)
+    auto_disapproved = _is_auto_disapproved(before, row, session.judgment.identity.identity_match)
+    # A wrong item (model identity "no") is §12.2 R03 and has no disposition route. It is
+    # separately auto-disapproved; a sold-vs-returned paperwork mismatch has the same outcome.
     approval = auto_approve.evaluate(
         result,
-        id_mismatch=_id_mismatch(before, id_check),
+        id_mismatch=id_mismatch,
         id_not_checked=_id_not_checked(id_check),
         threshold_bp=settings.rm_batch_auto_approve_min_confidence_bp,
     )
@@ -572,6 +631,7 @@ async def process_returned_row(
         "operator_disposition": disposition,
         "agent_disposition": result.decision.recommended_disposition or "",
         "auto_approved": "true" if approval.approved else "false",
+        "auto_disapproved": "true" if auto_disapproved else "false",
         "photo_refs": ";".join(row.returned_photo_refs),
         "captured_at": row.time,
         "sold_vs_returned_id_check": id_check,
@@ -603,6 +663,7 @@ async def run_batch(
     list_price_minor: int = DEFAULT_LIST_PRICE_MINOR,
     max_requests: int | None = None,
     on_progress: Any | None = None,
+    db: Database | None = None,
 ) -> tuple[list[dict[str, str]], dict[str, dict[str, Any]], BatchSummary]:
     """Returns `(output_rows, details_by_record_id, summary)`. `details_by_record_id` only has an
     entry for a row that reached a genuine successful pipeline run (see `RowResult.detail`)."""
@@ -611,7 +672,11 @@ async def run_batch(
     summary = BatchSummary(total_rows=len(returned_rows))
     output_rows: list[dict[str, str]] = []
     details_by_record_id: dict[str, dict[str, Any]] = {}
-    quota = _NoDbQuota(settings.rm_rpm_limit_judgment, max_requests=max_requests)
+    quota: Any = (
+        _BatchQuota(db, settings, max_requests=max_requests)
+        if db is not None
+        else _NoDbQuota(settings.rm_rpm_limit_judgment, max_requests=max_requests)
+    )
 
     headers = {"User-Agent": "ReturnsManagerBatchTool/1.0 (Cube Buildathon 04; standalone batch import)"}
     async with httpx.AsyncClient(timeout=30.0, headers=headers) as http_client:

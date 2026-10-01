@@ -1,0 +1,289 @@
+{
+  "manifest": {
+    "run_id": "phase7-devmini-verify",
+    "dev_mini": true,
+    "units_requested": 8,
+    "units_evaluated": 8,
+    "seed": 20260925,
+    "spend_preflight": {
+      "confirm_spend": true,
+      "note": "dev-mini spends no quota"
+    },
+    "actual_cost_usd": 0.012,
+    "actual_requests": 0,
+    "started_at": "2026-09-30T18:36:18.059289+00:00",
+    "completed_at": "2026-09-30T18:36:26.209375+00:00"
+  },
+  "agreement": {
+    "identity": {
+      "labeller_a_vs_b/raw_agreement": {
+        "statistic": "raw_agreement",
+        "value": 1.0,
+        "n": 8,
+        "ci_low": 1.0,
+        "ci_high": 1.0,
+        "method": "fraction exact match; 95% bootstrap CI"
+      },
+      "labeller_a_vs_b/cohen_kappa": {
+        "statistic": "cohen_kappa",
+        "value": NaN,
+        "n": 8,
+        "ci_low": NaN,
+        "ci_high": NaN,
+        "method": "sklearn.metrics.cohen_kappa_score; 95% bootstrap CI, 1000 resamples, seeded (undefined: only one class present in this pairing - total agreement)"
+      },
+      "model_vs_gold/raw_agreement": {
+        "statistic": "raw_agreement",
+        "value": 0.625,
+        "n": 8,
+        "ci_low": 0.25,
+        "ci_high": 1.0,
+        "method": "fraction exact match; 95% bootstrap CI"
+      },
+      "model_vs_gold/cohen_kappa": {
+        "statistic": "cohen_kappa",
+        "value": 0.0,
+        "n": 8,
+        "ci_low": 0.0,
+        "ci_high": 0.0,
+        "method": "sklearn.metrics.cohen_kappa_score; 95% bootstrap CI, 1000 resamples, seeded"
+      }
+    },
+    "completeness": {
+      "labeller_a_vs_b/raw_agreement": {
+        "statistic": "raw_agreement",
+        "value": 1.0,
+        "n": 8,
+        "ci_low": 1.0,
+        "ci_high": 1.0,
+        "method": "fraction exact match; 95% bootstrap CI"
+      },
+      "labeller_a_vs_b/cohen_kappa": {
+        "statistic": "cohen_kappa",
+        "value": NaN,
+        "n": 8,
+        "ci_low": NaN,
+        "ci_high": NaN,
+        "method": "sklearn.metrics.cohen_kappa_score; 95% bootstrap CI, 1000 resamples, seeded (undefined: only one class present in this pairing - total agreement)"
+      },
+      "model_vs_gold/raw_agreement": {
+        "statistic": "raw_agreement",
+        "value": 1.0,
+        "n": 8,
+        "ci_low": 1.0,
+        "ci_high": 1.0,
+        "method": "fraction exact match; 95% bootstrap CI"
+      },
+      "model_vs_gold/cohen_kappa": {
+        "statistic": "cohen_kappa",
+        "value": NaN,
+        "n": 8,
+        "ci_low": NaN,
+        "ci_high": NaN,
+        "method": "sklearn.metrics.cohen_kappa_score; 95% bootstrap CI, 1000 resamples, seeded (undefined: only one class present in this pairing - total agreement)"
+      }
+    },
+    "condition": {
+      "labeller_a_vs_b/raw_agreement": {
+        "statistic": "raw_agreement",
+        "value": 1.0,
+        "n": 8,
+        "ci_low": 1.0,
+        "ci_high": 1.0,
+        "method": "fraction exact match; 95% bootstrap CI"
+      },
+      "labeller_a_vs_b/cohen_kappa": {
+        "statistic": "cohen_kappa",
+        "value": NaN,
+        "n": 8,
+        "ci_low": NaN,
+        "ci_high": NaN,
+        "method": "sklearn.metrics.cohen_kappa_score; 95% bootstrap CI, 1000 resamples, seeded (undefined: only one class present in this pairing - total agreement)"
+      },
+      "labeller_a_vs_b/weighted_kappa_quadratic": {
+        "statistic": "weighted_kappa_quadratic",
+        "value": NaN,
+        "n": 8,
+        "ci_low": NaN,
+        "ci_high": NaN,
+        "method": "sklearn.metrics.cohen_kappa_score(weights='quadratic'); 95% bootstrap CI, 1000 resamples, seeded (undefined: only one class present in this pairing - total agreement)"
+      },
+      "model_vs_gold/raw_agreement": {
+        "statistic": "raw_agreement",
+        "value": 0.625,
+        "n": 8,
+        "ci_low": 0.25,
+        "ci_high": 1.0,
+        "method": "fraction exact match; 95% bootstrap CI"
+      },
+      "model_vs_gold/cohen_kappa": {
+        "statistic": "cohen_kappa",
+        "value": 0.0,
+        "n": 8,
+        "ci_low": 0.0,
+        "ci_high": 0.0,
+        "method": "sklearn.metrics.cohen_kappa_score; 95% bootstrap CI, 1000 resamples, seeded"
+      },
+      "model_vs_gold/weighted_kappa_quadratic": {
+        "statistic": "weighted_kappa_quadratic",
+        "value": 0.0,
+        "n": 8,
+        "ci_low": 0.0,
+        "ci_high": 0.0,
+        "method": "sklearn.metrics.cohen_kappa_score(weights='quadratic'); 95% bootstrap CI, 1000 resamples, seeded"
+      }
+    },
+    "unit_presence": {
+      "labeller_a_vs_b/raw_agreement": {
+        "statistic": "raw_agreement",
+        "value": 1.0,
+        "n": 8,
+        "ci_low": 1.0,
+        "ci_high": 1.0,
+        "method": "fraction exact match; 95% bootstrap CI"
+      },
+      "labeller_a_vs_b/cohen_kappa": {
+        "statistic": "cohen_kappa",
+        "value": NaN,
+        "n": 8,
+        "ci_low": NaN,
+        "ci_high": NaN,
+        "method": "sklearn.metrics.cohen_kappa_score; 95% bootstrap CI, 1000 resamples, seeded (undefined: only one class present in this pairing - total agreement)"
+      },
+      "model_vs_gold/raw_agreement": {
+        "statistic": "raw_agreement",
+        "value": 1.0,
+        "n": 8,
+        "ci_low": 1.0,
+        "ci_high": 1.0,
+        "method": "fraction exact match; 95% bootstrap CI"
+      },
+      "model_vs_gold/cohen_kappa": {
+        "statistic": "cohen_kappa",
+        "value": NaN,
+        "n": 8,
+        "ci_low": NaN,
+        "ci_high": NaN,
+        "method": "sklearn.metrics.cohen_kappa_score; 95% bootstrap CI, 1000 resamples, seeded (undefined: only one class present in this pairing - total agreement)"
+      }
+    }
+  },
+  "selective_prediction": {
+    "identity": {
+      "strict_accuracy": 0.625,
+      "coverage": 0.625,
+      "selective_accuracy": 1.0,
+      "unnecessary_uncertain_rate": 0.375,
+      "n": 8
+    },
+    "completeness": {
+      "strict_accuracy": 1.0,
+      "coverage": 1.0,
+      "selective_accuracy": 1.0,
+      "unnecessary_uncertain_rate": 0.0,
+      "n": 8
+    },
+    "condition": {
+      "strict_accuracy": 0.625,
+      "coverage": 1.0,
+      "selective_accuracy": 0.625,
+      "unnecessary_uncertain_rate": 0.0,
+      "n": 8
+    }
+  },
+  "fp_fn": {
+    "unit_presence": {
+      "check": "unit_presence",
+      "positive_meaning": "item not returned (empty/non-product)",
+      "fp": 0,
+      "fp_meaning": "flagged empty, but the item was there",
+      "fn": 0,
+      "fn_meaning": "empty box passed as a real return",
+      "n": 8
+    },
+    "identity": {
+      "check": "identity",
+      "positive_meaning": "wrong item (identity_match = no)",
+      "fp": 0,
+      "fp_meaning": "flagged wrong, but it was right",
+      "fn": 0,
+      "fn_meaning": "wrong item passed as right",
+      "n": 8
+    },
+    "completeness": {
+      "check": "completeness",
+      "positive_meaning": "incomplete (>=1 component missing)",
+      "fp": 0,
+      "fp_meaning": "said missing, but complete",
+      "fn": 0,
+      "fn_meaning": "said complete, but something was missing",
+      "n": 8
+    },
+    "condition": {
+      "check": "condition",
+      "positive_meaning": "N/A (ordinal; ranked by CONDITION_GRADE_ORDER)",
+      "fp": 0,
+      "fp_meaning": "under-grade: system says worse than gold",
+      "fn": 3,
+      "fn_meaning": "over-grade: system says better than gold (customer gets less than listed)",
+      "n": 8
+    }
+  },
+  "disposition_confusion": {
+    "matrix": {
+      "restock": {
+        "restock": 8,
+        "refurbish": 0,
+        "liquidate": 0,
+        "dispose": 0,
+        "null": 0
+      },
+      "refurbish": {
+        "restock": 0,
+        "refurbish": 0,
+        "liquidate": 0,
+        "dispose": 0,
+        "null": 0
+      },
+      "liquidate": {
+        "restock": 0,
+        "refurbish": 0,
+        "liquidate": 0,
+        "dispose": 0,
+        "null": 0
+      },
+      "dispose": {
+        "restock": 0,
+        "refurbish": 0,
+        "liquidate": 0,
+        "dispose": 0,
+        "null": 0
+      },
+      "null": {
+        "restock": 0,
+        "refurbish": 0,
+        "liquidate": 0,
+        "dispose": 0,
+        "null": 0
+      }
+    },
+    "n": 8,
+    "restock_when_gold_not_restock": 0,
+    "dispose_when_gold_recoverable": 0
+  },
+  "failure_modes": {
+    "counts": {
+      "poor_lighting": 1,
+      "barcode_failure": 2
+    },
+    "examples": {
+      "poor_lighting": [
+        "DEV-MINI-00"
+      ],
+      "barcode_failure": [
+        "DEV-MINI-03",
+        "DEV-MINI-06"
+      ]
+    }
+  }
+}

@@ -7,6 +7,7 @@ cassettes do not exist for this ad hoc path.
 
 from __future__ import annotations
 
+import io
 import json
 import re
 import time
@@ -14,8 +15,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from PIL import Image
 
 from returns_manager.batch.cards import VALID_CATEGORIES, build_card
+from returns_manager.batch.images import USER_AGENT, fetch_image
 from returns_manager.batch.io_csv import (
     BeforeRow,
     ReturnedRow,
@@ -28,6 +31,7 @@ from returns_manager.batch.parts import parse_parts_list
 from returns_manager.batch.runner import (
     _build_row_detail,
     _id_mismatch,
+    _is_auto_disapproved,
     _missing_parts_field,
     _operator_disposition,
     _uncertain_row,
@@ -35,6 +39,28 @@ from returns_manager.batch.runner import (
 )
 from returns_manager.config import Settings
 from tests.unit import judgment_builders as b
+
+
+async def test_fetch_image_sends_repository_user_agent() -> None:
+    requested: dict[str, Any] = {}
+    image_bytes = io.BytesIO()
+    Image.new("RGB", (1, 1), "white").save(image_bytes, format="JPEG")
+
+    class Response:
+        status_code = 200
+        content = image_bytes.getvalue()
+
+    class Client:
+        async def get(self, url: str, **kwargs: Any) -> Response:
+            requested.update(url=url, **kwargs)
+            return Response()
+
+    result = await fetch_image("https://upload.wikimedia.org/example.jpg", Client(), long_edge=10)
+
+    assert result
+    assert requested["headers"] == {"User-Agent": USER_AGENT}
+    assert requested["follow_redirects"] is True
+
 
 # ── parts_list parsing and essential/replaceable classification ──────────────────────
 
@@ -181,7 +207,7 @@ def test_write_output_csv_uses_fixed_column_order(tmp_path: Path) -> None:
     assert header == (
         "record_id,unit_id,org_id,order_id,ordered_sku,ordered_asin,identity_match,photo_identity_match,"
         "parts_list,parts_missing,observed_state,amazon_condition,operator_disposition,agent_disposition,"
-        "auto_approved,photo_refs,captured_at,sold_vs_returned_id_check,failure_reason,value_source"
+        "auto_approved,auto_disapproved,photo_refs,captured_at,sold_vs_returned_id_check,failure_reason,value_source"
     )
     assert "unexpected_extra" not in out.read_text(encoding="utf-8")
 
@@ -222,6 +248,7 @@ def test_uncertain_row_carries_forward_identity_and_parts_when_before_known() ->
     assert out["sold_vs_returned_id_check"] == "matched"
     assert out["failure_reason"] == "image_fetch_failed: timeout"
     assert out["photo_identity_match"] == "uncertain"
+    assert out["auto_disapproved"] == "false"
 
 
 def test_uncertain_row_without_before_record_leaves_identity_blank() -> None:
@@ -330,6 +357,14 @@ def test_uncertain_row_on_id_mismatch_is_pending_review_not_a_fifth_disposition(
     out = _uncertain_row(row, _before(), "image_fetch_failed: timeout")
     assert out["operator_disposition"] == "pending_review"
     assert out["sold_vs_returned_id_check"].startswith("NOT MATCHED:")
+    assert out["auto_disapproved"] == "true"
+
+
+def test_auto_disapproval_requires_a_proven_id_or_image_mismatch() -> None:
+    assert _is_auto_disapproved(_before(), _returned(order_id="ORD-999"), "uncertain") is True
+    assert _is_auto_disapproved(_before(), _returned(), "no") is True
+    assert _is_auto_disapproved(_before(), _returned(), "uncertain") is False
+    assert _is_auto_disapproved(None, _returned(), "uncertain") is False
 
 
 def test_uncertain_row_no_sold_record_stays_pending_review() -> None:
@@ -532,6 +567,47 @@ def test_record_decision_appends_and_get_decisions_reads_history_in_order(tmp_pa
     assert len(unchanged) == 2
 
 
+def test_decision_log_is_hash_chained_and_verifies_tamper(tmp_path: Path) -> None:
+    svc = _service(tmp_path)
+    _done_job(svc, "org_demo_alpha", "job-1")
+
+    first = svc.record_decision(
+        "org_demo_alpha",
+        "job-1",
+        "RTN-1",
+        action="review_request",
+        new_disposition=None,
+        reason="label is blurry",
+        actor="user:op_alex",
+    )
+    assert first is not None
+    assert first["prev_hash"]
+    assert first["hash"]
+    assert svc.verify_decision_log("org_demo_alpha", "job-1")[0] is True
+
+    second = svc.record_decision(
+        "org_demo_alpha",
+        "job-1",
+        "RTN-1",
+        action="override",
+        new_disposition="refurbish",
+        reason="found the missing cable in a second photo",
+        actor="user:rev_priya",
+    )
+    assert second is not None
+    assert second["prev_hash"] == first["hash"]
+    assert svc.verify_decision_log("org_demo_alpha", "job-1")[0] is True
+
+    history = svc._load_decisions("org_demo_alpha", "job-1")
+    history[0]["reason"] = "tampered"
+    svc._decisions_path("org_demo_alpha", "job-1").write_text(json.dumps(history), encoding="utf-8")
+
+    valid, problems = svc.verify_decision_log("org_demo_alpha", "job-1")
+    assert valid is False
+    assert problems
+    assert "hash mismatch" in problems[0]
+
+
 def test_record_decision_on_missing_job_returns_none(tmp_path: Path) -> None:
     svc = _service(tmp_path)
     assert (
@@ -594,7 +670,7 @@ def test_render_output_csv_reflects_latest_override_not_the_stored_file(tmp_path
     assert lines[0] == (
         "record_id,unit_id,org_id,order_id,ordered_sku,ordered_asin,identity_match,photo_identity_match,"
         "parts_list,parts_missing,observed_state,amazon_condition,operator_disposition,agent_disposition,"
-        "auto_approved,photo_refs,captured_at,sold_vs_returned_id_check,failure_reason,value_source"
+        "auto_approved,auto_disapproved,photo_refs,captured_at,sold_vs_returned_id_check,failure_reason,value_source"
     )
     assert "refurbish" in lines[1]
     assert "liquidate" not in after_override.decode("utf-8")
@@ -956,6 +1032,29 @@ def test_auto_approve_blocked_by_id_mismatch_and_by_null_recommendation() -> Non
     approval = auto_approve.evaluate(wrong, id_mismatch=False, id_not_checked=False, threshold_bp=0)
     assert approval.approved is False
     assert "no_recommendation:wrong_item_returned" in approval.blocked_by
+    assert "image_identity_not_matched" in approval.blocked_by
+
+
+def test_auto_approve_blocks_damage_and_uncertain_visual_identity() -> None:
+    from returns_manager.batch import auto_approve
+    from returns_manager.llm.schemas import JudgmentV1
+
+    ctx = b.context(b.headphones_card())
+    raw = _sealed_new(ctx).model_dump(mode="json")
+    raw["model_observed_state"] = "damaged"
+    damaged = b.run(ctx, JudgmentV1.model_validate(raw))
+    damage_result = auto_approve.evaluate(damaged, id_mismatch=False, id_not_checked=False, threshold_bp=0)
+    assert damage_result.approved is False
+    assert "damage_observed" in damage_result.blocked_by
+
+    raw["model_observed_state"] = "opened_unused"
+    raw["identity"]["identity_match"] = "uncertain"
+    uncertain_identity = b.run(ctx, JudgmentV1.model_validate(raw))
+    identity_result = auto_approve.evaluate(
+        uncertain_identity, id_mismatch=False, id_not_checked=False, threshold_bp=0
+    )
+    assert identity_result.approved is False
+    assert "image_identity_not_matched" in identity_result.blocked_by
 
 
 def test_row_detail_keeps_the_engine_rule_id_and_route() -> None:
@@ -1452,10 +1551,8 @@ def test_value_record_names_the_value_driven_outcomes() -> None:
 
 
 def test_output_row_records_value_source_on_both_paths() -> None:
-    assert _uncertain_row(_returned(), _before(), "x")["value_source"] == "synthetic_default"
-    assert (
-        _uncertain_row(_returned(), _before(list_price_minor=12300), "x")["value_source"] == "csv_list_price"
-    )
+    assert _uncertain_row(_returned(), _before(), "x")["value_source"] == ""
+    assert _uncertain_row(_returned(), _before(list_price_minor=12300), "x")["value_source"] == ""
     assert _uncertain_row(_returned(), None, "x")["value_source"] == ""
 
 
@@ -1651,6 +1748,40 @@ async def test_request_cap_refuses_before_sending_and_counts_each_take() -> None
         await reservation.take()
     assert uncapped.requests_sent == 1
     assert uncapped.cap_reached is False
+
+
+async def test_batch_records_real_requests_in_the_quota_ledger_when_db_is_available(
+    db: Any, tmp_path: Path, monkeypatch: Any
+) -> None:
+    """The DB-backed batch runner must reserve its live requests through the real ledger, not the
+    in-memory standalone stub; the unused reservation is released, leaving the ledger with 1 used."""
+    from returns_manager.batch import runner
+
+    before, returned = _write_csvs(tmp_path, 1)
+    model_id = f"batch-db-ledger-test-model-{__import__('uuid').uuid4().hex}"
+
+    async def _fake_row(row: Any, before_by_unit: Any, *, quota: Any, **kwargs: Any) -> Any:
+        before = before_by_unit[row.unit_id]
+        async with quota.reserve(model_id, "judgment", 2) as reservation:
+            await reservation.take()
+        return runner._fail_open(row, before, "stub_done", attempted_model_call=True)
+
+    monkeypatch.setattr(runner, "process_returned_row", _fake_row)
+    await runner.run_batch(
+        before_path=before,
+        returned_path=returned,
+        settings=Settings.model_construct(rm_rpm_limit_judgment=6000),
+        client=None,  # type: ignore[arg-type]
+        db=db,
+    )
+    async with db.transaction(None) as conn:
+        row = await conn.execute(
+            "SELECT requests_used FROM rm.model_request_ledger WHERE model_id = %s",
+            (model_id,),
+        )
+        ledger = await row.fetchone()
+    assert ledger is not None
+    assert ledger["requests_used"] == 1
 
 
 async def test_cap_reached_mid_session_is_not_marked_as_quota_exhausted(monkeypatch: Any) -> None:

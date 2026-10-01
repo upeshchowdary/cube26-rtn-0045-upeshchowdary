@@ -7,12 +7,14 @@ A row is auto-approved only when every one of these holds for its real pipeline 
   auto-approved), and the pipeline raised no review reason or escalation trigger;
 - every check passed, and every check's confidence (the model-reported confidence, in basis
   points) is at least `RM_BATCH_AUTO_APPROVE_MIN_CONFIDENCE_BP`;
+- the model explicitly matched the returned product to the sold product, and did not report damage;
 - every sold-vs-returned ID field is present on both records and agrees (a blank ID is "not
   checked", which blocks approval just like a mismatch).
 
 It never changes the route, the rule id or the grade: it only lets the engine's own route stand
-as `operator_disposition` without a person accepting it first. Everything else stays
-`pending_review`. The UI reads this flag from the backend and does not recompute it.
+as `operator_disposition` without a person accepting it first. Other rows keep
+`operator_disposition=pending_review`; proven mismatches are separately marked
+`auto_disapproved`. The UI reads these flags from the backend.
 
 The threshold is NOT yet calibrated by a threshold sweep (§21.5); see `config.py`.
 """
@@ -56,6 +58,12 @@ def evaluate(result: Any, *, id_mismatch: bool, id_not_checked: bool, threshold_
         blocked.append("sold_vs_returned_id_mismatch")
     if id_not_checked:
         blocked.append("sold_vs_returned_id_not_checked")
+
+    judgment = result.judgment
+    if judgment.identity.identity_match != "yes":
+        blocked.append("image_identity_not_matched")
+    if judgment.model_observed_state == "damaged":
+        blocked.append("damage_observed")
 
     checks = tuple(result.checks)
     if not checks:
