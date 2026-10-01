@@ -502,8 +502,14 @@ async def process_returned_row(
         return _fail_open(row, None, "no_before_record")
     if not before.photo_ref:
         return _fail_open(row, before, "no_reference_photo")
-    if not row.returned_photo_refs:
-        return _fail_open(row, before, "no_return_photo")
+
+    # Single-photo mode: no return photo was supplied in the CSV, but we can still run the AI
+    # on the sold/reference photo alone.  Confidence is automatically reduced: PhotoGate will
+    # report non_fail_photos=1, the photo_quality check will be FAIL, auto-approve is blocked,
+    # and failure_reason is set to signal the reduced-confidence result to the UI.
+    # The AI can still determine identity (same product?), condition, and damage from a single
+    # image and will produce a real disposition rather than defaulting to uncertain/pending.
+    _single_photo_mode = not row.returned_photo_refs
 
     category = before.category or default_category
     if not category:
@@ -549,7 +555,13 @@ async def process_returned_row(
             photo_errors.append(str(exc))
             unfetched_urls.append(url)
     if not return_bytes:
-        return _fail_open(row, before, f"image_fetch_failed:{'; '.join(photo_errors)}")
+        if _single_photo_mode:
+            # No return URLs were provided at all; use the reference photo as the sole
+            # return image so the AI can still produce a real verdict.
+            return_bytes = [ref_bytes]
+            fetched_urls = [before.photo_ref]
+        else:
+            return _fail_open(row, before, f"image_fetch_failed:{'; '.join(photo_errors)}")
 
     photos = [
         ReturnPhoto(
@@ -597,10 +609,13 @@ async def process_returned_row(
             await quota.mark_exhausted(settings.rm_judgment_model, "judgment")
         return _fail_open(row, before, f"model_call_failed:{error_class}", attempted_model_call=True)
 
+    # In single-photo mode, non_fail_photos=1 triggers a photo_quality FAIL check,
+    # which blocks auto-approve and surfaces in the UI as a reduced-confidence signal.
+    _effective_non_fail_photos = 1 if _single_photo_mode else len(photos)
     result = run_pipeline(
         session.judgment,
         bundle.ctx,
-        photo_gate=PhotoGate(non_fail_photos=len(photos), acknowledged_warnings=False),
+        photo_gate=PhotoGate(non_fail_photos=_effective_non_fail_photos, acknowledged_warnings=False),
         rules_version="batch-import-v1",
     )
 
@@ -637,20 +652,38 @@ async def process_returned_row(
         "agent_disposition": result.decision.recommended_disposition or "",
         "auto_approved": "true" if approval.approved else "false",
         "auto_disapproved": "true" if auto_disapproved else "false",
-        "photo_refs": ";".join(row.returned_photo_refs),
+        # In single-photo mode, record the reference URL so the UI knows which image was used.
+        "photo_refs": before.photo_ref if _single_photo_mode else ";".join(row.returned_photo_refs),
         "captured_at": row.time,
         "sold_vs_returned_id_check": id_check,
-        "failure_reason": "",
+        # In single-photo mode, tag the row so the UI can show a reduced-confidence notice.
+        # This is NOT a fail-open: a real model verdict was produced, just with one image.
+        "failure_reason": (
+            "single_photo_mode:no_return_photo_supplied;reference_image_used_as_proxy;"
+            "confidence_reduced;operator_review_recommended"
+            if _single_photo_mode
+            else ""
+        ),
         "value_source": _value_source(before),
     }
-    warning = (
-        f"{len(photo_errors)} of {len(row.returned_photo_refs)} return photo(s) failed to fetch: "
-        + "; ".join(photo_errors)
-        if photo_errors
-        else None
-    )
+    # Build the warning string.  In single-photo mode the reduced-confidence message is already
+    # in failure_reason; any URL-fetch errors (from the normal multi-photo path) are appended too.
+    warning_parts: list[str] = []
+    if _single_photo_mode:
+        warning_parts.append(
+            "Single-photo mode: no return photo supplied. "
+            "Reference (before-sale) image used as proxy. "
+            "Confidence is reduced; operator review is recommended."
+        )
+    if photo_errors:
+        warning_parts.append(
+            f"{len(photo_errors)} of {len(row.returned_photo_refs)} return photo(s) failed to fetch: "
+            + "; ".join(photo_errors)
+        )
+    warning = " | ".join(warning_parts) if warning_parts else None
     detail = _build_row_detail(session_judgment=result.judgment, result=result, row=row, before=before)
     detail["auto_approval"] = approval.as_dict()
+    detail["single_photo_mode"] = _single_photo_mode
     detail["value"] = value_record(before, list_price_minor, result.decision)
     detail["comparison"] = comparison_record(
         card, result.judgment, photo_aliases(before.photo_ref, fetched_urls), unfetched_urls
