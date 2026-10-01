@@ -346,7 +346,9 @@ def comparison_record(
                 "importance": f.importance,
                 "location": f.location,
                 "result": fc.result if fc else "not_reported",
-                "photo": fc.photo if fc else None,
+                # the model saw the sold photo as R1 (llm/context.py); the UI and `photo_aliases` call it
+                # REFERENCE_ALIAS, so translate it here instead of showing an alias the UI cannot resolve
+                "photo": REFERENCE_ALIAS if fc and fc.photo == "R1" else (fc.photo if fc else None),
             }
         )
     critical = [f for f in features if f["importance"] == "critical"]

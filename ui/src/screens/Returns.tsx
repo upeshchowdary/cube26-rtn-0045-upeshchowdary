@@ -43,30 +43,20 @@ export default function Returns() {
     'Auto approved',
     'Auto disapproved',
   ]
-  const inTab = (row: DerivedRow) => {
-    if (tab === 'All returns') return true
-    if (tab === 'Awaiting review') {
-      return (row.status === 'Awaiting review' || row.status === 'Needs attention') && !row.latest_decision && row.auto_approved !== 'true'
-    }
-    if (tab === 'Finalized') return row.status === 'Finalized' || row.auto_approved === 'true' || !!row.latest_decision
-    if (tab === 'Auto approved') return row.auto_approved === 'true'
-    if (tab === 'Auto disapproved') return (row.status === 'Auto-disapproved' || row.wrong_item_flag || row.auto_disapproved === 'true') && !row.latest_decision
-    return tab === row.status
-  }
-  const tabCount = (name: string) => {
-    if (name === 'All returns') return rows.length
+  // One rule per tab, from the row's status (store.tsx deriveStatus: a person's accept/override or the
+  // backend auto-approve flag finalizes; a retake or review request keeps the row open).
+  const tabRule = (name: string, row: DerivedRow): boolean => {
+    if (name === 'All returns') return true
     if (name === 'Awaiting review') {
-      return rows.filter((row) => (row.status === 'Awaiting review' || row.status === 'Needs attention') && !row.latest_decision && row.auto_approved !== 'true').length
+      return ['Awaiting review', 'Awaiting operator', 'Needs attention'].includes(row.status)
     }
-    if (name === 'Finalized') {
-      return rows.filter((row) => row.status === 'Finalized' || row.auto_approved === 'true' || !!row.latest_decision).length
-    }
-    if (name === 'Auto approved') return rows.filter((row) => row.auto_approved === 'true').length
-    if (name === 'Auto disapproved') {
-      return rows.filter((row) => (row.status === 'Auto-disapproved' || row.wrong_item_flag || row.auto_disapproved === 'true') && !row.latest_decision).length
-    }
-    return rows.filter((row) => row.status === name).length
+    if (name === 'Finalized') return row.status === 'Finalized'
+    if (name === 'Auto approved') return row.auto_approved === 'true'
+    if (name === 'Auto disapproved') return row.status === 'Auto-disapproved'
+    return row.status === name
   }
+  const inTab = (row: DerivedRow) => tabRule(tab, row)
+  const tabCount = (name: string) => rows.filter((row) => tabRule(name, row)).length
   const filtered = rows
     .filter((r) => `${r.record_id} ${r.order_id} ${r.unit_id} ${r.ordered_sku} ${r.ordered_asin}`.toLowerCase().includes(query.toLowerCase()))
     .filter((r) => inTab(r))
