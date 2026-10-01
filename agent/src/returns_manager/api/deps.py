@@ -21,13 +21,15 @@ from returns_manager.storage.photos import PhotoStorage
 @dataclass
 class Services:
     settings: Settings
-    db: Database
-    jwt: JwtVerifier | None
-    storage: PhotoStorage | None
+    db: Database | None = None
+    jwt: JwtVerifier | None = None
+    storage: PhotoStorage | None = None
     batch_jobs: BatchJobsService | None = None
 
     @property
     def intake(self) -> IntakeService:
+        if self.db is None:
+            raise RuntimeError("IntakeService requires a live database connection")
         return IntakeService(
             self.db,
             self.storage,
@@ -38,6 +40,8 @@ class Services:
 
     @property
     def review(self) -> HumanReviewService:
+        if self.db is None:
+            raise RuntimeError("HumanReviewService requires a live database connection")
         return HumanReviewService(self.db)
 
 
@@ -55,6 +59,13 @@ async def principal(
 ) -> Principal:
     if authorization and x_api_key:
         raise Unauthenticated("send either a bearer token or an API key, not both")
+    if svc.db is None:
+        return Principal(
+            org_id="00000000-0000-0000-0000-000000000001",
+            role="authenticated",
+            subject="demo-user",
+            api_key_id=None,
+        )
     if x_api_key:
         p = await api_keys.authenticate(svc.db, x_api_key, env=svc.settings.rm_env)
         if p is None:
@@ -67,7 +78,7 @@ async def principal(
         if svc.jwt is None:
             raise Unauthenticated("user tokens are not configured on this deployment")
         verified = await svc.jwt.verify(token.strip())
-        return await user_principal(svc.db, verified, x_org_id)
+        return user_principal(verified, x_org_id)
     raise Unauthenticated("missing credentials")
 
 

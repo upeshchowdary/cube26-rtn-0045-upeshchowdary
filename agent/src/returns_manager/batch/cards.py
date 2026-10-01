@@ -24,6 +24,68 @@ VALID_CATEGORIES = frozenset(
     {"beauty_topical", "electronics", "grocery_ingestible", "home_kitchen", "pet", "toys_games"}
 )
 
+CATEGORY_ALIASES: dict[str, str] = {
+    # electronics
+    "smartphone": "electronics",
+    "phone": "electronics",
+    "tablet": "electronics",
+    "laptop": "electronics",
+    "computer": "electronics",
+    "smartwatch": "electronics",
+    "watch": "electronics",
+    "fitness_tracker": "electronics",
+    "camera": "electronics",
+    "action_camera": "electronics",
+    "earbuds": "electronics",
+    "headphones": "electronics",
+    "speaker": "electronics",
+    "router": "electronics",
+    "printer": "electronics",
+    "gaming_console": "electronics",
+    "console": "electronics",
+    "controller": "electronics",
+    "single_board_computer": "electronics",
+    "ereader": "electronics",
+    "e_reader": "electronics",
+    "e-reader": "electronics",
+    "audio": "electronics",
+    "video": "electronics",
+    "gadget": "electronics",
+    # home & kitchen
+    "vacuum": "home_kitchen",
+    "mixer": "home_kitchen",
+    "blender": "home_kitchen",
+    "kitchen": "home_kitchen",
+    "home": "home_kitchen",
+    "appliance": "home_kitchen",
+    "cookware": "home_kitchen",
+    # toys & games
+    "toy": "toys_games",
+    "toys": "toys_games",
+    "game": "toys_games",
+    "games": "toys_games",
+    # beauty & topical
+    "beauty": "beauty_topical",
+    "cosmetics": "beauty_topical",
+    "skincare": "beauty_topical",
+    # pet
+    "pet_supplies": "pet",
+    "dog": "pet",
+    "cat": "pet",
+    # grocery
+    "food": "grocery_ingestible",
+    "grocery": "grocery_ingestible",
+    "beverage": "grocery_ingestible",
+}
+
+
+def normalize_category(category: str) -> str:
+    cleaned = category.strip().lower().replace(" ", "_").replace("-", "_")
+    if cleaned in VALID_CATEGORIES:
+        return cleaned
+    return CATEGORY_ALIASES.get(cleaned, cleaned)
+
+
 DEFAULT_LIST_PRICE_MINOR = 999900  # INR 9,999 - synthetic placeholder, see ProductValue.synthetic
 DEFAULT_REFURBISH_COST_MINOR = 50000  # INR 500
 DEFAULT_RECOVERY_RATE_BP = RecoveryRateBp(
@@ -85,14 +147,19 @@ def build_card(
             # specific than "matches the reference photo" for either one.
             DistinguishingFeature(
                 id="df_catalog_appearance",
-                description="Overall appearance (shape, colour, proportions) matching the reference "
-                "(before-sale) photo supplied for this SKU",
+                description=(
+                    "Overall product type, form factor, silhouette, and design matching the reference "
+                    "(before-sale) photo supplied for this SKU. Physical wear, scratches, cracks, broken "
+                    "parts, or damage are condition defects, NOT an appearance mismatch; multiple items in "
+                    "a comparison photo or ambiguous views where the exact single unit is unclear must be "
+                    "evaluated as not_visible or uncertain, never mismatch."
+                ),
                 location="product_body",
                 importance="critical",
             ),
             DistinguishingFeature(
                 id="df_catalog_markings",
-                description="Brand name, model markings or other printed/embossed text matching the "
+                description="Brand name, logo, model markings or other printed/embossed text matching the "
                 "reference (before-sale) photo supplied for this SKU",
                 location="product_body",
                 importance="critical",

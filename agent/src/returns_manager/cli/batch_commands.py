@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import typer
 
@@ -52,6 +53,22 @@ def process_command(
     assert settings.gemini_api_key is not None
     client = GeminiModelClient(settings.gemini_api_key.get_secret_value(), settings.rm_model_timeout_s)
 
+    def _print_progress(
+        row: dict[str, str],
+        _detail: Any,
+        summary: Any,
+        output_rows: list[dict[str, str]],
+        _details: Any,
+    ) -> None:
+        idx = len(output_rows)
+        fail = f" (fail: {row['failure_reason']})" if row.get("failure_reason") else ""
+        typer.echo(
+            f"[{idx}/{summary.total_rows}] {row['record_id']} -> "
+            f"state={row.get('observed_state')}, disp={row.get('operator_disposition')}, "
+            f"approved={row.get('auto_approved')}, disapproved={row.get('auto_disapproved')}{fail} "
+            f"(requests: {summary.live_requests})"
+        )
+
     rows, _details_by_record_id, summary = run_batch_sync(
         before_path=before,
         returned_path=returned,
@@ -60,6 +77,7 @@ def process_command(
         default_category=default_category,
         list_price_minor=list_price_minor,
         max_requests=max_requests,
+        on_progress=_print_progress,
     )
     write_output_csv(out, rows)
 

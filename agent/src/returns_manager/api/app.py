@@ -30,7 +30,7 @@ from returns_manager.api.routes import security as security_routes
 from returns_manager.api.routes import simulate as simulate_routes
 from returns_manager.api.routes import webhooks as webhooks_routes
 from returns_manager.batch.jobs_service import BatchJobsService
-from returns_manager.config import AGENT_ROOT, Settings, get_settings
+from returns_manager.config import AGENT_ROOT, REPO_ROOT, Settings, get_settings
 from returns_manager.db.pool import Database
 from returns_manager.ids import new_id
 from returns_manager.security.auth_jwt import JwtVerifier
@@ -48,10 +48,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        settings.require("database_url")
-        assert settings.database_url is not None
-        db = Database(settings.database_url.get_secret_value())
-        await db.open()  # runs the boot check; raises UnsafeDatabaseRole under a bypass role
+        db: Database | None = None
+        if settings.database_url:
+            try:
+                db = Database(settings.database_url.get_secret_value())
+                await db.open()  # runs the boot check; raises UnsafeDatabaseRole under a bypass role
+            except Exception as exc:
+                import logging
+
+                logging.getLogger("returns_manager").warning(
+                    "Database connection failed: %s. Operating in standalone demo mode.", exc
+                )
+                db = None
+        else:
+            import logging
+
+            logging.getLogger("returns_manager").info(
+                "DATABASE_URL is not set. Operating in standalone demo mode."
+            )
+
         jwt = JwtVerifier(settings) if (settings.supabase_jwks_url or settings.supabase_jwt_secret) else None
         storage = PhotoStorage(settings) if settings.supabase_url else None
         batch_jobs: BatchJobsService | None = None
@@ -73,7 +88,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
-            await db.close()
+            if db is not None:
+                await db.close()
 
     app = FastAPI(
         title="Returns Manager API",
@@ -84,15 +100,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     problems.install(app)
 
-    # The static frontend (served separately, e.g. `python -m http.server` under
-    # frontend/) calls this API from a different origin/port. Every route still
-    # requires a real API key (api/deps.py:principal) regardless of origin, so this
-    # only widens *which pages* may attempt a call, never who is allowed to succeed.
-    # Scoped to localhost/127.0.0.1 on any port - this API is not deployed publicly.
+    # Allow CORS across domains for public deployment
     app.add_middleware(
         CORSMiddleware,
-        allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
-        allow_credentials=False,
+        allow_origin_regex=r".*",
+        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -121,16 +133,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/ready", response_model=Ready)
     async def ready(svc: ServicesDep, response: Response) -> Ready:
-        checks: dict[str, Any] = {"database_role_non_bypass": svc.db.role_name is not None}
-        try:
-            async with svc.db.transaction(None) as conn:
-                await conn.execute("SELECT 1")
-            checks["database"] = True
-        except Exception:
-            checks["database"] = False
+        has_db_role = bool(svc.db and svc.db.role_name is not None)
+        checks: dict[str, Any] = {"database_role_non_bypass": has_db_role}
+        if svc.db is not None:
+            try:
+                async with svc.db.transaction(None) as conn:
+                    await conn.execute("SELECT 1")
+                checks["database"] = True
+            except Exception:
+                checks["database"] = False
+        else:
+            checks["database"] = "standalone_mode"
         checks["storage"] = await svc.storage.ping() if svc.storage else False
-        checks["models"] = "not checked until phase P5"
-        ok = bool(checks["database"] and checks["database_role_non_bypass"] and checks["storage"])
+        checks["models"] = "configured" if svc.settings.gemini_api_key else "not_configured"
+        ok = (
+            bool(checks["database"] and checks["database_role_non_bypass"] and checks["storage"])
+            if svc.db is not None
+            else True
+        )
         response.status_code = 200 if ok else 503
         return Ready(ready=ok, checks=checks)
 
@@ -145,4 +165,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(explainer_routes.router)
     app.include_router(webhooks_routes.router)
     app.include_router(metrics_routes.router)
+
+    ui_dist = REPO_ROOT / "ui" / "dist"
+    if (ui_dist / "index.html").exists():
+        from fastapi.responses import FileResponse
+        from fastapi.staticfiles import StaticFiles
+
+        if (ui_dist / "assets").exists():
+            app.mount("/assets", StaticFiles(directory=str(ui_dist / "assets")), name="assets")
+
+        @app.get("/{full_path:path}", include_in_schema=False)
+        async def serve_spa(full_path: str):
+            target = ui_dist / full_path
+            if full_path and target.is_file():
+                return FileResponse(str(target))
+            return FileResponse(str(ui_dist / "index.html"))
+
     return app

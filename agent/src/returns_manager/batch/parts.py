@@ -39,6 +39,34 @@ def _slugify(name: str, taken: set[str]) -> str:
     return candidate
 
 
+NON_ESSENTIAL_ACCESSORIES = frozenset(
+    {
+        "sim ejector",
+        "sim tool",
+        "sim pin",
+        "sim tray tool",
+        "sim needle",
+        "sim card needle",
+        "sticker",
+        "stickers",
+        "leaflet",
+        "pamphlet",
+    }
+)
+
+
+def _is_essential(name: str, index: int) -> bool:
+    if index == 0:
+        return True
+    norm = name.strip().lower()
+    return not (
+        norm in NON_ESSENTIAL_ACCESSORIES
+        or "optional" in norm
+        or "non-essential" in norm
+        or "nonessential" in norm
+    )
+
+
 def parse_parts_list(parts_list: str) -> list[ParsedPart]:
     """`;`-separated tokens, each `name` or `name xN` (quantity). Empty/blank input -> []."""
     tokens = [t.strip() for t in parts_list.split(";") if t.strip()]
@@ -53,7 +81,7 @@ def parse_parts_list(parts_list: str) -> list[ParsedPart]:
                 component_id=_slugify(name, taken),
                 name=name,
                 quantity=max(quantity, 1),
-                essential=True,
+                essential=_is_essential(name, i),
                 replaceable=i != 0,  # first listed = main/root part, non-replaceable
             )
         )

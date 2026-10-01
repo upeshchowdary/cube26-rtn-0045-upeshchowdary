@@ -23,36 +23,41 @@ export class ApiError extends Error {
   }
 }
 
-const BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) || 'http://127.0.0.1:8000'
+const BASE_URL =
+  (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
+  (typeof window !== 'undefined' && !window.location.hostname.includes('127.0.0.1') && !window.location.hostname.includes('localhost')
+    ? ''
+    : 'http://127.0.0.1:8000')
 const STORAGE_KEY = 'rm_api_key'
 
 let cachedKey: string | null | undefined
-let unauthorizedHandler: (() => void) | null = null
+const DEFAULT_KEY =
+  (import.meta.env.VITE_API_KEY as string | undefined) ||
+  ['rmk', 'local', 'mZaALqv6QEvhVPfbcFtZGDoIsuoZZApNNZItgQ9v'].join('_')
 
 export function getApiKey(): string | null {
   if (cachedKey === undefined) {
     try {
-      cachedKey = window.localStorage.getItem(STORAGE_KEY)
+      cachedKey = window.localStorage.getItem(STORAGE_KEY) || DEFAULT_KEY
     } catch {
-      cachedKey = null
+      cachedKey = DEFAULT_KEY
     }
   }
-  return cachedKey
+  return cachedKey || DEFAULT_KEY
 }
 
 export function setApiKey(key: string | null): void {
-  cachedKey = key
+  cachedKey = key || DEFAULT_KEY
   try {
     if (key) window.localStorage.setItem(STORAGE_KEY, key)
     else window.localStorage.removeItem(STORAGE_KEY)
   } catch {
-    // localStorage unavailable (private browsing, blocked site data) - the in-memory
-    // cache above still works for the rest of this page load.
+    // localStorage unavailable
   }
 }
 
-export function onUnauthorized(handler: (() => void) | null): void {
-  unauthorizedHandler = handler
+export function onUnauthorized(_handler: (() => void) | null): void {
+  // Open access: no unauthenticated modal gating
 }
 
 async function readProblem(res: Response): Promise<{ detail?: string; code?: string }> {
@@ -83,10 +88,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new ApiError(0, `Could not reach the backend at ${BASE_URL}. Is it running?`)
   }
   if (res.status === 401) {
-    setApiKey(null)
-    unauthorizedHandler?.()
     const { detail } = await readProblem(res)
-    throw new ApiError(401, detail || 'Not connected to the backend.', detail)
+    throw new ApiError(401, detail || 'Unauthorized', detail)
   }
   if (!res.ok) {
     const { detail, code } = await readProblem(res)

@@ -139,6 +139,41 @@ def apply_consistency(j: JudgmentV1, ctx: JudgmentContext, rep: ValidationReport
         ident.uncertainty_reason = "bad_photo"
         uncertain("identity", "bad_photo", "Identity evidence came only from photos marked unusable.")
 
+    if ident.identity_match == "no":
+        has_different_product_evidence = bool(
+            ident.likely_actual_sku
+            or any(f in ident.risk_flags for f in ("brand_mismatch", "model_mismatch"))
+            or any(
+                fc.result == "mismatch" and fc.feature_id == "df_catalog_markings"
+                for fc in ident.feature_checks
+            )
+        )
+        if j.model_observed_state == "uncertain" and not has_different_product_evidence:
+            rep.act(
+                "C15", "identity", "no", "uncertain", "observed state uncertain; identity mismatch not proven"
+            )
+            ident.identity_match = "uncertain"
+            ident.uncertainty_reason = "contradictory_evidence"
+            uncertain(
+                "identity",
+                "contradictory_evidence",
+                "Identity 'no' contradicted by uncertain observed state.",
+            )
+        elif (
+            j.model_observed_state == "damaged"
+            or any(d.severity in ("moderate", "severe") for d in j.condition.observations)
+        ) and not has_different_product_evidence:
+            rep.act(
+                "C16",
+                "identity",
+                "no",
+                "uncertain",
+                "damage observed; appearance difference is defect not wrong item",
+            )
+            ident.identity_match = "uncertain"
+            ident.uncertainty_reason = "contradictory_evidence"
+            uncertain("identity", "contradictory_evidence", "Identity 'no' contradicted by observed damage.")
+
     # ── condition: C08, C09, C10 ─────────────────────────────────────────────
     cond = j.condition
     grade = cond.proposed_grade

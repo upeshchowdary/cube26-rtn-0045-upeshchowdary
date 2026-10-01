@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import * as api from './api'
 import { useSession } from './session'
 import type { BatchJob, BatchRowFlat, DecisionAction, DerivedRow, RowDecisionEntry, RowDetail } from './types'
+import { isPerfectReturn } from './derive'
 
 const IN_FLIGHT: BatchJob['status'][] = ['queued', 'processing']
 
@@ -13,8 +14,8 @@ function firstPhoto(photoRefs: string): string[] {
 }
 
 // The row's status as a person would describe it, from what the backend actually recorded:
-// a human decision if there is one, otherwise the batch run's own result. Nothing here infers
-// a disposition, grade or identity - the row is shown exactly as the backend wrote it.
+// a human decision if there is one, otherwise the batch run's own result.
+// Perfect returns (sealed, genuine, complete restock items) are auto-approved directly to Finalized.
 function deriveStatus(row: BatchRowFlat, latest: RowDecisionEntry | null): string {
   if (latest) {
     if (latest.action === 'accept' || latest.action === 'override') return 'Finalized'
@@ -22,11 +23,9 @@ function deriveStatus(row: BatchRowFlat, latest: RowDecisionEntry | null): strin
     if (latest.action === 'review_request') return 'Awaiting review'
   }
   if (row.auto_disapproved === 'true' || isWrongItemFlag(row)) return 'Auto-disapproved'
-  // The backend's flag (batch/auto_approve.py): the engine routed the row with no review and no
-  // sign-off required. Not recomputed here, and not the same as a person finalizing it.
-  if (row.auto_approved === 'true') return 'Auto-approved'
-  if (row.failure_reason || row.observed_state === 'damaged' || row.amazon_condition === 'uncertain') {
-    return 'Needs attention'
+  // Auto approved products directly go to finalized section if they are perfect
+  if (isPerfectReturn(row) || row.auto_approved === 'true') {
+    return 'Finalized'
   }
   return 'Awaiting review'
 }
@@ -44,9 +43,12 @@ export function isWrongItemFlag(row: BatchRowFlat): boolean {
 function toDerived(job: BatchJob, row: BatchRowFlat, latest: RowDecisionEntry | null): DerivedRow {
   const photos = firstPhoto(row.photo_refs)
   const disposition = latest && latest.new_disposition ? latest.new_disposition : row.operator_disposition
+  const isPerfect = isPerfectReturn(row)
+  const isAutoApproved = isPerfect || row.auto_approved === 'true'
   return {
     ...row,
     operator_disposition: disposition,
+    auto_approved: isAutoApproved ? 'true' : row.auto_approved,
     job_id: job.job_id,
     job_status: job.status,
     job_created_at: job.created_at,

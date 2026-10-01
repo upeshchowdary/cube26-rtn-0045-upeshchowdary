@@ -6,38 +6,24 @@ import { ArrowRight, ChevronDown, ChevronUp, Menu, X } from 'lucide-react'
 import { scrollToTarget } from '../motion/scroll'
 import './components.css'
 
-export function Mark({ size = 26 }: { size?: number }) {
+export function Mark({ size = 26, className = '' }: { size?: number; className?: string }) {
   return (
-    <svg className="rm-mark" width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
-      <defs>
-        <linearGradient id="rm-mark-g" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#2563EB" />
-          <stop offset="1" stopColor="#3B82F6" />
-        </linearGradient>
-      </defs>
-      <rect width="32" height="32" rx="9" fill="url(#rm-mark-g)" />
-      {/* a return arrow closing into a check: the unit comes back, then gets a decision */}
-      <path
-        d="M11.5 12.5h7.25a4.75 4.75 0 0 1 0 9.5H14"
-        fill="none"
-        stroke="#fff"
-        strokeWidth="2.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path d="M14.5 9.25 11.25 12.5l3.25 3.25" fill="none" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="23.6" cy="9.4" r="2.1" fill="#22D3EE" />
-    </svg>
+    <img
+      src="/sydon-mark.png"
+      alt="sydon mark"
+      width={size}
+      height={size}
+      className={`rm-mark sydon-mark ${className}`.trim()}
+      style={{ objectFit: 'contain', display: 'inline-block', verticalAlign: 'middle', flexShrink: 0 }}
+    />
   )
 }
 
 export function Wordmark({ to = '/overview' }: { to?: string }) {
   return (
-    <Link to={to} className="rm-wordmark" aria-label="Return Manager home">
-      <Mark />
-      <span>
-        Return <b>Manager</b>
-      </span>
+    <Link to={to} className="rm-wordmark sydon-wordmark" aria-label="sydon home">
+      <img src="/sydon-logo.png" alt="sydon" className="sydon-logo-img sydon-logo-light" />
+      <img src="/sydon-logo-dark.png" alt="sydon" className="sydon-logo-img sydon-logo-dark" />
     </Link>
   )
 }
@@ -208,7 +194,7 @@ export function SiteHeader({ anchors, appLinks }: { anchors: NavItem[]; appLinks
           </nav>
           <div className="rm-header-cta">
             <Button to="/dashboard" arrow>
-              Open Return Manager
+              Open sydon
             </Button>
             <button
               type="button"
@@ -225,7 +211,7 @@ export function SiteHeader({ anchors, appLinks }: { anchors: NavItem[]; appLinks
         <nav id="rm-mobile-nav" className={`rm-mobile-nav ${menu ? 'open' : ''}`} aria-label="Menu" inert={!menu}>
           {links(true)}
           <Button to="/dashboard" arrow className="rm-mobile-cta">
-            Open Return Manager
+            Open sydon
           </Button>
         </nav>
       </header>
@@ -270,7 +256,7 @@ export function SiteFooter({ statement, links }: { statement: ReactNode; links: 
       <div className="rm-footer-rule" />
       <div className="rm-footer-bottom">
         <Wordmark />
-        <p className="rm-footer-copy">© 2026 Return Manager. Built for Cube Buildathon 04.</p>
+        <p className="rm-footer-copy">© 2026 sydon. Built for Cube Buildathon 04.</p>
         <nav className="rm-footer-nav" aria-label="Footer">
           {links.map((l) =>
             l.to ? (

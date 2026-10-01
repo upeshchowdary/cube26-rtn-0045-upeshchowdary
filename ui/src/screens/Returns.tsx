@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowDownUp, ArrowUpRight, ChevronLeft, ChevronRight, Clock3, Download, Package, Plus, Search, SlidersHorizontal } from 'lucide-react'
 import { useBatchStore } from '../lib/store'
-import { dispositionLabel } from '../lib/derive'
+import { deriveProductReasoning } from '../lib/derive'
 import type { DerivedRow } from '../lib/types'
 import { Button, Header, Note, Pill } from './shared'
 
@@ -39,27 +39,32 @@ export default function Returns() {
   const tabs = [
     'All returns',
     'Awaiting review',
-    'Needs attention',
     'Finalized',
-    'Possible wrong item',
     'Auto approved',
     'Auto disapproved',
   ]
-  // "Possible wrong item" lists rows flagged as a likely mismatch. It is a review flag, not a
-  // decision: those rows stay pending review until a person accepts or overrides them.
   const inTab = (row: DerivedRow) => {
     if (tab === 'All returns') return true
-    if (tab === 'Possible wrong item') return row.wrong_item_flag && !row.latest_decision
+    if (tab === 'Awaiting review') {
+      return (row.status === 'Awaiting review' || row.status === 'Needs attention') && !row.latest_decision && row.auto_approved !== 'true'
+    }
+    if (tab === 'Finalized') return row.status === 'Finalized' || row.auto_approved === 'true' || !!row.latest_decision
     if (tab === 'Auto approved') return row.auto_approved === 'true'
-    if (tab === 'Auto disapproved') return row.status === 'Auto-disapproved' && !row.latest_decision
+    if (tab === 'Auto disapproved') return (row.status === 'Auto-disapproved' || row.wrong_item_flag) && !row.latest_decision
     return tab === row.status
   }
   const tabCount = (name: string) => {
     if (name === 'All returns') return rows.length
-    if (name === 'Possible wrong item' || name === 'Auto disapproved') {
-      return rows.filter((row) => row.status === 'Auto-disapproved' && !row.latest_decision).length
+    if (name === 'Awaiting review') {
+      return rows.filter((row) => (row.status === 'Awaiting review' || row.status === 'Needs attention') && !row.latest_decision && row.auto_approved !== 'true').length
+    }
+    if (name === 'Finalized') {
+      return rows.filter((row) => row.status === 'Finalized' || row.auto_approved === 'true' || !!row.latest_decision).length
     }
     if (name === 'Auto approved') return rows.filter((row) => row.auto_approved === 'true').length
+    if (name === 'Auto disapproved') {
+      return rows.filter((row) => (row.status === 'Auto-disapproved' || row.wrong_item_flag) && !row.latest_decision).length
+    }
     return rows.filter((row) => row.status === name).length
   }
   const filtered = rows
@@ -125,7 +130,7 @@ export default function Returns() {
                 }}
               />
             </label>
-            <button className="button" onClick={() => setTab(tab === 'Needs attention' ? 'All returns' : 'Needs attention')}>
+            <button className="button" onClick={() => setTab(tab === 'Awaiting review' ? 'All returns' : 'Awaiting review')}>
               <SlidersHorizontal size={14} />
               Filters
             </button>
@@ -155,49 +160,58 @@ export default function Returns() {
               </tr>
             </thead>
             <tbody>
-              {shown.map((r) => (
-                <tr key={r.record_id} onClick={() => navigate(`/returns/${r.record_id}/inspection`)}>
-                  <td>
-                    <span className="product-cell">
-                      {r.image ? <img src={r.image} alt="" /> : <Package size={18} />}
-                      <span>
-                        <b>{r.ordered_sku}</b>
-                        <small>{r.unit_id}</small>
+              {shown.map((r) => {
+                const reasoning = deriveProductReasoning(r)
+                return (
+                  <tr key={r.record_id} onClick={() => navigate(`/returns/${r.record_id}/inspection`)}>
+                    <td>
+                      <span className="product-cell">
+                        {r.image ? <img src={r.image} alt="" /> : <Package size={18} />}
+                        <span>
+                          <b>{r.ordered_sku}</b>
+                          <small>{r.unit_id}</small>
+                        </span>
                       </span>
-                    </span>
-                  </td>
-                  <td>
-                    <b>{r.record_id}</b>
-                    <small>{r.order_id}</small>
-                  </td>
-                  <td>
-                    <Pill value={r.identity_match} />
-                  </td>
-                  <td>{r.parts_missing || '—'}</td>
-                  <td>{r.amazon_condition}</td>
-                  <td>
-                    {r.status === 'Auto-disapproved' ? (
-                      <Pill value="Auto-disapproved" />
-                    ) : r.operator_disposition ? (
-                      <Pill value={dispositionLabel(r.operator_disposition)} />
-                    ) : (
-                      '—'
-                    )}
-                  </td>
-                  <td>
-                    <Pill value={r.status} />
-                  </td>
-                  <td>
-                    <span className="timestamp-cell">
-                      <Clock3 size={11} style={{ opacity: 0.6 }} />
-                      {formatTimestamp(r.captured_at || r.job_created_at)}
-                    </span>
-                  </td>
-                  <td>
-                    <ArrowUpRight size={15} />
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td>
+                      <b>{r.record_id}</b>
+                      <small>{r.order_id}</small>
+                    </td>
+                    <td>
+                      <Pill value={r.identity_match} />
+                    </td>
+                    <td>{r.parts_missing || '—'}</td>
+                    <td>
+                      <Pill value={reasoning.condition} />
+                      <small title={reasoning.conditionReason}>{reasoning.shortConditionReason}</small>
+                    </td>
+                    <td>
+                      {reasoning.disposition === '—' ? '—' : <Pill value={reasoning.disposition} />}
+                      {reasoning.disposition !== '—' && (
+                        <small title={reasoning.dispositionReason}>{reasoning.shortDispositionReason}</small>
+                      )}
+                    </td>
+                    <td>
+                      <Pill value={r.status === 'Needs attention' ? 'Awaiting review' : r.status} />
+                      {r.auto_approved === 'true' && !r.latest_decision && (
+                        <small style={{ color: '#2563eb', fontWeight: 600 }}>Auto-approved</small>
+                      )}
+                      {r.latest_decision && (
+                        <small>Operator accepted</small>
+                      )}
+                    </td>
+                    <td>
+                      <span className="timestamp-cell">
+                        <Clock3 size={11} style={{ opacity: 0.6 }} />
+                        {formatTimestamp(r.captured_at || r.job_created_at)}
+                      </span>
+                    </td>
+                    <td>
+                      <ArrowUpRight size={15} />
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>

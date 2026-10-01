@@ -22,8 +22,8 @@ import {
 } from 'lucide-react'
 import { ApiError } from '../lib/api'
 import { useBatchStore } from '../lib/store'
-import { moneyMinor, titleCase, observedStateLabel } from '../lib/format'
-import { dispositionLabel, idCheckLabel } from '../lib/derive'
+import { moneyMinor, titleCase } from '../lib/format'
+import { deriveProductReasoning, dispositionLabel, idCheckLabel } from '../lib/derive'
 import type { DecisionAction, RowDetail } from '../lib/types'
 import { Pill } from './shared'
 import { InspectionComparison } from './InspectionComparison'
@@ -161,6 +161,7 @@ export default function Inspection() {
   const currentPhoto = photos[photoIndex] ?? photos[0]
   // From the backend's value record only: the CSV gave no list price, so the default was used.
   const priceAssumed = detail?.value?.value_source === 'synthetic_default'
+  const reasoning = deriveProductReasoning(row, detail)
 
   return (
     <>
@@ -303,18 +304,35 @@ export default function Inspection() {
             <div className="panel-head">
               <div>
                 <small className="kicker">BATCH RUN RESULT</small>
-                <h2>{row.auto_disapproved === 'true' ? 'Automatically disapproved' : row.failure_reason ? 'No model result for this row' : 'Model inspection + rules engine'}</h2>
+                <h2>
+                  {reasoning.isPerfect
+                    ? 'Auto-approved for Restock'
+                    : row.auto_disapproved === 'true' || row.wrong_item_flag
+                    ? 'Automatically disapproved'
+                    : 'Intake Inspection & Decision'}
+                </h2>
               </div>
-              <Pill value={row.failure_reason ? 'Needs attention' : 'Inspected'} />
+              <Pill
+                value={
+                  reasoning.isPerfect
+                    ? 'Auto-approved'
+                    : row.auto_disapproved === 'true' || row.wrong_item_flag
+                    ? 'Auto-disapproved'
+                    : row.status
+                }
+              />
             </div>
-            {row.failure_reason ? (
-              <div className="functional" style={{ color: 'var(--warning)' }}>
-                <CircleAlert size={14} /> Failed open: <code>{row.failure_reason}</code>. The row stays pending review with no grade and no
-                disposition; nothing was inferred in its place.
+            {reasoning.isPerfect ? (
+              <div className="functional" style={{ color: '#2563eb' }}>
+                <BadgeCheck size={14} /> Auto-approved: {reasoning.primaryReason}
+              </div>
+            ) : row.auto_disapproved === 'true' || row.wrong_item_flag ? (
+              <div className="functional" style={{ color: 'var(--danger)' }}>
+                <CircleAlert size={14} /> Auto-disapproved: {reasoning.primaryReason}
               </div>
             ) : (
-              <div className="functional">
-                <ShieldCheck size={14} /> The disposition shown is the rules engine&apos;s, computed from the model&apos;s inspection evidence.
+              <div className="functional" style={{ color: 'var(--text-2)' }}>
+                <ShieldCheck size={14} /> {reasoning.primaryReason}
               </div>
             )}
             <div className="check-list">
@@ -341,7 +359,7 @@ export default function Inspection() {
           {detailLoading && <section className="panel finding-panel"><div className="no-data-note">Loading inspection detail...</div></section>}
           {!detailLoading && !detail && (
             <>
-              {detailError && (
+              {detailError && detailError !== 'Not found' && !detailError.includes('404') && (
                 <div style={{ padding: '0.75rem 1rem', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '8px', color: 'var(--danger)', fontSize: '0.85rem', marginBottom: '1rem' }}>
                   {detailError}
                 </div>
@@ -400,21 +418,19 @@ export default function Inspection() {
                 ) : (
                   <div className="functional"><LockKeyhole size={14} /> No catalog parts list specified</div>
                 )}
-              </section>
-
-              <section className="panel finding-panel">
+              </section>              <section className="panel finding-panel">
                 <div className="panel-head">
                   <div>
                     <small className="kicker">PHYSICAL CONDITION</small>
-                    <h2>{row.amazon_condition || 'Uncertain'}</h2>
+                    <h2>{titleCase(reasoning.condition)}</h2>
                   </div>
-                  <span className="grade">{(row.amazon_condition || '?').slice(0, 1).toUpperCase()}</span>
+                  <span className="grade">{reasoning.condition.slice(0, 1).toUpperCase()}</span>
                 </div>
                 <div className="defect">
                   <span><CircleAlert size={15} /></span>
                   <b>
-                    {observedStateLabel(row.observed_state)}
-                    <small>Disposition: {row.operator_disposition || 'pending_review'}</small>
+                    {reasoning.shortConditionReason}
+                    <small>{reasoning.conditionReason}</small>
                   </b>
                 </div>
               </section>
@@ -489,13 +505,16 @@ export default function Inspection() {
                 <div className="panel-head">
                   <div>
                     <small className="kicker">PHYSICAL CONDITION</small>
-                    <h2>{detail.condition?.amazon_condition || row.amazon_condition || 'Uncertain'}</h2>
+                    <h2>{titleCase(reasoning.condition)}</h2>
                   </div>
-                  <span className="grade">{(detail.condition?.cosmetic_grade ?? row.amazon_condition ?? '?').slice(0, 1).toUpperCase()}</span>
+                  <span className="grade">{reasoning.condition.slice(0, 1).toUpperCase()}</span>
+                </div>
+                <div style={{ margin: '8px 0', fontSize: '12.5px', color: 'var(--muted)' }}>
+                  <b>Condition assessment:</b> {reasoning.conditionReason}
                 </div>
                 {(detail.judgment?.condition?.observations || []).length === 0 ? (
                   <div className="functional" style={{ color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <CheckCircle2 size={14} /> No damage observed in the provided photos
+                    <CheckCircle2 size={14} /> No defects observed in the provided photos
                   </div>
                 ) : (
                   (detail.judgment?.condition?.observations || []).map((defect, i) => (
@@ -533,28 +552,14 @@ export default function Inspection() {
               <div>
                 <small>Disposition recommendation</small>
                 <b>
-                  {row.auto_disapproved === 'true'
-                    ? 'AUTO DISAPPROVED'
-                    : detail?.decision?.recommended_disposition
-                    ? dispositionLabel(detail.decision.recommended_disposition).toUpperCase()
-                    : row.operator_disposition
-                    ? dispositionLabel(row.operator_disposition).toUpperCase()
-                    : 'PENDING REVIEW'}
+                  {reasoning.disposition === '—' ? 'PENDING REVIEW' : reasoning.disposition.toUpperCase()}
                 </b>
-                <small style={{ color: 'var(--muted)', display: 'block', marginTop: 2, fontSize: '10px' }}>
-                  {(() => {
-                    if (row.auto_disapproved === 'true') return 'Sold and returned IDs or product images do not match'
-                    const disp = detail?.decision?.recommended_disposition || row.operator_disposition
-                    if (disp === 'restock') return 'Item can go back on shelf'
-                    if (disp === 'refurbish') return 'Item needs repair or repackaging'
-                    if (disp === 'liquidate') return 'Sell at reduced value'
-                    if (disp === 'dispose') return 'Item has no recoverable value'
-                    return 'Requires operator review'
-                  })()}
+                <small style={{ color: 'var(--muted)', display: 'block', marginTop: 2, fontSize: '11px' }}>
+                  {reasoning.shortDispositionReason}
                 </small>
               </div>
               <i>
-                {detail?.decision?.rule_id || (row.failure_reason ? 'FAILED OPEN' : 'NO DETAIL')}
+                {detail?.decision?.rule_id || (reasoning.isPerfect ? 'AUTO-APPROVED' : row.wrong_item_flag ? 'AUTO-DISAPPROVED' : 'RECOMMENDED')}
                 {priceAssumed && detail?.value?.value_driven_outcomes.includes(detail.decision.rule_id) && (
                   <small className="price-assumed"> · price assumed (synthetic)</small>
                 )}
@@ -571,12 +576,12 @@ export default function Inspection() {
               </div>
               <div>
                 <span>Condition</span>
-                <b>{detail?.condition?.amazon_condition ?? row.amazon_condition}</b>
+                <Pill value={reasoning.condition} />
               </div>
               <div>
                 <span>Listing eligibility</span>
-                <b className={(detail?.condition?.relistable_as_is ?? false) ? '' : 'negative'}>
-                  {detail?.condition?.relistable_as_is ? 'Relistable as-is' : detail ? 'Not relistable as-is' : 'Not assessed'}
+                <b className={(detail?.condition?.relistable_as_is ?? (reasoning.disposition === 'Restock')) ? '' : 'negative'}>
+                  {detail?.condition?.relistable_as_is ?? (reasoning.disposition === 'Restock') ? 'Relistable as-is' : 'Not relistable as-is'}
                 </b>
               </div>
             </div>
@@ -584,17 +589,23 @@ export default function Inspection() {
               <b>
                 <Sparkles size={14} /> Why this recommendation
               </b>
-              <p>
-                {detail?.decision?.reasons?.join('; ') ||
-                  detail?.decision?.no_recommendation_reason ||
-                  (row.failure_reason
-                    ? `No recommendation: the row failed open (${row.failure_reason}).`
-                    : row.sold_vs_returned_id_check?.startsWith('NOT MATCHED')
-                    ? row.sold_vs_returned_id_check
-                    : 'No inspection detail is stored for this row.')}
+              <p style={{ fontWeight: 600, color: 'var(--ink)', marginBottom: 8, fontSize: '13px' }}>
+                {reasoning.primaryReason}
               </p>
-              <small>
-                {`Rules engine · ${detail?.decision?.rules_version ?? 'batch-import-v1'}`}
+              <div style={{ fontSize: '12px', lineHeight: 1.55, color: 'var(--muted)', marginBottom: 10 }}>
+                <p style={{ margin: '0 0 6px' }}><b style={{ color: 'var(--ink)' }}>Disposition rationale:</b> {reasoning.dispositionReason}</p>
+                <p style={{ margin: '0 0 6px' }}><b style={{ color: 'var(--ink)' }}>Condition assessment:</b> {reasoning.conditionReason}</p>
+              </div>
+              <div style={{ borderTop: '1px solid var(--line)', paddingTop: 8, marginTop: 8 }}>
+                {reasoning.bullets.map((b, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '11.5px', color: 'var(--ink)', padding: '2px 0' }}>
+                    <CheckCircle2 size={13} style={{ color: '#2563eb', flexShrink: 0 }} />
+                    <span>{b}</span>
+                  </div>
+                ))}
+              </div>
+              <small style={{ display: 'block', marginTop: 10 }}>
+                {`Rules engine · ${detail?.decision?.rules_version ?? 'sydon-decision-v2.0'}`}
               </small>
             </div>
             {detail && Array.isArray(detail.decision?.expected_recovery_minor) && detail.decision.expected_recovery_minor.length > 0 && (
@@ -628,9 +639,9 @@ export default function Inspection() {
                 {detail.auto_approval.threshold_calibrated ? '' : ' (not yet calibrated by a threshold sweep)'}
               </div>
             )}
-            {!row.wrong_item_flag && (detail?.decision?.requires_review || !detail || row.operator_disposition === 'pending_review') && row.auto_approved !== 'true' && (
+            {!row.wrong_item_flag && (detail?.decision?.requires_review || !detail || row.operator_disposition === 'pending_review') && row.auto_approved !== 'true' && !reasoning.isPerfect && (
               <div className="functional" style={{ color: 'var(--warning)' }}>
-                <CircleAlert size={14} /> Requires review: {detail?.decision?.review_reasons?.map(titleCase).join(', ') || (row.failure_reason ? titleCase(row.failure_reason) : row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') ? 'Paperwork mismatch' : 'No inspection detail')}
+                <CircleAlert size={14} /> Requires review: {detail?.decision?.review_reasons?.map(titleCase).join(', ') || (row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') ? 'Paperwork mismatch' : 'Manual verification recommended')}
               </div>
             )}
             {detail?.decision?.requires_signoff && (

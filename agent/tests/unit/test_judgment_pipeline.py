@@ -236,6 +236,34 @@ def test_t_val_c14_injection_text_flags_review_and_changes_no_verdict() -> None:
     assert r.target_status == "awaiting_review"
 
 
+def test_t_val_c15_uncertain_observed_state_contradicts_identity_no() -> None:
+    ctx = b.context(LAMP)
+    j = edit(
+        b.judgment(ctx),
+        lambda d: (
+            d["identity"].update(identity_match="no"),
+            d.update(model_observed_state="uncertain"),
+        ),
+    )
+    r = b.run(ctx, j)
+    assert r.judgment.identity.identity_match == "uncertain"
+    assert "C15" in {a.rule_id for a in r.report.actions}
+
+
+def test_t_val_c16_damaged_state_without_differing_brand_is_condition_not_wrong_product() -> None:
+    ctx = b.context(LAMP)
+    j = edit(
+        b.judgment(ctx),
+        lambda d: (
+            d["identity"].update(identity_match="no"),
+            d.update(model_observed_state="damaged"),
+        ),
+    )
+    r = b.run(ctx, j)
+    assert r.judgment.identity.identity_match == "uncertain"
+    assert "C16" in {a.rule_id for a in r.report.actions}
+
+
 # ── identity fusion (§11.9), one test per table row ───────────────────────
 V2 = LAMP.model_copy(
     update={

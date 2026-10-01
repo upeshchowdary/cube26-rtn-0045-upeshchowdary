@@ -32,8 +32,6 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 
 import { Mark } from './design/components'
-import Connect from './Connect'
-import { useSession } from './lib/session'
 import { BatchStoreProvider, useBatchStore } from './lib/store'
 import { reviewQueue } from './lib/derive'
 import { Pill } from './screens/shared'
@@ -159,13 +157,16 @@ function Shell({ children }: { children: ReactNode }) {
         <div className="brand">
           <Link
             to="/overview"
-            style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: 'inherit' }}
+            className="brand-link"
+            title="sydon"
           >
-            <Mark size={26} />
-            {!collapsed && (
-              <strong>
-                Return <span>Manager</span>
-              </strong>
+            {collapsed ? (
+              <Mark size={28} />
+            ) : (
+              <div className="sydon-brand-wrap">
+                <img src="/sydon-logo.png" alt="sydon" className="sydon-logo-img sydon-logo-light" />
+                <img src="/sydon-logo-dark.png" alt="sydon" className="sydon-logo-img sydon-logo-dark" />
+              </div>
             )}
           </Link>
           <button
@@ -224,7 +225,7 @@ function Shell({ children }: { children: ReactNode }) {
         <div className="side-bottom">
           <div className="system-health">
             <i />
-            {!collapsed && <>Connected with an API key</>}
+            {!collapsed && <>Connected</>}
           </div>
           <button className="user-profile" onClick={() => navigate('/settings')}>
             <span className="user-avatar">
@@ -233,8 +234,8 @@ function Shell({ children }: { children: ReactNode }) {
             {!collapsed && (
               <>
                 <span>
-                  <b>API key session</b>
-                  <small>Keys and controls in Settings</small>
+                  <b>Workspace</b>
+                  <small>Settings & preferences</small>
                 </span>
                 <MoreHorizontal size={17} />
               </>
@@ -459,8 +460,6 @@ function Shell({ children }: { children: ReactNode }) {
 }
 
 export default function Workspace() {
-  const { connected } = useSession()
-  if (!connected) return <Connect />
   return (
     <BatchStoreProvider>
       <Shell>

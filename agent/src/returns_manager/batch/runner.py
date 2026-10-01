@@ -21,7 +21,12 @@ import httpx
 import yaml
 
 from returns_manager.batch import auto_approve
-from returns_manager.batch.cards import DEFAULT_LIST_PRICE_MINOR, VALID_CATEGORIES, build_card
+from returns_manager.batch.cards import (
+    DEFAULT_LIST_PRICE_MINOR,
+    VALID_CATEGORIES,
+    build_card,
+    normalize_category,
+)
 from returns_manager.batch.images import ImageFetchError, fetch_image
 from returns_manager.batch.io_csv import (
     VALUE_SOURCE_CSV,
@@ -503,7 +508,7 @@ async def process_returned_row(
     category = before.category or default_category
     if not category:
         return _fail_open(row, before, "no_category")
-    category = category.lower()
+    category = normalize_category(category)
     if category not in VALID_CATEGORIES:
         return _fail_open(row, before, f"unknown_category:{category}")
 
@@ -601,7 +606,7 @@ async def process_returned_row(
 
     id_check = check_id_match(before, row)
     id_mismatch = _id_mismatch(before, id_check)
-    auto_disapproved = _is_auto_disapproved(before, row, session.judgment.identity.identity_match)
+    auto_disapproved = _is_auto_disapproved(before, row, result.identity.identity_match)
     # A wrong item (model identity "no") is §12.2 R03 and has no disposition route. It is
     # separately auto-disapproved; a sold-vs-returned paperwork mismatch has the same outcome.
     approval = auto_approve.evaluate(
@@ -623,10 +628,10 @@ async def process_returned_row(
         "ordered_asin": row.ordered_asin,
         "identity_match": before.identity_match,  # carried forward, not re-derived (per instruction)
         # The model's own identity verdict on the returned photo(s), kept separate (F-024).
-        "photo_identity_match": session.judgment.identity.identity_match,
+        "photo_identity_match": result.judgment.identity.identity_match,
         "parts_list": before.parts_list,
         "parts_missing": _missing_parts_field(result.completeness),
-        "observed_state": session.judgment.model_observed_state,
+        "observed_state": result.judgment.model_observed_state,
         "amazon_condition": result.condition.amazon_condition,
         "operator_disposition": disposition,
         "agent_disposition": result.decision.recommended_disposition or "",
@@ -644,7 +649,7 @@ async def process_returned_row(
         if photo_errors
         else None
     )
-    detail = _build_row_detail(session_judgment=session.judgment, result=result, row=row, before=before)
+    detail = _build_row_detail(session_judgment=result.judgment, result=result, row=row, before=before)
     detail["auto_approval"] = approval.as_dict()
     detail["value"] = value_record(before, list_price_minor, result.decision)
     detail["comparison"] = comparison_record(

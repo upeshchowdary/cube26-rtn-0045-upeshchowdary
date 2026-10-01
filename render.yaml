@@ -1,0 +1,19 @@
+# Render Blueprint Specification
+# See https://render.com/docs/blueprint-spec for details
+services:
+  - type: web
+    name: sydon-returns-manager
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: RM_ENV
+        value: demo
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false

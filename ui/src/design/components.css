@@ -15,7 +15,28 @@
   white-space: nowrap;
 }
 .rm-wordmark b { font-weight: 700; }
-.rm-mark { flex: none; display: block; }
+.rm-mark, .sydon-mark { flex: none; display: block; }
+.sydon-logo-img {
+  height: 28px;
+  width: auto;
+  max-width: 140px;
+  object-fit: contain;
+  display: block;
+}
+.sydon-logo-dark {
+  display: none !important;
+}
+.sydon-logo-light {
+  display: block !important;
+}
+.dark .sydon-logo-dark,
+.dashboard-shell .sydon-logo-dark {
+  display: block !important;
+}
+.dark .sydon-logo-light,
+.dashboard-shell .sydon-logo-light {
+  display: none !important;
+}
 
 /* ---------- buttons (D2) ---------- */
 .rm-btn {

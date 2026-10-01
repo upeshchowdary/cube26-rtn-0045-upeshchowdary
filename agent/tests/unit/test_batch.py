@@ -367,6 +367,13 @@ def test_auto_disapproval_requires_a_proven_id_or_image_mismatch() -> None:
     assert _is_auto_disapproved(None, _returned(), "uncertain") is False
 
 
+def test_auto_disapproval_never_triggers_on_damaged_or_uncertain_identity() -> None:
+    # A damaged return of the sold item is NOT an automatic disapproval (wrong product rejection);
+    # it routes to review / refurbish / salvage.
+    assert _is_auto_disapproved(_before(), _returned(), "yes") is False
+    assert _is_auto_disapproved(_before(), _returned(), "uncertain") is False
+
+
 def test_uncertain_row_no_sold_record_stays_pending_review() -> None:
     out = _uncertain_row(_returned(), None, "no before-record for this unit_id")
     assert out["operator_disposition"] == "pending_review"

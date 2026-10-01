@@ -53,7 +53,7 @@ export default function Reviews() {
               <small>REASON</small>
               <b>{r.sold_vs_returned_id_check?.startsWith('NOT MATCHED') ? r.sold_vs_returned_id_check : r.observed_state === 'uncertain' ? 'Fail-open: no reliable evidence' : 'Engine could not recommend a route'}</b>
             </span>
-            <Pill value={r.status === 'Needs attention' ? 'High priority' : 'Standard'} />
+            <Pill value={r.failure_reason || r.observed_state === 'damaged' ? 'High priority' : 'Standard'} />
             <small>{timeAgo(r.job_created_at)}</small>
             <ArrowRight size={15} />
           </motion.button>

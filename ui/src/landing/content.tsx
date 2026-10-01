@@ -27,7 +27,7 @@ export const footerLinks: NavItem[] = [
 export const faq: FaqItem[] = [
   {
     // FACTS §12 mission, §2
-    q: 'What is Return Manager?',
+    q: 'What is sydon?',
     a: (
       <p>
         A return inspection workflow. From two or three photos of a returned item, plus your catalogue, the order, the

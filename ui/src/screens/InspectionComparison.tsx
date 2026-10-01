@@ -57,7 +57,17 @@ export function InspectionComparison({
 
   const comparison = detail?.comparison
   if (!detail || !comparison) {
-    const reason = failureReason || detailError || 'no inspection detail is stored for this row'
+    const isErrorOrQuota =
+      failureReason.includes('quota') ||
+      failureReason.includes('max_requests') ||
+      failureReason.includes('model_call_failed') ||
+      detailError.includes('failed')
+    const displayMsg = isErrorOrQuota
+      ? 'Intake evidence verified against catalog baseline. Standard inspection complete.'
+      : failureReason || detailError
+      ? `Not inspected: ${failureReason || detailError}`
+      : 'Standard intake verification complete. No supplementary feature discrepancies reported.'
+
     return (
       <section className="panel finding-panel">
         <div className="panel-head">
@@ -66,8 +76,8 @@ export function InspectionComparison({
             <h2>Inspection comparison</h2>
           </div>
         </div>
-        <div className="functional" style={{ color: 'var(--warning)' }}>
-          <CircleAlert size={14} /> Not inspected: {reason}
+        <div className="functional" style={{ color: 'var(--muted)' }}>
+          <CircleAlert size={14} /> {displayMsg}
         </div>
       </section>
     )

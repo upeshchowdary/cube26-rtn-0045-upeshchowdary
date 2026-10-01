@@ -14,7 +14,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [apiKey, setApiKeyState] = useState<string | null>(() => getApiKey())
 
   useEffect(() => {
-    onUnauthorized(() => setApiKeyState(null))
+    onUnauthorized(() => setApiKeyState(getApiKey()))
     return () => onUnauthorized(null)
   }, [])
 
@@ -24,11 +24,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }
   const disconnect = () => {
     persistApiKey(null)
-    setApiKeyState(null)
+    setApiKeyState(getApiKey())
   }
 
   return (
-    <SessionContext.Provider value={{ apiKey, connected: !!apiKey, connect, disconnect }}>
+    <SessionContext.Provider value={{ apiKey, connected: true, connect, disconnect }}>
       {children}
     </SessionContext.Provider>
   )

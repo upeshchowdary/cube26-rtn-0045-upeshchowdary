@@ -515,7 +515,7 @@ export default function CinematicOverview() {
 
       {/* Main Experience */}
       <main>
-        <section className="cinematic-stage-section" ref={sectionRef} aria-label="Return Manager cinematic overview">
+        <section className="cinematic-stage-section" ref={sectionRef} aria-label="sydon cinematic overview">
           <div className="cinematic-stage-vignette" />
           <div className="cinematic-stage-inner">
             <div className="cinematic-stage-grid" />
@@ -638,7 +638,7 @@ export default function CinematicOverview() {
                 <source srcSet="/final-world.webp" type="image/webp" />
                 <img
                   src="/final-world.jpg"
-                  alt="Return Manager cinematic universe"
+                  alt="sydon cinematic universe"
                   className="final-world-img"
                 />
               </picture>

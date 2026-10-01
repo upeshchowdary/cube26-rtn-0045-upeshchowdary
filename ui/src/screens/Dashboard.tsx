@@ -205,7 +205,7 @@ export default function Dashboard() {
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: i * 0.04 }}
           >
-            <CircleAlert size={16} className={r.status === 'Needs attention' ? 'red-text' : 'amber-text'} />
+            <CircleAlert size={16} className={r.observed_state === 'damaged' || r.failure_reason ? 'red-text' : 'amber-text'} />
             <span>
               <b>
                 {r.record_id} <i>·</i> {r.ordered_sku}
