@@ -258,7 +258,9 @@ def build_evidence_record(
         "observed_state": {"model": result.get("model_observed_state")},
         "disposition": _disposition_block(
             result.get("disposition") or {},
-            effective_disposition_value=final_disposition,
+            # what the rules engine recommended, kept even after a person overrides it (overrides are
+            # data); the human-confirmed route is `final_disposition`
+            effective_disposition_value=(result.get("disposition") or {}).get("recommended_disposition"),
             relistable_as_is=result.get("relistable_as_is"),
             decided_by=decided_by,
             final_disposition=final_disposition,

@@ -7,8 +7,10 @@ import {
   CircleAlert,
   Download,
   FileCheck2,
+  RotateCcw,
   ShieldCheck,
   Upload,
+  X,
 } from 'lucide-react'
 import { ApiError } from '../lib/api'
 import { useBatchStore } from '../lib/store'
@@ -148,7 +150,10 @@ export default function BatchUpload() {
   }
 
   const reset = () => {
-    setActiveJobId('dismissed')
+    setActiveJobId(null)
+    try {
+      window.localStorage.removeItem('rm_active_job_id')
+    } catch {}
     setFile(null)
     setRowCount(null)
     setError('')
@@ -168,29 +173,46 @@ export default function BatchUpload() {
       <>
         <Header
           eyebrow="OPERATIONS / BATCH UPLOAD"
-          title="Processing"
-          subtitle="The backend is running the real judgment session and disposition engine for each row."
+          title={inFlight ? 'Processing' : activeJob.status === 'done' ? 'Batch complete' : 'Batch failed'}
+          subtitle={
+            inFlight
+              ? 'The backend is running the real judgment session and disposition engine for each row.'
+              : activeJob.status === 'done'
+                ? 'Processing complete. You can review rows in Returns or download the output.'
+                : 'The batch run encountered an error or the server restarted. You can dismiss this to upload a new batch.'
+          }
         />
         <section className="panel wizard">
           <div className="upload-progress">
-            <div className="wizard-title">
-              <span>
-                {inFlight ? (
-                  <Upload size={18} />
-                ) : activeJob.status === 'done' ? (
-                  <CheckCircle2 size={18} />
-                ) : (
-                  <CircleAlert size={18} />
-                )}
-              </span>
-              <div>
-                <h2>
-                  {inFlight ? 'Processing your upload' : activeJob.status === 'done' ? 'Done' : 'Failed'}
-                </h2>
-                <p>
-                  {activeJob.before_filename} · job {activeJob.job_id.slice(0, 10)}
-                </p>
+            <div className="wizard-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <span>
+                  {inFlight ? (
+                    <Upload size={18} />
+                  ) : activeJob.status === 'done' ? (
+                    <CheckCircle2 size={18} />
+                  ) : (
+                    <CircleAlert size={18} />
+                  )}
+                </span>
+                <div>
+                  <h2>
+                    {inFlight ? 'Processing your upload' : activeJob.status === 'done' ? 'Done' : 'Upload failed'}
+                  </h2>
+                  <p>
+                    {activeJob.before_filename} · job {activeJob.job_id.slice(0, 10)}
+                  </p>
+                </div>
               </div>
+              <button
+                type="button"
+                className="button tertiary"
+                onClick={reset}
+                title="Dismiss and upload a new file"
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px' }}
+              >
+                <X size={14} /> Dismiss
+              </button>
             </div>
 
             <div className="upload-progress-bar">
@@ -212,6 +234,43 @@ export default function BatchUpload() {
               </span>
             </div>
 
+            {Boolean(
+              (activeJob.error &&
+                (activeJob.error.includes('429') ||
+                  activeJob.error.toLowerCase().includes('quota') ||
+                  activeJob.error.toLowerCase().includes('resource_exhausted'))) ||
+                activeJob.notes.some(
+                  (n) =>
+                    n.toLowerCase().includes('quota') ||
+                    n.toLowerCase().includes('429') ||
+                    n.toLowerCase().includes('max_requests') ||
+                    n.toLowerCase().includes('resource_exhausted'),
+                ),
+            ) && (
+              <div
+                style={{
+                  background: 'rgba(239, 68, 68, 0.08)',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  borderRadius: '8px',
+                  padding: '14px 16px',
+                  margin: '14px 0',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '12px',
+                }}
+              >
+                <CircleAlert size={20} color="#dc2626" style={{ flexShrink: 0, marginTop: '2px' }} />
+                <div>
+                  <b style={{ color: '#dc2626', fontSize: '13px', display: 'block', marginBottom: '4px' }}>
+                    Gemini API Quota / Rate Limit Reached
+                  </b>
+                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--muted)', lineHeight: '1.5' }}>
+                    The Gemini API key has exceeded its daily or per-minute rate limit (HTTP 429 RESOURCE_EXHAUSTED). The returns engine has safely failed open with uncertain verdicts for uninspected rows to protect pipeline integrity.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {activeJob.status === 'failed' && activeJob.error && (
               <InlineError>
                 <CircleAlert size={14} /> {activeJob.error}
@@ -232,7 +291,18 @@ export default function BatchUpload() {
                   View streaming rows in Returns <ArrowRight size={14} />
                 </button>
                 <button className="button" onClick={reset}>
-                  Upload another file
+                  Cancel / Upload another file
+                </button>
+              </div>
+            )}
+
+            {activeJob.status === 'failed' && (
+              <div className="dialog-actions" style={{ justifyContent: 'space-between', marginTop: 18 }}>
+                <button className="button" onClick={() => navigate('/returns')}>
+                  View in Returns <ArrowRight size={14} />
+                </button>
+                <button className="button primary" onClick={reset}>
+                  <RotateCcw size={14} /> Upload new file / Try again
                 </button>
               </div>
             )}

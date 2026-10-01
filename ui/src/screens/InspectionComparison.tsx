@@ -67,8 +67,8 @@ export function InspectionComparison({
     const displayMsg = isErrorOrQuota
       ? 'Intake evidence verified against catalog baseline. Standard inspection complete.'
       : failureReason || detailError
-      ? `Not inspected: ${failureReason || detailError}`
-      : 'Standard intake verification complete. No supplementary feature discrepancies reported.'
+        ? `Not inspected: ${failureReason || detailError}`
+        : 'Standard intake verification complete. No supplementary feature discrepancies reported.'
 
     const refPhoto = row?.reference_image || (row as any)?.reference_photo_ref || null
     const returnedPhoto = (row?.photos && row.photos[0]) || row?.image || null
@@ -109,11 +109,55 @@ export function InspectionComparison({
     )
   }
 
-  const aliases = comparison.photo_aliases
-  const counts = comparison.critical_features
+  const rawAliases = comparison?.photo_aliases || {}
+  const refPhoto = row?.reference_image || (row as any)?.reference_photo_ref || detail?.reference_photo_ref || null
+  const returnedPhotos = (row?.photos?.length ? row.photos : row?.image ? [row.image] : [])
+  const aliases: Record<string, string> = { ...rawAliases }
+  if (!aliases.ref_before && refPhoto) {
+    aliases.ref_before = refPhoto
+  }
+  returnedPhotos.forEach((p, idx) => {
+    const key = `P${idx + 1}`
+    if (!aliases[key] && p) {
+      aliases[key] = p
+    }
+  })
+
+  let counts = { total: 0, matched: 0, mismatched: 0, not_visible: 0, not_reported: 0 }
+  let features: any[] = []
+  if (Array.isArray(comparison.features)) {
+    features = comparison.features
+  } else if (Array.isArray(comparison.critical_features)) {
+    features = comparison.critical_features
+  }
+
+  if (
+    comparison.critical_features &&
+    !Array.isArray(comparison.critical_features) &&
+    typeof comparison.critical_features === 'object'
+  ) {
+    counts = {
+      total: comparison.critical_features.total ?? 0,
+      matched: comparison.critical_features.matched ?? 0,
+      mismatched: comparison.critical_features.mismatched ?? 0,
+      not_visible: comparison.critical_features.not_visible ?? 0,
+      not_reported: comparison.critical_features.not_reported ?? 0,
+    }
+  } else if (features.length > 0) {
+    const critical = features.filter((f: any) => f.importance === 'critical')
+    counts = {
+      total: critical.length,
+      matched: critical.filter((f: any) => f.result === 'match').length,
+      mismatched: critical.filter((f: any) => f.result === 'mismatch').length,
+      not_visible: critical.filter((f: any) => f.result === 'not_visible').length,
+      not_reported: critical.filter((f: any) => f.result === 'not_reported').length,
+    }
+  }
+
   const identity = detail.identity
   const defects = detail.judgment?.condition?.observations ?? []
   const returnedAliases = Object.keys(aliases).sort().filter((a) => a !== 'ref_before')
+  const unfetched = Array.isArray(comparison.unfetched_photo_refs) ? comparison.unfetched_photo_refs : []
 
   return (
     <section className="panel finding-panel">
@@ -138,9 +182,9 @@ export function InspectionComparison({
           <PhotoWithDefects key={alias} alias={alias} url={aliases[alias]} defects={defects.filter((d) => d.photo === alias)} />
         ))}
       </div>
-      {comparison.unfetched_photo_refs.length > 0 && (
+      {unfetched.length > 0 && (
         <div className="functional">
-          <CircleAlert size={14} /> {comparison.unfetched_photo_refs.length} return photo URL(s) could not be fetched and were not shown to the model.
+          <CircleAlert size={14} /> {unfetched.length} return photo URL(s) could not be fetched and were not shown to the model.
         </div>
       )}
 
@@ -170,8 +214,8 @@ export function InspectionComparison({
         {counts.not_visible > 0 && ` · ${counts.not_visible} not visible`}
         {counts.not_reported > 0 && ` · ${counts.not_reported} not reported`}
       </h3>
-      {comparison.features.map((f) => (
-        <div className="component-row" key={f.feature_id}>
+      {features.map((f: any, idx: number) => (
+        <div className="component-row" key={f.feature_id || idx}>
           <span className={f.result === 'match' ? 'present' : f.result === 'mismatch' ? 'missing' : ''}>{f.importance === 'critical' ? '!' : '·'}</span>
           <span>
             {f.description}
@@ -191,7 +235,7 @@ export function InspectionComparison({
           <span>
             {c.name}
             <small>
-              {c.photos.length > 0
+              {c.photos && c.photos.length > 0
                 ? c.photos.map((p) => (aliases[p] ? <a key={p} href={aliases[p]} target="_blank" rel="noreferrer">{p} </a> : <span key={p}>{p} </span>))
                 : 'no photo reference'}
             </small>

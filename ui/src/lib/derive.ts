@@ -87,14 +87,10 @@ export function deriveProductCondition(row: DerivedRow | BatchRowFlat): ProductC
 }
 
 /**
- * Derives the category of disposition:
- * - Restock — item can go back on shelf
- * - Refurbish — item needs repair or repackaging
- * - Liquidate — sell at reduced value
- * - Dispose — item has no recoverable value
+ * The disposition to show: a person's decision if there is one, otherwise the rules engine's route
+ * (`agent_disposition`). The UI never works out a route itself; with neither, it shows '—'.
  */
 export function deriveProductDisposition(row: DerivedRow | BatchRowFlat): DispositionCategory {
-  // 1. Operator manual override / finalized decision
   const explicit = (
     (row as DerivedRow).latest_decision?.new_disposition ||
     row.operator_disposition ||
@@ -103,105 +99,19 @@ export function deriveProductDisposition(row: DerivedRow | BatchRowFlat): Dispos
   if (['restock', 'refurbish', 'liquidate', 'dispose'].includes(explicit)) {
     return (explicit.charAt(0).toUpperCase() + explicit.slice(1)) as DispositionCategory
   }
-
-  // 2. Model / agent recommended disposition
   const agent = (row.agent_disposition || '').toLowerCase()
   if (['restock', 'refurbish', 'liquidate', 'dispose'].includes(agent)) {
     return (agent.charAt(0).toUpperCase() + agent.slice(1)) as DispositionCategory
   }
-
-  // 3. Wrong item returned has no recoverable catalog value -> Dispose
-  if (
-    row.photo_identity_match === 'no' ||
-    Boolean((row as DerivedRow).wrong_item_flag) ||
-    row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') ||
-    row.auto_disapproved === 'true'
-  ) {
-    return 'Dispose'
-  }
-
-  // 4. Physical condition fallbacks
-  const obs = (row.observed_state || '').toLowerCase()
-  const cond = (row.amazon_condition || '').toLowerCase()
-
-  // Damaged has no recoverable value -> Dispose
-  if (obs === 'damaged' || cond === 'damaged' || cond.includes('broken') || cond.includes('shattered')) {
-    return 'Dispose'
-  }
-
-  // Consumable opened / used -> Dispose
-  const isConsumable =
-    row.ordered_sku?.toLowerCase().includes('cereal') ||
-    row.ordered_sku?.toLowerCase().includes('shampoo')
-  if (isConsumable && (obs === 'signs_of_use' || cond.startsWith('used'))) {
-    return 'Dispose'
-  }
-
-  // Intact / sealed / new -> Restock
-  if (obs === 'factory_sealed' || cond === 'new') {
-    return 'Restock'
-  }
-
-  // Opened unused
-  if (obs === 'opened_unused' || cond === 'used - like new') {
-    const missing = (row.parts_missing || '').trim()
-    const hasMissing = missing && missing !== '—' && missing !== '-' && missing.toLowerCase() !== 'none'
-    return hasMissing ? 'Refurbish' : 'Restock'
-  }
-
-  // Used items
-  if (obs === 'signs_of_use' || obs === 'used' || cond.startsWith('used')) {
-    const missing = (row.parts_missing || '').trim()
-    const hasMissing = missing && missing !== '—' && missing !== '-' && missing.toLowerCase() !== 'none'
-    return hasMissing ? 'Refurbish' : 'Liquidate'
-  }
-
   return '—'
 }
 
 /**
- * Checks if a return is completely perfect:
- * - Genuine catalog match (no wrong item, no paperwork ID mismatch)
- * - Has valid intake photo
- * - Condition is unused / pristine / factory sealed
- * - No missing parts / all components present
- * - Disposition is Restock
- *
- * Perfect returns are auto-approved and route directly to the Finalized section.
+ * True only when the backend auto-approved the row (batch/auto_approve.py: an engine route, no review,
+ * no sign-off, every check passed at the configured confidence, IDs agree). The UI never auto-approves.
  */
 export function isPerfectReturn(row: DerivedRow | BatchRowFlat): boolean {
-  const hasReturnPhoto = Boolean(
-    (row as DerivedRow).image || (row.photo_refs && row.photo_refs.trim().length > 0)
-  )
-  if (!hasReturnPhoto || row.failure_reason === 'no_return_photo') {
-    return false
-  }
-
-  if (
-    row.photo_identity_match === 'no' ||
-    Boolean((row as DerivedRow).wrong_item_flag) ||
-    row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') ||
-    row.auto_disapproved === 'true'
-  ) {
-    return false
-  }
-
-  const cond = deriveProductCondition(row)
-  if (cond !== 'unused') {
-    return false
-  }
-
-  const missing = (row.parts_missing || '').trim()
-  if (missing && missing !== '—' && missing !== '-' && missing.toLowerCase() !== 'none') {
-    return false
-  }
-
-  const disp = deriveProductDisposition(row)
-  if (disp !== 'Restock') {
-    return false
-  }
-
-  return true
+  return row.auto_approved === 'true'
 }
 
 /**
@@ -218,9 +128,6 @@ export function deriveProductReasoning(
 
   const obs = (row.observed_state || '').toLowerCase()
   const condRaw = (row.amazon_condition || '').toLowerCase()
-  const sku = (row.ordered_sku || '').toLowerCase()
-  const isConsumable =
-    sku.includes('cereal') || sku.includes('shampoo') || sku.includes('snack') || sku.includes('food')
 
   const hasReturnPhoto = Boolean(
     (row as DerivedRow).image || (row.photo_refs && row.photo_refs.trim().length > 0)
@@ -240,11 +147,11 @@ export function deriveProductReasoning(
 
   if (isReturnPhotoMissing) {
     conditionReason =
-      'Condition is uncertain because the product return photograph was not provided in the intake record.'
+      'No return photo was supplied, so the condition is uncertain.'
     shortConditionReason = 'Missing return photograph'
   } else if (isMismatch) {
     conditionReason =
-      'Condition cannot be reliably graded against catalog specs because the returned item does not match the sold record.'
+      'The returned item does not match the sold record, so its condition is not graded against that product.'
     shortConditionReason = 'Unmatched item cannot be graded'
   } else if (cond === 'damaged') {
     const defectDetails = detail?.judgment?.condition?.observations
@@ -252,141 +159,74 @@ export function deriveProductReasoning(
       .join(', ')
     conditionReason = defectDetails
       ? `Physical damage observed in intake evidence: ${defectDetails}.`
-      : 'Physical or cosmetic damage detected on the returned unit/packaging exceeding standard return tolerance.'
-    shortConditionReason = 'Physical damage detected'
+      : 'Damage observed in the provided photos.'
+    shortConditionReason = 'Damage observed'
   } else if (cond === 'unused') {
     if (obs === 'factory_sealed' || condRaw === 'new') {
       conditionReason =
-        'Original manufacturer factory seal is intact and packaging is completely unopened. Zero signs of wear or handling.'
+        'Factory seal observed intact in the provided photos; no wear observed.'
       shortConditionReason = 'Factory sealed & pristine'
     } else {
       conditionReason =
-        'Packaging has been opened, but the item itself is in pristine, unhandled condition with zero cosmetic wear or blemishes.'
-      shortConditionReason = 'Opened packaging, contents unused'
+        'No wear observed on the item in the provided photos.'
+      shortConditionReason = 'No wear observed'
     }
   } else if (cond === 'used') {
     conditionReason =
-      'Item exhibits clear indicators of prior customer usage, unsealed packaging, or cosmetic surface handling marks.'
+      'Signs of use observed in the provided photos.'
     shortConditionReason = 'Signs of customer use'
   } else {
     conditionReason =
-      'Intake imagery was insufficient or inconclusive for definitive physical condition grading.'
-    shortConditionReason = 'Inconclusive intake imagery'
+      'The provided photos do not establish the condition.'
+    shortConditionReason = 'Condition not determinable'
   }
 
-  // 2. Disposition Reason & Short Disposition Reason
-  let dispositionReason = ''
-  let shortDispositionReason = ''
-
+  // 2. Disposition and summary: the backend's own rationale (batch/runner.py build_rationale), which
+  // states the evidence and the rules engine's rule. Nothing here adds a claim of its own.
   const latestDecision = (row as DerivedRow).latest_decision
+  const rationale = (row.rationale || '').trim()
+  const firstSentence = (rationale.split('. ')[0] || '').replace(/[.]$/, '')
+  let dispositionReason: string
+  let shortDispositionReason: string
+  let primaryReason: string
   if (latestDecision?.reason) {
-    dispositionReason = `Operator finalized decision: ${latestDecision.reason} (${latestDecision.action.replace('_', ' ')})`
-    shortDispositionReason = `Operator finalized (${latestDecision.action.replace('_', ' ')})`
-  } else if (isMismatch) {
-    const mismatchDetail =
-      row.sold_vs_returned_id_check?.replace(/^NOT MATCHED:\s*/, '') || 'Item or paperwork mismatch'
-    dispositionReason = `Returned item identity mismatch: ${mismatchDetail}. Non-matching merchandise cannot be restored to inventory or resold as the sold catalog item.`
-    shortDispositionReason = 'Wrong item returned — dispose'
-  } else if (isReturnPhotoMissing) {
-    dispositionReason =
-      'Return has no intake photograph attached to verify item condition. Awaiting operator review and manual decision.'
-    shortDispositionReason = 'Missing photo — awaiting review'
-  } else if (perfect) {
-    dispositionReason =
-      '100% catalog match and complete with all standard components in pristine, unused condition. Auto-approved for immediate shelf restock.'
-    shortDispositionReason = '100% complete & sealed — restock'
-  } else if (disp === 'Restock') {
-    dispositionReason =
-      'Item is verified authentic, unused, and complete with all accessories. Eligible for immediate inventory restocking.'
-    shortDispositionReason = 'Unused & complete — return to shelf'
-  } else if (disp === 'Refurbish') {
-    const partsMissing = (row.parts_missing || '').trim()
-    if (partsMissing && partsMissing !== '—' && partsMissing !== '-' && partsMissing.toLowerCase() !== 'none') {
-      dispositionReason = `Product is functional and in good condition, but missing standard components (${partsMissing}). Routed to refurbishment for accessory replenishment and repackaging.`
-      shortDispositionReason = `Missing ${partsMissing} — refurbish`
-    } else {
-      dispositionReason =
-        'Unit is physically intact but packaging is opened or requires repackaging and cleaning before certified resale.'
-      shortDispositionReason = 'Repackaging & testing required'
-    }
-  } else if (disp === 'Liquidate') {
-    dispositionReason =
-      'Unit shows signs of prior customer usage but remains complete and functionally intact. Cannot be sold as new; routed to secondary liquidation channels to maximize net recovery.'
-    shortDispositionReason = 'Used complete unit — liquidate'
-  } else if (disp === 'Dispose') {
-    if (isConsumable) {
-      dispositionReason = `Opened health, beauty, or food consumable (${row.ordered_sku}). Health and safety compliance policies strictly prohibit restocking opened consumables; routed for disposal.`
-      shortDispositionReason = 'Opened consumable — health & safety disposal'
-    } else if (cond === 'damaged') {
-      dispositionReason =
-        'Physical casing or display damage exceeds secondary market recovery value. Repair costs outweigh projected resale value; routed for scrap/salvage disposal.'
-      shortDispositionReason = 'Severe damage — scrap/salvage'
-    } else {
-      dispositionReason =
-        'Item has no recoverable market value or fails compliance standards. Routed for safe destruction/disposal.'
-      shortDispositionReason = 'No recoverable value — dispose'
-    }
-  } else {
-    dispositionReason = 'Row requires operator evaluation and manual disposition assignment.'
-    shortDispositionReason = 'Requires operator review'
-  }
-
-  // 3. Primary Reason (authoritative summary sentence)
-  let primaryReason = ''
-  if (latestDecision?.reason) {
+    dispositionReason = `Operator decision (${latestDecision.action.replace('_', ' ')}): ${latestDecision.reason}`
+    shortDispositionReason = `Operator ${latestDecision.action.replace('_', ' ')}`
     primaryReason = `Operator decision: ${latestDecision.reason}`
-  } else if (isMismatch) {
-    primaryReason = `Wrong item returned (${row.sold_vs_returned_id_check?.replace(/^NOT MATCHED:\s*/, '') || 'identity mismatch'}). Auto-disapproved.`
+  } else if (rationale) {
+    dispositionReason = rationale
+    shortDispositionReason =
+      disp === '—' ? 'No route computed; needs review' : `Rules engine: ${disp.toLowerCase()}`
+    primaryReason = firstSentence
   } else if (isReturnPhotoMissing) {
-    primaryReason = 'No return photograph provided in intake record. Awaiting manual review.'
-  } else if (perfect) {
-    primaryReason =
-      'Pristine factory condition, complete components, and 100% verified catalog match. Auto-approved for immediate restock.'
-  } else if (disp === 'Restock') {
-    primaryReason = 'Item is unused and complete with all components. Ready for immediate inventory restock.'
-  } else if (disp === 'Refurbish') {
-    primaryReason = row.parts_missing
-      ? `Functional unit in good condition, missing standard accessories (${row.parts_missing}). Routed to refurbishment.`
-      : 'Unit requires repackaging, inspection, and cleaning before resale.'
-  } else if (disp === 'Liquidate') {
-    primaryReason =
-      'Complete working unit showing signs of customer handling. Routed to liquidation channels.'
-  } else if (disp === 'Dispose') {
-    if (isConsumable) {
-      primaryReason =
-        'Opened consumable product with broken seal. Health compliance prohibits restocking; routed for disposal.'
-    } else if (cond === 'damaged') {
-      primaryReason =
-        'Damaged unit with repair cost exceeding salvage recovery value. Routed for disposal.'
-    } else {
-      primaryReason = 'No recoverable inventory value. Routed for disposal.'
-    }
+    dispositionReason = 'No return photo was supplied. No grade and no route were computed; held for review.'
+    shortDispositionReason = 'No return photo; needs review'
+    primaryReason = 'No return photo supplied. Awaiting review.'
   } else {
-    primaryReason = 'Intake inspection requires manual verification.'
+    dispositionReason =
+      disp === '—'
+        ? 'No route was computed for this row; a person decides.'
+        : `Rules engine route: ${disp.toLowerCase()}.`
+    shortDispositionReason = disp === '—' ? 'Needs review' : `Rules engine: ${disp.toLowerCase()}`
+    primaryReason = dispositionReason
   }
 
-  // 4. Bullets (Key factual evidence points)
-  let photoBullet: string
-  if (isReturnPhotoMissing) {
-    photoBullet = 'Evidence: Missing Return Photo in Input (Awaiting Review)'
-  } else if (isMismatch) {
-    photoBullet = `Identity: Mismatch (${row.sold_vs_returned_id_check || 'Returned item does not match sold SKU'})`
-  } else {
-    photoBullet = `Identity: 100% Verified (${row.ordered_sku}, ASIN: ${row.ordered_asin || 'n/a'})`
-  }
-
+  // 3. Key facts, exactly as the backend recorded them
+  const identityBullet = isReturnPhotoMissing
+    ? 'Identity: not checked (no return photo)'
+    : `Identity (photo): ${row.photo_identity_match || 'uncertain'}; records: ${row.sold_vs_returned_id_check || 'not checked'}`
   const missingParts = (row.parts_missing || '').trim()
   const componentBullet = isReturnPhotoMissing
-    ? 'Components: Unverified (No intake photo to inspect)'
-    : missingParts && missingParts !== '—' && missingParts !== '-' && missingParts.toLowerCase() !== 'none'
-    ? `Components: Incomplete (Missing: ${missingParts})`
-    : 'Components: 100% Complete (All standard parts present)'
+    ? 'Components: not checked (no return photo)'
+    : missingParts
+    ? `Components: missing in clear view: ${missingParts}`
+    : 'Components: none confirmed missing (parts out of frame are named in the rationale)'
 
   const bullets: string[] = [
-    photoBullet,
-    `Condition: ${cond.toUpperCase()} — ${shortConditionReason}`,
+    identityBullet,
+    `Condition: ${row.amazon_condition || 'uncertain'} — ${shortConditionReason}`,
     componentBullet,
-    `Disposition: ${disp.toUpperCase()} — ${shortDispositionReason}`,
+    `Disposition: ${disp === '—' ? 'none computed' : disp.toUpperCase()} — ${shortDispositionReason}`,
   ]
 
   return {

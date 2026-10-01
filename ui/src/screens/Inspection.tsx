@@ -60,8 +60,8 @@ function DecisionModal({
         kind === 'override'
           ? newDisposition
           : kind === 'accept'
-          ? defaultDisposition || newDisposition
-          : undefined
+            ? defaultDisposition || newDisposition
+            : undefined
       await onSubmit({ new_disposition: targetDisp, reason: reason.trim() })
       onClose()
     } finally {
@@ -244,6 +244,37 @@ export default function Inspection() {
           </button>
         </div>
       </div>
+
+      {Boolean(
+        row.failure_reason &&
+          (row.failure_reason.includes('quota') ||
+            row.failure_reason.includes('max_requests') ||
+            row.failure_reason.includes('resource_exhausted') ||
+            row.failure_reason.includes('429')),
+      ) && (
+        <div
+          style={{
+            background: 'rgba(239, 68, 68, 0.08)',
+            border: '1px solid rgba(239, 68, 68, 0.3)',
+            borderRadius: '8px',
+            padding: '12px 16px',
+            margin: '0 0 16px 0',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+          }}
+        >
+          <CircleAlert size={18} color="#dc2626" style={{ flexShrink: 0 }} />
+          <div style={{ fontSize: '13px' }}>
+            <b style={{ color: '#dc2626', display: 'block', marginBottom: '2px' }}>
+              Gemini API Quota Limit Reached (HTTP 429 RESOURCE_EXHAUSTED)
+            </b>
+            <span style={{ color: 'var(--muted)' }}>
+              The Gemini API key rate limit or daily quota was exhausted while analyzing this unit. The returns engine safely routed the row to review (fail-open) to maintain inspection integrity.
+            </span>
+          </div>
+        </div>
+      )}
 
       <div className="inspection-grid">
         <section className="panel evidence-panel">
@@ -545,21 +576,23 @@ export default function Inspection() {
                 <small className="kicker">BATCH RUN RESULT</small>
                 <h2>
                   {isMissingPhoto
-                    ? 'Auto-rejected (Missing intake photo)'
+                    ? 'No return photo: held for review'
                     : reasoning.isPerfect
-                    ? 'Auto-approved for Restock'
-                    : row.auto_disapproved === 'true' || row.wrong_item_flag
-                    ? 'Automatically disapproved'
-                    : 'Intake Inspection & Decision'}
+                      ? `Auto-approved: ${reasoning.disposition}`
+                      : row.auto_disapproved === 'true' || row.wrong_item_flag
+                        ? 'Automatically disapproved'
+                        : 'Intake Inspection & Decision'}
                 </h2>
               </div>
               <Pill
                 value={
                   reasoning.isPerfect
                     ? 'Auto-approved'
-                    : isMissingPhoto || row.auto_disapproved === 'true' || row.wrong_item_flag
-                    ? 'Auto-disapproved'
-                    : row.status
+                    : isMissingPhoto
+                      ? 'Awaiting review'
+                      : row.auto_disapproved === 'true' || row.wrong_item_flag
+                        ? 'Auto-disapproved'
+                        : row.status
                 }
               />
             </div>
@@ -567,7 +600,11 @@ export default function Inspection() {
               <div className="functional" style={{ color: '#2563eb' }}>
                 <BadgeCheck size={14} /> Auto-approved: {reasoning.primaryReason}
               </div>
-            ) : isMissingPhoto || row.auto_disapproved === 'true' || row.wrong_item_flag ? (
+            ) : isMissingPhoto ? (
+              <div className="functional" style={{ color: 'var(--warning)' }}>
+                <CircleAlert size={14} /> {reasoning.primaryReason}
+              </div>
+            ) : row.auto_disapproved === 'true' || row.wrong_item_flag ? (
               <div className="functional" style={{ color: 'var(--danger)' }}>
                 <CircleAlert size={14} /> Auto-disapproved: {reasoning.primaryReason}
               </div>
@@ -800,7 +837,7 @@ export default function Inspection() {
                 </small>
               </div>
               <i>
-                {detail?.decision?.rule_id || (reasoning.isPerfect ? 'AUTO-APPROVED' : (isMissingPhoto || row.auto_disapproved === 'true' || row.wrong_item_flag) ? 'AUTO-REJECTED' : 'RECOMMENDED')}
+                {detail?.decision?.rule_id || (reasoning.isPerfect ? 'AUTO-APPROVED' : isMissingPhoto ? 'NO PHOTO' : (row.auto_disapproved === 'true' || row.wrong_item_flag) ? 'AUTO-DISAPPROVED' : 'RECOMMENDED')}
                 {priceAssumed && detail?.value?.value_driven_outcomes.includes(detail.decision.rule_id) && (
                   <small className="price-assumed"> · price assumed (synthetic)</small>
                 )}
@@ -859,12 +896,11 @@ export default function Inspection() {
                 ))}
                 <small>
                   {detail.value
-                    ? `List price ${moneyMinor(detail.value.list_price_minor, detail.value.currency)} · ${
-                        priceAssumed ? 'price assumed (synthetic)' : 'from the uploaded CSV'
-                      } · recovery rates and refurbish cost assumed (synthetic)`
+                    ? `List price ${moneyMinor(detail.value.list_price_minor, detail.value.currency)} · ${priceAssumed ? 'price assumed (synthetic)' : 'from the uploaded CSV'
+                    } · recovery rates and refurbish cost assumed (synthetic)`
                     : detail.decision.synthetic_values
-                    ? 'Synthetic values'
-                    : 'Values from the product card'}
+                      ? 'Synthetic values'
+                      : 'Values from the product card'}
                 </small>
               </div>
             )}
@@ -886,8 +922,8 @@ export default function Inspection() {
               </div>
             )}
             {isMissingPhoto && (
-              <div className="functional" style={{ color: 'var(--danger)' }}>
-                <CircleAlert size={14} /> Auto-rejected: {reasoning.shortDispositionReason}
+              <div className="functional" style={{ color: 'var(--warning)' }}>
+                <CircleAlert size={14} /> Requires review: {reasoning.shortDispositionReason}
               </div>
             )}
             {detail?.decision?.requires_signoff && (

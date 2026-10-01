@@ -280,6 +280,66 @@ class JudgmentV1(_Strict):
     untrusted_text_observed: list[UntrustedText]
 
 
+# ── Pre-validation repair of non-verdict fields (finding F-018) ─────────────
+# The schema sent to Gemini cannot carry `maxLength` or the box ordering rule, so a live answer can exceed a
+# text limit or contain a degenerate box. Failing the whole inspection for that would throw away every
+# verdict in it. Only descriptive text is trimmed and only an invalid box is dropped; no verdict, enum,
+# confidence or id is ever changed here (those still fail validation, and the row fails open).
+
+
+def _box_ok(v: Any) -> bool:
+    return (
+        isinstance(v, list)
+        and len(v) == 4
+        and all(isinstance(c, int) and not isinstance(c, bool) and 0 <= c <= 1000 for c in v)
+        and v[0] < v[2]
+        and v[1] < v[3]
+    )
+
+
+def _repair(model: type[BaseModel], data: Any, path: str, fixes: list[str]) -> Any:
+    if not isinstance(data, dict):
+        return data
+    for name, field in model.model_fields.items():
+        if name not in data:
+            continue
+        value = data[name]
+        where = f"{path}.{name}" if path else name
+        max_len = next(
+            (getattr(m, "max_length", None) for m in field.metadata if getattr(m, "max_length", None)), None
+        )
+        if isinstance(value, str) and max_len and len(value) > max_len:
+            data[name] = value[: max_len - 1].rstrip() + "…"
+            fixes.append(f"trimmed {where} from {len(value)} to {max_len} characters")
+        elif name == "box_2d" and value is not None and not _box_ok(value):
+            data[name] = None
+            fixes.append(f"dropped invalid {where} {value!r}")
+        sub = _sub_model(field.annotation)
+        if sub is not None and isinstance(value, dict):
+            _repair(sub, value, where, fixes)
+        elif sub is not None and isinstance(value, list):
+            for i, item in enumerate(value):
+                _repair(sub, item, f"{where}[{i}]", fixes)
+    return data
+
+
+def _sub_model(annotation: Any) -> type[BaseModel] | None:
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return annotation
+    for arg in getattr(annotation, "__args__", ()):
+        if isinstance(arg, type) and issubclass(arg, BaseModel):
+            return arg
+    return None
+
+
+def repair_judgment_payload(raw: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    """A deep copy of `raw` with over-long descriptive text trimmed and invalid boxes dropped, plus a list of
+    what was changed. Everything else is left exactly as the model returned it."""
+    fixes: list[str] = []
+    data = _repair(JudgmentV1, copy.deepcopy(raw), "", fixes)
+    return data, fixes
+
+
 # ── Gemini-compatible schema export ─────────────────────────────────────────
 
 # Keywords the Gemini structured-output docs list as supported (§1.8). Anything else is dropped from the

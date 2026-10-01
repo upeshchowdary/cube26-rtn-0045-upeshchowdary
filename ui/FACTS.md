@@ -67,9 +67,12 @@ Display labels: **Restock, Refurbish, Liquidate, Dispose.** Rank (`engine.py:24`
 
 ### 2.1 Rules (evaluated: review flags → gates → routes; first match wins)
 
-**Gates**: no recommendation, `requires_review = true` (`engine.py:268-306`)
+**Gates**: `requires_review = true` always. R01/R01b and R05b (except a used electrical item, which gets a
+provisional R11 refurbish for a technician test) give no recommendation. R02 (clearly empty package) and R03
+(wrong item) route to **dispose** with S01 sign-off. R03b and an uncertain R02 get a **provisional** route
+computed from the remaining evidence (`disposition/engine.py`, `decide`).
 
-| Rule | Condition | `no_recommendation_reason` |
+| Rule | Condition | review reason |
 |---|---|---|
 | R01b | inspection skipped | the skip reason, e.g. `no_product_reference` |
 | R01 | inspection incomplete or 0 usable photos | `inspection_incomplete` |

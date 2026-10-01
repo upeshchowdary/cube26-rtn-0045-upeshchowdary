@@ -146,11 +146,14 @@ def apply_consistency(j: JudgmentV1, ctx: JudgmentContext, rep: ValidationReport
         uncertain("identity", "bad_photo", "Identity evidence came only from photos marked unusable.")
 
     if ident.identity_match == "no":
+        # A mismatching critical body feature, or a brand/model/variant mismatch flag, is positive
+        # evidence of a different product; it is not undone by an uncertain observed state or by damage.
         has_different_product_evidence = bool(
             ident.likely_actual_sku
-            or any(f in ident.risk_flags for f in ("brand_mismatch", "model_mismatch"))
+            or any(f in ident.risk_flags for f in ("brand_mismatch", "model_mismatch", "variant_mismatch"))
             or any(
-                fc.result == "mismatch" and fc.feature_id == "df_catalog_markings"
+                fc.result == "mismatch"
+                and (fc.feature_id in body_critical or fc.feature_id == "df_catalog_markings")
                 for fc in ident.feature_checks
             )
         )

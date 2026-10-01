@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowDownUp, ArrowUpRight, ChevronLeft, ChevronRight, Clock3, Download, Package, Plus, Search, SlidersHorizontal } from 'lucide-react'
+import { ArrowDownUp, ArrowUpRight, ChevronLeft, ChevronRight, CircleAlert, Clock3, Download, Package, Plus, Search, SlidersHorizontal } from 'lucide-react'
 import { useBatchStore } from '../lib/store'
 import { deriveProductReasoning } from '../lib/derive'
 import type { DerivedRow } from '../lib/types'
@@ -101,6 +101,37 @@ export default function Returns() {
           </>
         }
       />
+      {rows.some(
+        (r) =>
+          r.failure_reason &&
+          (r.failure_reason.includes('quota') ||
+            r.failure_reason.includes('max_requests') ||
+            r.failure_reason.includes('resource_exhausted') ||
+            r.failure_reason.includes('429')),
+      ) && (
+        <div
+          style={{
+            background: 'rgba(239, 68, 68, 0.08)',
+            border: '1px solid rgba(239, 68, 68, 0.3)',
+            borderRadius: '8px',
+            padding: '12px 16px',
+            marginBottom: '16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+          }}
+        >
+          <CircleAlert size={18} color="#dc2626" style={{ flexShrink: 0 }} />
+          <div style={{ fontSize: '12px' }}>
+            <b style={{ color: '#dc2626', display: 'block', marginBottom: '2px' }}>
+              Gemini API Quota Notice
+            </b>
+            <span style={{ color: 'var(--muted)' }}>
+              Some items were marked uncertain / fail-open because the Gemini API quota or rate limit was reached during processing.
+            </span>
+          </div>
+        </div>
+      )}
       <section className="panel returns-panel">
         <div className="return-toolbar">
           <div className="tabs" style={{ flexWrap: 'wrap', overflow: 'visible' }}>

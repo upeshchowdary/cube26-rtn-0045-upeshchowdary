@@ -78,10 +78,10 @@ export const otherOutcomes = [
 
 // Exceptions: real review / no-recommendation codes (FACTS.md §5) with human-readable labels.
 export const exceptions: { code: string; label: string; effect: string; tone: 'danger' | 'warning' }[] = [
-  { code: 'wrong_item_returned', label: 'Identity mismatch: possible product swap', effect: 'No recommendation. Requires review.', tone: 'danger' },
-  { code: 'identity_unverified', label: 'Product identity uncertain', effect: 'No recommendation. Requires review.', tone: 'warning' },
-  { code: 'essential_component_uncertain', label: 'Essential part not visible in the provided photos', effect: 'Routed as if missing, provisional. Requires review.', tone: 'warning' },
-  { code: 'condition_uncertain', label: 'Condition uncertain', effect: 'No recommendation. Requires review.', tone: 'warning' },
+  { code: 'wrong_item_returned', label: 'Identity mismatch: possible product swap', effect: 'Rules engine route: Dispose, with second-person sign-off. Auto-disapproved. Requires review.', tone: 'danger' },
+  { code: 'identity_unverified', label: 'Product identity uncertain', effect: 'Provisional route from the other evidence. Requires review.', tone: 'warning' },
+  { code: 'essential_component_uncertain', label: 'Essential part not visible in the provided photos', effect: 'Replaceable part assumed present, main unit assumed missing; provisional. Requires review.', tone: 'warning' },
+  { code: 'condition_uncertain', label: 'Condition uncertain', effect: 'No recommendation; a used electrical item gets a provisional Refurbish for a technician test. Requires review.', tone: 'warning' },
   { code: 'possible_reused_photo', label: 'Possible reused photo', effect: 'Route kept, flagged for review.', tone: 'warning' },
   { code: 'injection_attempt_suspected', label: 'Instruction-like text found in a photo', effect: 'Route kept, flagged for review.', tone: 'warning' },
   { code: 'inspection_incomplete', label: 'Inspection incomplete', effect: 'No recommendation. Requires review.', tone: 'warning' },

@@ -60,7 +60,7 @@ def evaluate(result: Any, *, id_mismatch: bool, id_not_checked: bool, threshold_
         blocked.append("sold_vs_returned_id_not_checked")
 
     judgment = result.judgment
-    if judgment.identity.identity_match != "yes":
+    if result.identity.identity_match != "yes":  # the fused verdict the engine decided on
         blocked.append("image_identity_not_matched")
     if judgment.model_observed_state == "damaged":
         blocked.append("damage_observed")

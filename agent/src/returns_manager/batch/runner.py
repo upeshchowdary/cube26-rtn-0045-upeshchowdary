@@ -10,6 +10,7 @@ guesses a verdict - that row is written as `observed_state=uncertain`,
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -441,6 +442,27 @@ def _is_auto_disapproved(before: BeforeRow | None, row: ReturnedRow, photo_ident
     return _id_mismatch(before, check_id_match(before, row)) or photo_identity_match == "no"
 
 
+_FAIL_OPEN_WHY = {
+    "no_return_photo": "No return photo was supplied",
+    "no_reference_photo": "No sold (reference) photo was supplied",
+    "no_before_record": "No sold record matches this unit_id",
+    "no_category": "No product category was supplied",
+    "max_requests_reached": "This run's model request cap was reached before this row",
+}
+
+
+def fail_open_rationale(reason: str) -> str:
+    """Why a row has no judgment, in plain words. Nothing is guessed for it: no grade, no route."""
+    head = reason.split(":", 1)[0]
+    why = _FAIL_OPEN_WHY.get(reason) or {
+        "model_call_failed": f"The model call failed ({reason.split(':', 1)[-1]})",
+        "image_fetch_failed": "A photo could not be downloaded",
+        "unknown_category": f"The category is not supported ({reason.split(':', 1)[-1]})",
+        "reference_load_failed": "The condition rubric or category policy could not be loaded",
+    }.get(head, f"The row could not be judged ({reason})")
+    return f"{why}. Insufficient evidence: no grade and no route were computed; held for a person to review."
+
+
 def _uncertain_row(row: ReturnedRow, before: BeforeRow | None, reason: str) -> dict[str, str]:
     """The fail-open row (§3): no verdict, no grade, no confidence - just the reason. Written for
     every row that did not get a real model response run through the deterministic pipeline."""
@@ -469,6 +491,8 @@ def _uncertain_row(row: ReturnedRow, before: BeforeRow | None, reason: str) -> d
         # A fail-open row is not a real decision, so it must not claim a CSV-backed or synthetic
         # value source that implies a model-derived price/condition outcome.
         "value_source": "",
+        "requires_review": "true",
+        "rationale": fail_open_rationale(reason),
     }
 
 
@@ -651,9 +675,15 @@ async def process_returned_row(
     # In single-photo mode, non_fail_photos=1 triggers a photo_quality FAIL check,
     # which blocks auto-approve and surfaces in the UI as a reduced-confidence signal.
     _effective_non_fail_photos = 1 if _single_photo_mode else len(photos)
+    # Same as inspection.service: evidence the model gathered with its crop / reference tools is valid.
+    ctx = dataclasses.replace(
+        bundle.ctx,
+        crop_aliases=tuple(getattr(session, "crop_aliases", ())),
+        reference_aliases=bundle.ctx.reference_aliases + tuple(getattr(session, "reference_aliases", ())),
+    )
     result = run_pipeline(
         session.judgment,
-        bundle.ctx,
+        ctx,
         photo_gate=PhotoGate(non_fail_photos=_effective_non_fail_photos, acknowledged_warnings=False),
         rules_version="batch-import-v1",
     )
@@ -688,7 +718,7 @@ async def process_returned_row(
         "ordered_asin": row.ordered_asin,
         "identity_match": before.identity_match,  # carried forward, not re-derived (per instruction)
         # The model's own identity verdict on the returned photo(s), kept separate (F-024).
-        "photo_identity_match": result.judgment.identity.identity_match,
+        "photo_identity_match": result.identity.identity_match,  # fused verdict the engine used
         "parts_list": before.parts_list,
         "parts_missing": _missing_parts_field(result.completeness),
         "observed_state": result.judgment.model_observed_state,

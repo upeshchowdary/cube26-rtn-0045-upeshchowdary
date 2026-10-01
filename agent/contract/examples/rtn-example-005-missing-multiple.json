@@ -6,85 +6,133 @@
   "agent": "returns_manager",
   "subject": {
     "unit_id": "UNIT-EXAMPLE-005",
-    "return_id": "01JRETURN_005",
-    "order_id": "ORD-DEMO-50005",
-    "sku": "SKU-GAMEPAD",
-    "asin": "B0DEMO5678"
+    "return_id": "RET-EXAMPLE-005",
+    "order_id": "ORD-EXAMPLE-005",
+    "sku": "SKU-HEADPHONES-TEST",
+    "asin": ""
   },
-  "captured_at": "2026-07-06T07:36:00Z",
-  "operator_label": "op_demo_5",
+  "captured_at": "2026-07-05T07:36:00Z",
+  "operator_label": "synthetic-example (no real operator)",
   "images": [
     {
-      "image_id": "01JPHOTO005",
+      "image_id": "PHOTO-EXAMPLE-005-1",
       "slot": 1,
-      "role": "front",
-      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "role": "other",
+      "sha256": "2e649d6e67b641eedd860148f80cbbd2a6dc4aa71c412bf554e6c6d0cefe4d24",
+      "quality": "pass",
+      "url": null
+    },
+    {
+      "image_id": "PHOTO-EXAMPLE-005-2",
+      "slot": 2,
+      "role": "other",
+      "sha256": "6b45a9930ef6459b5038b6ea54f865e271b582500b421d000959d2738a841d46",
+      "quality": "pass",
+      "url": null
+    },
+    {
+      "image_id": "PHOTO-EXAMPLE-005-3",
+      "slot": 3,
+      "role": "other",
+      "sha256": "c94a508dbecaddcecfbb52c39cc73ff57381fd6ad56e5bf6c29f6b4afdc7878a",
       "quality": "pass",
       "url": null
     }
   ],
   "checks": [
     {
-      "check_key": "identity",
-      "verdict": "PASS",
-      "confidence_bp": 9300,
-      "detail": "Product body features match the catalogue card.",
-      "model_version": "gemini-3.8-flash@judgment-v1.0.0",
-      "latency_ms": 12000
-    },
-    {
-      "check_key": "completeness",
-      "verdict": "FAIL",
-      "confidence_bp": 10000,
-      "detail": "USB cable missing (1 of 1 expected).",
-      "model_version": "gemini-3.8-flash@judgment-v1.0.0",
-      "latency_ms": 12000
-    },
-    {
-      "check_key": "condition_grade",
-      "verdict": "PASS",
-      "confidence_bp": 5000,
-      "detail": "Condition grade could not be reliably determined from the photos.",
-      "model_version": "gemini-3.8-flash@judgment-v1.0.0",
-      "latency_ms": 12000
-    },
-    {
       "check_key": "photo_quality",
       "verdict": "PASS",
       "confidence_bp": 10000,
-      "detail": "2 usable photos received.",
-      "model_version": "deterministic@quality-gate-1.0.0",
-      "latency_ms": 5
+      "detail": "3 photos passed the quality gate.",
+      "model_version": "deterministic@disposition-b4ce912075c4",
+      "latency_ms": 0
     },
     {
       "check_key": "unit_presence",
       "verdict": "PASS",
       "confidence_bp": 10000,
-      "detail": "Product is present in the packaging.",
-      "model_version": "gemini-3.8-flash@judgment-v1.0.0",
-      "latency_ms": 12000
+      "detail": "The product is in the package (P1).",
+      "model_version": "synthetic-example@judgment-v1",
+      "latency_ms": 0
+    },
+    {
+      "check_key": "identity",
+      "verdict": "PASS",
+      "confidence_bp": 9000,
+      "detail": "Matches the catalogue card for SKU-HEADPHONES-TEST on the product body (P1); barcode: none_decoded.",
+      "model_version": "synthetic-example@judgment-v1",
+      "latency_ms": 0
+    },
+    {
+      "check_key": "completeness",
+      "verdict": "FAIL",
+      "confidence_bp": 10000,
+      "detail": "Missing: carrying case;usb cable.",
+      "model_version": "synthetic-example@judgment-v1",
+      "latency_ms": 0
+    },
+    {
+      "check_key": "component:headphones",
+      "verdict": "PASS",
+      "confidence_bp": 9000,
+      "detail": "headphones present (P2).",
+      "model_version": "synthetic-example@judgment-v1",
+      "latency_ms": 0
+    },
+    {
+      "check_key": "component:carrying_case",
+      "verdict": "FAIL",
+      "confidence_bp": 9000,
+      "detail": "carrying case: 1 missing (P2).",
+      "model_version": "synthetic-example@judgment-v1",
+      "latency_ms": 0
+    },
+    {
+      "check_key": "component:usb_cable",
+      "verdict": "FAIL",
+      "confidence_bp": 9000,
+      "detail": "usb cable: 1 missing (P2).",
+      "model_version": "synthetic-example@judgment-v1",
+      "latency_ms": 0
+    },
+    {
+      "check_key": "component:manual",
+      "verdict": "PASS",
+      "confidence_bp": 9000,
+      "detail": "manual present (P2).",
+      "model_version": "synthetic-example@judgment-v1",
+      "latency_ms": 0
+    },
+    {
+      "check_key": "condition_grade",
+      "verdict": "PASS",
+      "confidence_bp": 8000,
+      "detail": "Used - Like New. Rubric: \"an apparently untouched item in perfect \" Functional test not performed.",
+      "model_version": "synthetic-example@judgment-v1",
+      "latency_ms": 0
     },
     {
       "check_key": "relistable_as_is",
       "verdict": "FAIL",
       "confidence_bp": 10000,
-      "detail": "Listing blockers: essential_component_missing, functional_test_required.",
-      "model_version": "deterministic@disposition-3f9a1c2b",
-      "latency_ms": 1
+      "detail": "Not relistable as-is: essential component missing, functional test required.",
+      "model_version": "deterministic@disposition-b4ce912075c4",
+      "latency_ms": 0
     },
     {
       "check_key": "category_policy",
       "verdict": "PASS",
       "confidence_bp": 10000,
-      "detail": "Category policy allows the recommended route.",
-      "model_version": "deterministic@disposition-3f9a1c2b",
-      "latency_ms": 1
+      "detail": "Route refurbish is allowed by amazon-uk-2020-12-electronics.",
+      "model_version": "deterministic@disposition-b4ce912075c4",
+      "latency_ms": 0
     }
   ],
   "outcome": {
     "decision": "REFURBISH",
-    "decided_by": "rules_engine@disposition-3f9a1c2b",
-    "decided_at": "2026-07-06T07:37:45Z"
+    "decided_by": "rules_engine@disposition-b4ce912075c4",
+    "decided_at": "2026-07-05T07:36:00Z"
   },
   "overrides": [],
   "status": "finalized",
@@ -95,20 +143,119 @@
       "record_version": 1,
       "org_id": "org_demo_alpha",
       "unit_id": "UNIT-EXAMPLE-005",
-      "return_id": "01JRETURN_005",
-      "order_id": "ORD-DEMO-50005",
-      "ordered_sku": "SKU-GAMEPAD",
-      "ordered_asin": "B0DEMO5678",
-      "captured_at": "2026-07-06T07:36:00Z",
-      "finalized_at": "2026-07-06T07:37:45Z",
-      "comparison_mode": "catalogue_return",
-      "integrity": {
-        "document_sha256": "placeholder",
-        "head_event_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "event_count": 5,
-        "ledger_seq": 1,
-        "ledger_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        "claim": "Tamper-evident within this database: modification, reordering, insertion or deletion of events or records is detected unless an attacker rewrites the entire chain consistently. Not immutable. Weakly anchored: ledger heads are published in public git commits; history before an anchor cannot be silently rewritten without breaking the anchor."
+      "return_id": "RET-EXAMPLE-005",
+      "order_id": "ORD-EXAMPLE-005",
+      "ordered_sku": "SKU-HEADPHONES-TEST",
+      "ordered_asin": "",
+      "captured_at": "2026-07-05T07:36:00Z",
+      "finalized_at": "2026-07-05T07:36:00Z",
+      "photos": [
+        {
+          "photo_id": "PHOTO-EXAMPLE-005-1",
+          "slot": 1
+        },
+        {
+          "photo_id": "PHOTO-EXAMPLE-005-2",
+          "slot": 2
+        },
+        {
+          "photo_id": "PHOTO-EXAMPLE-005-3",
+          "slot": 3
+        }
+      ],
+      "identity": {
+        "identity_match": "yes",
+        "evidence_strength": "moderate",
+        "risk_flags": [],
+        "reasons": [
+          "two_or_more_critical_product_body_features_match"
+        ],
+        "observed_identifiers": [],
+        "feature_checks": [],
+        "evidence": [
+          {
+            "photo_ref": "P1"
+          }
+        ]
+      },
+      "unit_presence": {
+        "status": "product_present"
+      },
+      "completeness": {
+        "status": "incomplete",
+        "parts_list": "headphones;carrying case;usb cable;manual",
+        "parts_missing": "carrying case;usb cable",
+        "parts_uncertain": "",
+        "components": [
+          {
+            "component_id": "headphones",
+            "name": "headphones",
+            "expected": 1,
+            "observed": 1,
+            "status": "present",
+            "essential": true,
+            "evidence": [
+              {
+                "photo_ref": "P2"
+              }
+            ]
+          },
+          {
+            "component_id": "carrying_case",
+            "name": "carrying case",
+            "expected": 1,
+            "observed": 0,
+            "status": "missing",
+            "essential": true,
+            "evidence": [
+              {
+                "photo_ref": "P2"
+              }
+            ]
+          },
+          {
+            "component_id": "usb_cable",
+            "name": "usb cable",
+            "expected": 1,
+            "observed": 0,
+            "status": "missing",
+            "essential": true,
+            "evidence": [
+              {
+                "photo_ref": "P2"
+              }
+            ]
+          },
+          {
+            "component_id": "manual",
+            "name": "manual",
+            "expected": 1,
+            "observed": 1,
+            "status": "present",
+            "essential": false,
+            "evidence": [
+              {
+                "photo_ref": "P2"
+              }
+            ]
+          }
+        ]
+      },
+      "condition": {
+        "amazon_condition": "Used - Like New",
+        "cosmetic_grade": "used_like_new",
+        "listing_blockers": [
+          "essential_component_missing",
+          "functional_test_required"
+        ],
+        "functional_check": "not_performed",
+        "packaging_state": "opened_packaging_intact",
+        "signs_of_use": "none_visible",
+        "observations": [],
+        "rubric": null
+      },
+      "observed_state": {
+        "model": "opened_unused"
       },
       "disposition": {
         "recommended_disposition": "refurbish",
@@ -118,65 +265,48 @@
         "requires_review": false,
         "review_reasons": [],
         "final_disposition": "refurbish",
-        "listing_condition": "Used - Good",
+        "listing_condition": null,
         "relistable_as_is": false,
         "rule_id": "R09",
-        "rules_version": "disposition-3f9a1c2b",
-        "decided_by": "deterministic_engine",
+        "rules_version": "disposition-b4ce912075c4",
+        "decided_by": "rules_engine@disposition-b4ce912075c4",
         "requires_signoff": false,
         "signoff": null,
-        "expected_recovery": null
-      },
-      "identity": {
-        "identity_match": "yes",
-        "evidence_strength": "strong",
-        "risk_flags": [],
-        "reasons": [
-          "barcode_match"
-        ],
-        "observed_identifiers": [
-          "B0DEMO5678"
-        ],
-        "feature_checks": [],
-        "evidence": []
-      },
-      "completeness": {
-        "status": "incomplete",
-        "parts_list": "usb charging cable",
-        "parts_missing": "usb cable; battery cover",
-        "parts_uncertain": "",
-        "components": []
-      },
-      "condition": {
-        "amazon_condition": "Used - Good",
-        "cosmetic_grade": "used_good",
-        "listing_blockers": [
-          "essential_component_missing"
-        ],
-        "functional_check": "not_performed",
-        "packaging_state": "opened",
-        "signs_of_use": "light",
-        "observations": [],
-        "rubric": null
+        "expected_recovery": {
+          "restock_new": 399900,
+          "restock_used": 259935,
+          "refurbish": 189945,
+          "liquidate": 79980,
+          "dispose": 0
+        }
       },
       "claim_signals": {
         "item_not_returned": false,
         "wrong_item_returned": false,
         "returned_damaged": {
-          "value": false
+          "value": "no",
+          "basis": [
+            "condition_grade:used_like_new",
+            "no_defects_observed"
+          ],
+          "evidence": []
         },
         "parts_missing": [
-          "usb charging cable"
+          "carrying case",
+          "usb cable"
         ],
         "parts_uncertain": []
       },
+      "uncertainty": [],
+      "overrides": [],
       "links": {
-        "self": "/api/v1/units/UNIT-0014/return-evidence",
-        "chain": "/api/v1/units/UNIT-0014/chain",
-        "verification": "/api/v1/units/UNIT-0014/chain/verification",
-        "explain": "/api/v1/units/UNIT-0014/explain"
-      }
+        "self": "/api/v1/units/UNIT-EXAMPLE-005/return-evidence?version=1",
+        "chain": "/api/v1/units/UNIT-EXAMPLE-005/chain",
+        "verification": "/api/v1/units/UNIT-EXAMPLE-005/chain/verification",
+        "explain": "/api/v1/units/UNIT-EXAMPLE-005/explain"
+      },
+      "scenario": "SYNTHETIC EXAMPLE. S04 several accessories missing in clear view."
     }
   },
-  "content_hash": "sha256:fb345ed3cae4452f2e23e37ed00083db6a389f567115bcf3d596c3434e2c55bc"
+  "content_hash": "sha256:52184d8d2da14ce5f44687213b9469b01cfaa241471a18123e6f50aba490997e"
 }

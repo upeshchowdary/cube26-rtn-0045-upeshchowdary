@@ -34,7 +34,7 @@ from returns_manager.llm.context import ContextBundle
 from returns_manager.llm.pricing import cost_usd_micros
 from returns_manager.llm.prompts import get_prompt
 from returns_manager.llm.quota import QuotaGuard, Role
-from returns_manager.llm.schemas import JudgmentV1, gemini_response_schema
+from returns_manager.llm.schemas import JudgmentV1, gemini_response_schema, repair_judgment_payload
 from returns_manager.llm.tools import ToolExecutor, ToolRecord, tool_definitions
 
 _SAFETY_WORDS = ("safety", "blocked", "prohibited", "recitation", "blocklist")
@@ -202,7 +202,8 @@ async def run_session(
                         if mode == "json_schema"
                         else _extract_json(resp.output_text)
                     )
-                    judgment = JudgmentV1.model_validate(raw)
+                    repaired_raw, _fixes = repair_judgment_payload(raw)
+                    judgment = JudgmentV1.model_validate(repaired_raw)
                 except (json.JSONDecodeError, ValidationError, SchemaError) as exc:
                     detail = str(exc)[:1500]
                     if mode == "json_prompted" and not repaired and round_trip < rounds:

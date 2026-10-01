@@ -1,40 +1,40 @@
 {
-  "record_id": "RTN-EXAMPLE-006",
+  "record_id": "RTN-EXAMPLE-014",
   "schema_version": "1.0.0",
   "organization_id": "org_demo_alpha",
   "client_id": "org_demo_alpha",
   "agent": "returns_manager",
   "subject": {
-    "unit_id": "UNIT-EXAMPLE-006",
-    "return_id": "RET-EXAMPLE-006",
-    "order_id": "ORD-EXAMPLE-006",
+    "unit_id": "UNIT-EXAMPLE-014",
+    "return_id": "RET-EXAMPLE-014",
+    "order_id": "ORD-EXAMPLE-014",
     "sku": "SKU-HEADPHONES-TEST",
     "asin": ""
   },
-  "captured_at": "2026-07-06T07:36:00Z",
+  "captured_at": "2026-07-14T07:36:00Z",
   "operator_label": "synthetic-example (no real operator)",
   "images": [
     {
-      "image_id": "PHOTO-EXAMPLE-006-1",
+      "image_id": "PHOTO-EXAMPLE-014-1",
       "slot": 1,
       "role": "other",
-      "sha256": "89dd49ee763e80abdf7406bd216aabe709dd9f1611dd739d474d710eaaabd327",
+      "sha256": "da2d476b9556649cb25053c32bb01dc343917dad99d3644f150d6a5edfba5443",
       "quality": "pass",
       "url": null
     },
     {
-      "image_id": "PHOTO-EXAMPLE-006-2",
+      "image_id": "PHOTO-EXAMPLE-014-2",
       "slot": 2,
       "role": "other",
-      "sha256": "700f22731899335674a07e90b610e8ecc597ffa714d7318a3747aa5876c5859b",
+      "sha256": "1daa04c7ee274760a1cf396804180885f7a089c9029def096481acbc17e551f2",
       "quality": "pass",
       "url": null
     },
     {
-      "image_id": "PHOTO-EXAMPLE-006-3",
+      "image_id": "PHOTO-EXAMPLE-014-3",
       "slot": 3,
       "role": "other",
-      "sha256": "bb96f27f27874d15c11082cd9affede75bd02667790a3e67d46be0689983a218",
+      "sha256": "fee2593f0a9042e41366dcd8b37d8ff490c1b5c473c14a3afd733434d6639e97",
       "quality": "pass",
       "url": null
     }
@@ -50,17 +50,17 @@
     },
     {
       "check_key": "unit_presence",
-      "verdict": "PASS",
+      "verdict": "FAIL",
       "confidence_bp": 10000,
-      "detail": "The product is in the package (P1).",
+      "detail": "Returned package holds empty packaging (P1).",
       "model_version": "synthetic-example@judgment-v1",
       "latency_ms": 0
     },
     {
       "check_key": "identity",
-      "verdict": "PASS",
+      "verdict": "FAIL",
       "confidence_bp": 9000,
-      "detail": "Matches the catalogue card for SKU-HEADPHONES-TEST on the product body (P1); barcode: none_decoded.",
+      "detail": "Not the ordered item SKU-HEADPHONES-TEST (P1).",
       "model_version": "synthetic-example@judgment-v1",
       "latency_ms": 0
     },
@@ -124,51 +124,51 @@
       "check_key": "category_policy",
       "verdict": "PASS",
       "confidence_bp": 10000,
-      "detail": "Route refurbish is allowed by amazon-uk-2020-12-electronics.",
+      "detail": "Route dispose is allowed by amazon-uk-2020-12-electronics.",
       "model_version": "deterministic@disposition-b4ce912075c4",
       "latency_ms": 0
     }
   ],
   "outcome": {
-    "decision": "REFURBISH",
-    "decided_by": "rules_engine@disposition-b4ce912075c4",
-    "decided_at": "2026-07-06T07:36:00Z"
+    "decision": "PENDING_REVIEW",
+    "decided_by": "pending",
+    "decided_at": "2026-07-14T07:36:00Z"
   },
   "overrides": [],
-  "status": "finalized",
+  "status": "awaiting_review",
   "extensions": {
     "returns": {
       "contract_version": "1.0.0",
-      "record_id": "RTN-EXAMPLE-006",
+      "record_id": "RTN-EXAMPLE-014",
       "record_version": 1,
       "org_id": "org_demo_alpha",
-      "unit_id": "UNIT-EXAMPLE-006",
-      "return_id": "RET-EXAMPLE-006",
-      "order_id": "ORD-EXAMPLE-006",
+      "unit_id": "UNIT-EXAMPLE-014",
+      "return_id": "RET-EXAMPLE-014",
+      "order_id": "ORD-EXAMPLE-014",
       "ordered_sku": "SKU-HEADPHONES-TEST",
       "ordered_asin": "",
-      "captured_at": "2026-07-06T07:36:00Z",
-      "finalized_at": "2026-07-06T07:36:00Z",
+      "captured_at": "2026-07-14T07:36:00Z",
+      "finalized_at": "2026-07-14T07:36:00Z",
       "photos": [
         {
-          "photo_id": "PHOTO-EXAMPLE-006-1",
+          "photo_id": "PHOTO-EXAMPLE-014-1",
           "slot": 1
         },
         {
-          "photo_id": "PHOTO-EXAMPLE-006-2",
+          "photo_id": "PHOTO-EXAMPLE-014-2",
           "slot": 2
         },
         {
-          "photo_id": "PHOTO-EXAMPLE-006-3",
+          "photo_id": "PHOTO-EXAMPLE-014-3",
           "slot": 3
         }
       ],
       "identity": {
-        "identity_match": "yes",
-        "evidence_strength": "moderate",
+        "identity_match": "no",
+        "evidence_strength": "strong",
         "risk_flags": [],
         "reasons": [
-          "two_or_more_critical_product_body_features_match"
+          "item_not_present_clearly_evidenced"
         ],
         "observed_identifiers": [],
         "feature_checks": [],
@@ -179,7 +179,7 @@
         ]
       },
       "unit_presence": {
-        "status": "product_present"
+        "status": "empty_packaging"
       },
       "completeness": {
         "status": "complete",
@@ -254,23 +254,29 @@
         "rubric": null
       },
       "observed_state": {
-        "model": "opened_unused"
+        "model": "empty_box"
       },
       "disposition": {
-        "recommended_disposition": "refurbish",
+        "recommended_disposition": "dispose",
         "no_recommendation_reason": null,
         "provisional": false,
         "assumptions": [],
-        "requires_review": false,
-        "review_reasons": [],
-        "final_disposition": "refurbish",
+        "requires_review": true,
+        "review_reasons": [
+          "item_not_present_or_unverified"
+        ],
+        "final_disposition": null,
         "listing_condition": null,
         "relistable_as_is": false,
-        "rule_id": "R11",
+        "rule_id": "R02",
         "rules_version": "disposition-b4ce912075c4",
-        "decided_by": "rules_engine@disposition-b4ce912075c4",
-        "requires_signoff": false,
-        "signoff": null,
+        "decided_by": "pending",
+        "requires_signoff": true,
+        "signoff": {
+          "reasons": [
+            "S01_dispose_always"
+          ]
+        },
         "expected_recovery": {
           "restock_new": 399900,
           "restock_used": 259935,
@@ -280,7 +286,7 @@
         }
       },
       "claim_signals": {
-        "item_not_returned": false,
+        "item_not_returned": true,
         "wrong_item_returned": false,
         "returned_damaged": {
           "value": "no",
@@ -296,13 +302,13 @@
       "uncertainty": [],
       "overrides": [],
       "links": {
-        "self": "/api/v1/units/UNIT-EXAMPLE-006/return-evidence?version=1",
-        "chain": "/api/v1/units/UNIT-EXAMPLE-006/chain",
-        "verification": "/api/v1/units/UNIT-EXAMPLE-006/chain/verification",
-        "explain": "/api/v1/units/UNIT-EXAMPLE-006/explain"
+        "self": "/api/v1/units/UNIT-EXAMPLE-014/return-evidence?version=1",
+        "chain": "/api/v1/units/UNIT-EXAMPLE-014/chain",
+        "verification": "/api/v1/units/UNIT-EXAMPLE-014/chain/verification",
+        "explain": "/api/v1/units/UNIT-EXAMPLE-014/explain"
       },
-      "scenario": "SYNTHETIC EXAMPLE. S05 new-looking return, opened box, no wear."
+      "scenario": "SYNTHETIC EXAMPLE. X01 empty box: primary unit not present."
     }
   },
-  "content_hash": "sha256:05c0a58921bd4bcb28d3fde2e8743f28caa3d762f78cb373963efaf94281b87b"
+  "content_hash": "sha256:572046fca25b9ad89796f960589fd9b7f085b570ec0b942ff9349ec82003da1c"
 }

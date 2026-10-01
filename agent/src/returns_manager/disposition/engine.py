@@ -15,7 +15,7 @@ Deliberate resolutions (build log, finding F-012):
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Literal
 
 from returns_manager.canonical.hashing import sha256_jcs
@@ -306,6 +306,17 @@ def decide(inp: DispositionInputs, rules_version: str) -> DispositionDecision:
     if gate is None and inp.cosmetic_grade is None and not (blockers & DECIDING_BLOCKERS):
         gate = ("R05b", "condition_uncertain")
 
+    # For routing only (the hash above and the review flags keep the real values): when every part the
+    # photos did not show is assumed present (R05), the unit is routed like a complete one, so a clean
+    # single-photo unit is not left in the R99 rule gap just because its accessories were out of frame.
+    route_inp = inp
+    if inp.completeness_status == "uncertain" and not essential_missing and not inp.nonessential_missing:
+        route_inp = replace(inp, completeness_status="complete")
+    # A used electrical item whose condition the photos cannot establish still has a policy-backed route:
+    # the category requires a technician test before relisting (R11), which does not depend on the grade.
+    needs_test = inp.cosmetic_grade is None and "functional_test_required" in inp.blockers_undetermined
+    provisional_blockers = blockers | ({"functional_test_required"} if needs_test else frozenset())
+
     # Directives 3/4/9: a proven wrong item or clearly empty package still gets a concrete route (dispose,
     # which always needs human sign-off via S01); an unverified identity or an ungraded condition gets a
     # provisional route computed from the remaining evidence, held for review. No usable evidence (R01/R01b),
@@ -340,10 +351,11 @@ def decide(inp: DispositionInputs, rules_version: str) -> DispositionDecision:
             inputs_sha256=inputs_sha,
             currency=inp.currency,
         )
-    # R05b is not here: when the condition itself is unknown, any route would rest on a guessed grade.
-    if gate is not None and gate[0] in ("R03b", "R02"):
+    # R05b gets a provisional route only through the functional-test policy (needs_test); otherwise an
+    # unknown condition stays without a route, because any route would rest on a guessed grade.
+    if gate is not None and (gate[0] in ("R03b", "R02") or (gate[0] == "R05b" and needs_test)):
         rule_id, reason = gate
-        r = _route(inp, blockers, essential_missing, rules_version=rules_version)
+        r = _route(route_inp, provisional_blockers, essential_missing, rules_version=rules_version)
         if r.route is not None:
             signoff = _signoffs(inp, r.route)
             return DispositionDecision(
@@ -385,7 +397,7 @@ def decide(inp: DispositionInputs, rules_version: str) -> DispositionDecision:
             currency=inp.currency,
         )
 
-    r = _route(inp, blockers, essential_missing, rules_version=rules_version)
+    r = _route(route_inp, blockers, essential_missing, rules_version=rules_version)
     if r.route is None:
         review.append("rule_gap" if r.reason == "rule_gap" else "policy_conflict")
 

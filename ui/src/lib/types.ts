@@ -42,6 +42,8 @@ export interface BatchRowFlat {
   sold_vs_returned_id_check: string
   failure_reason: string // why the row failed open; empty on a real model + engine result
   value_source: string // 'csv_list_price' | 'synthetic_default' ('' when there is no before-record)
+  requires_review?: string // 'true' when the engine or pipeline wants a person (review or sign-off)
+  rationale?: string // the backend's plain-language explanation of the evidence and the engine's rule
 }
 
 export type DecisionAction = 'accept' | 'override' | 'retake_request' | 'review_request'

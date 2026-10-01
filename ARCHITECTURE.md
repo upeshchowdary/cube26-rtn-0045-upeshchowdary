@@ -233,7 +233,7 @@ drifts from the engine.
 | R03 | 1 gate | dispose + S01 sign-off (review required) | `inp.identity == 'no'` | `wrong_item_returned` | 298 |
 | R03b | 1 gate | provisional route from the other evidence (review required) | `inp.identity == 'uncertain'` | `identity_unverified` | 300 |
 | R05b | 1 gate | no recommendation (review required) | `gate is None and inp.cosmetic_grade is None and (not blockers & DECIDING_BLOCKERS)` | `condition_uncertain` | 307 |
-| R03 | 1 gate | dispose + S01 sign-off (review required) | `gate is not None and gate[0] == 'R02' and (inp.identity == 'no') and (not _gate_routable(inp, 'R02'))` | `wrong_item_returned` | 314 |
+| R03 | 1 gate | dispose + S01 sign-off (review required) | `gate is not None and gate[0] == 'R02' and (inp.identity == 'no') and (not _gate_routable(inp, 'R02'))` | `wrong_item_returned` | 325 |
 | R00 | 2 flag | review flag (route unchanged) | `not inp.auto_disposition_enabled` | `review.append("assisted_mode")` | 264 |
 | R04 | 2 flag | review flag (route unchanged) | `always` | `review += [f for f in REVIEW_FLAGS if f in inp.flags]` | 265 |
 | R05 | 2 flag | review flag (route unchanged) | `provisional` | `review.append("essential_component_uncertain")` | 272 |
@@ -256,10 +256,10 @@ drifts from the engine.
 | R14 | 3 route | liquidate | `grade in inp.restock_used_grades and inp.completeness_status == 'incomplete' and (not essential_missing)` | `f'non-essential parts missing; not permitted at grade {grade}'` | 245 |
 | R14 | 3 route | liquidate | `grade is not None and grade != 'new' and (grade not in inp.restock_used_grades)` | `f'used grade {grade} is outside restock_used_grades (business policy)'` | 250 |
 | R99 | 3 route | no recommendation (review required) | `always (fallthrough)` | `rule_gap` | 254 |
-| S03 | sign-off | route stands; human sign-off required | `gate is not None and gate[0] in ('R02', 'R03') and _gate_routable(inp, gate[0]) and inp.escalation_disagreement_resolved_by_reviewer` | `S03_escalation_disagreement_resolved` | 319 |
-| S01 | sign-off | route stands; human sign-off required | `route == 'dispose'` | `S01_dispose_always` | 422 |
-| S02 | sign-off | route stands; human sign-off required | `route not in (None, 'restock') and inp.list_price_minor >= inp.high_value_threshold_minor` | `S02_high_value` | 424 |
-| S03 | sign-off | route stands; human sign-off required | `inp.escalation_disagreement_resolved_by_reviewer` | `S03_escalation_disagreement_resolved` | 426 |
+| S03 | sign-off | route stands; human sign-off required | `gate is not None and gate[0] in ('R02', 'R03') and _gate_routable(inp, gate[0]) and inp.escalation_disagreement_resolved_by_reviewer` | `S03_escalation_disagreement_resolved` | 330 |
+| S01 | sign-off | route stands; human sign-off required | `route == 'dispose'` | `S01_dispose_always` | 434 |
+| S02 | sign-off | route stands; human sign-off required | `route not in (None, 'restock') and inp.list_price_minor >= inp.high_value_threshold_minor` | `S02_high_value` | 436 |
+| S03 | sign-off | route stands; human sign-off required | `inp.escalation_disagreement_resolved_by_reviewer` | `S03_escalation_disagreement_resolved` | 438 |
 <!-- rule-table:end -->
 
 `high_value_threshold_minor` (S02) is `RM_HIGH_VALUE_THRESHOLD_MINOR`, default 500000 paise (₹5,000).
@@ -312,7 +312,7 @@ Defaults from `agent/src/returns_manager/config.py`; the repository-root `.env` 
 - **Evaluation (C1).** There is no independently labelled sealed eval set (`eval/sealed/` and `eval/labels/`
   are empty), so there is no reported accuracy. `eval/runs/` holds a tooling check (`devmini-20260927`) and
   a single-labeller 30-unit self-labelled run (`manual-30row-self-labeled-20260927`; read its `NOTES.md`).
-- **Contract examples (C2).** `agent/contract/examples/` has 1 of the 14 required examples (`rtn-example-001-refurbish.json`); the other 13 (one per official scenario plus X01, X06, X07, X11) are not written yet.
+- **Contract examples (C2).** `agent/contract/examples/` holds 14 synthetic records (official scenarios S01-S10 plus an empty box, a box swap and an uncountable part). Each is produced by a real pipeline + rules-engine run (`agent/scripts/generate_example_contract_records.py`), and `test_t_con_20` fails if one drifts from what the engine computes. They are crafted judgments, not live model output.
 - **Open findings** (`build-log.md`):
   - **F-018:** an over-length model field is caught only by local validation.
   - **F-019:** a battery/label misread was reduced but not eliminated.

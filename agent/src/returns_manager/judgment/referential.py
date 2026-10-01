@@ -24,6 +24,7 @@ def validate_references(judgment: JudgmentV1, ctx: JudgmentContext) -> tuple[Jud
     rep = ValidationReport()
     aliases = ctx.all_aliases
     photos = set(ctx.photo_aliases)
+    references = set(ctx.reference_aliases)  # catalogue images of what was sold, never of the return
 
     def keep_refs(refs: list[EvidenceRef], where: str) -> list[EvidenceRef]:
         kept = [r for r in refs if r.photo in aliases]
@@ -103,6 +104,18 @@ def validate_references(judgment: JudgmentV1, ctx: JudgmentContext) -> tuple[Jud
             rep.act("REF-DUP", f"component:{obs.component_id}", "duplicate", "first kept", "reported twice")
             continue
         obs.photos = keep_aliases(obs.photos, f"component:{obs.component_id}.photos")
+        if obs.photos and set(obs.photos) <= references and obs.status != "uncertain":
+            # a part seen only in the reference image says nothing about what came back
+            rep.act(
+                "REF-ONLY",
+                f"component:{obs.component_id}",
+                obs.status,
+                "uncertain",
+                "only the reference (catalogue) image was cited",
+            )
+            obs.status = "uncertain"
+            obs.visibility = "not_visible"
+            rep.component_reasons[obs.component_id] = "component_area_not_visible"
         reported[obs.component_id] = obs
     for cid in card_components:
         if cid not in reported:
@@ -129,7 +142,16 @@ def validate_references(judgment: JudgmentV1, ctx: JudgmentContext) -> tuple[Jud
     if len(defects) != len(cond.observations):
         rep.invented_reference_count += len(cond.observations) - len(defects)
         rep.act("REF-ALIAS", "condition.observations", "", "", "defect on an unknown image removed")
-    cond.observations = defects
+    on_return = [d for d in defects if d.photo not in references]
+    if len(on_return) != len(defects):
+        rep.act(
+            "REF-ONLY",
+            "condition.observations",
+            len(defects) - len(on_return),
+            0,
+            "defect seen on the reference (catalogue) image, not on the returned unit",
+        )
+    cond.observations = on_return
     grade = cond.proposed_grade
     rubric_codes = {g.code for g in ctx.rubric.grades}
     if grade.grade_code is not None and grade.grade_code not in rubric_codes:

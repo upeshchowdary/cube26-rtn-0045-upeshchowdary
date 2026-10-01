@@ -705,3 +705,28 @@ async def test_t_con_18_export_stream_returns_a_real_record(
     future = datetime.now(UTC) + timedelta(days=1)
     none_yet = await export_evidence_stream(db.pool, org_id=org, since=future)
     assert none_yet == []
+
+
+def test_t_con_20_examples_are_what_the_engine_computes() -> None:
+    """The committed examples come from real pipeline runs (scripts/generate_example_contract_records.py).
+    An engine or contract change that alters them must regenerate them, so they never describe a decision
+    the agent would not make."""
+    import importlib.util
+    import json
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "generate_example_contract_records.py"
+    spec = importlib.util.spec_from_file_location("generate_examples", script)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    examples_dir = Path(__file__).resolve().parents[2] / "contract" / "examples"
+    wanted = module.all_examples()
+    assert sorted(p.name for p in examples_dir.glob("rtn-example-*.json")) == sorted(wanted)
+    for name, doc in wanted.items():
+        committed = json.loads((examples_dir / name).read_text(encoding="utf-8"))
+        assert committed == doc, (
+            f"{name} drifted: run `uv run python scripts/generate_example_contract_records.py`"
+        )
+        dispo = doc["extensions"]["returns"]["disposition"]
+        assert dispo["recommended_disposition"] in (None, "restock", "refurbish", "liquidate", "dispose")

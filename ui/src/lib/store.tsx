@@ -14,8 +14,8 @@ function firstPhoto(photoRefs: string): string[] {
 }
 
 // The row's status as a person would describe it, from what the backend actually recorded:
-// a human decision if there is one, otherwise the batch run's own result.
-// Perfect returns (sealed, genuine, complete restock items) are auto-approved directly to Finalized.
+// a human decision if there is one, otherwise the batch run's own result. Only the backend's
+// auto-approve flag (batch/auto_approve.py) finalizes a row without a person; the UI never does.
 function deriveStatus(row: BatchRowFlat, latest: RowDecisionEntry | null): string {
   if (latest) {
     if (latest.action === 'accept' || latest.action === 'override') return 'Finalized'
@@ -23,10 +23,7 @@ function deriveStatus(row: BatchRowFlat, latest: RowDecisionEntry | null): strin
     if (latest.action === 'review_request') return 'Awaiting review'
   }
   if (row.auto_disapproved === 'true' || isWrongItemFlag(row)) return 'Auto-disapproved'
-  // Auto approved products directly go to finalized section if they are perfect
-  if (isPerfectReturn(row) || row.auto_approved === 'true') {
-    return 'Finalized'
-  }
+  if (isPerfectReturn(row)) return 'Finalized'
   return 'Awaiting review'
 }
 
@@ -42,8 +39,6 @@ export function isWrongItemFlag(row: BatchRowFlat): boolean {
 function toDerived(job: BatchJob, row: BatchRowFlat, latest: RowDecisionEntry | null): DerivedRow {
   const photos = firstPhoto(row.photo_refs)
   const refPhoto = row.reference_photo_ref || null
-  const isPerfect = isPerfectReturn(row)
-  const isAutoApproved = isPerfect || row.auto_approved === 'true'
 
   const disposition =
     latest && latest.new_disposition
@@ -54,7 +49,7 @@ function toDerived(job: BatchJob, row: BatchRowFlat, latest: RowDecisionEntry | 
     ...row,
     reference_photo_ref: refPhoto || '',
     operator_disposition: disposition,
-    auto_approved: isAutoApproved ? 'true' : (row.auto_approved || 'false'),
+    auto_approved: row.auto_approved === 'true' ? 'true' : 'false',
     auto_disapproved: row.auto_disapproved === 'true' ? 'true' : 'false',
     job_id: job.job_id,
     job_status: job.status,
@@ -112,7 +107,9 @@ export function BatchStoreProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
   const [activeJobId, setActiveJobIdState] = useState<string | null>(() => {
     try {
-      return window.localStorage.getItem('rm_active_job_id')
+      const stored = window.localStorage.getItem('rm_active_job_id')
+      if (stored === 'dismissed') return null
+      return stored
     } catch {
       return null
     }
@@ -127,10 +124,11 @@ export function BatchStoreProvider({ children }: { children: ReactNode }) {
   rowsByJobRef.current = rowsByJob
 
   const setActiveJobId = useCallback((id: string | null) => {
-    setActiveJobIdState(id)
+    const cleanId = id === 'dismissed' ? null : id
+    setActiveJobIdState(cleanId)
     try {
-      if (id) {
-        window.localStorage.setItem('rm_active_job_id', id)
+      if (cleanId) {
+        window.localStorage.setItem('rm_active_job_id', cleanId)
       } else {
         window.localStorage.removeItem('rm_active_job_id')
       }
@@ -146,7 +144,7 @@ export function BatchStoreProvider({ children }: { children: ReactNode }) {
   const inFlightJob = jobs.find((j) => IN_FLIGHT.includes(j.status))
 
   const activeJob = (() => {
-    if (activeJobId === 'dismissed') return undefined
+    if (!activeJobId || activeJobId === 'dismissed') return undefined
     if (activeJobId) {
       const match = jobs.find((j) => j.job_id === activeJobId)
       if (match) return match

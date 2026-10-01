@@ -1,414 +1,305 @@
+"""Generate the contract examples in `agent/contract/examples/` from real pipeline runs.
+
+Each example is one official scenario (plus extras) on the catalogued test headphones card: a crafted,
+synthetic model judgment goes through the same code as a live inspection (referential validation,
+consistency rules, identity fusion, completeness, condition, the rules engine) and then through
+`contract.service.build_evidence_record`. Nothing in a record is hand-edited, so every route, rule id,
+check and claim signal is what the engine computes for that evidence.
+
+Every record is synthetic: ids say EXAMPLE, the operator label says synthetic, and no photo exists.
+`tests/unit/test_contract.py` fails if a committed example drifts from what this script produces.
+
+Run from `agent/`:  uv run python scripts/generate_example_contract_records.py
+"""
+
 from __future__ import annotations
 
+import dataclasses
 import json
+import sys
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from returns_manager.canonical.hashing import sha256_hex
-from returns_manager.canonical.jcs import canonical_bytes
-from returns_manager.contract.models import AGENT_NAME, INTEGRITY_CLAIM, SCHEMA_VERSION
+AGENT_DIR = Path(__file__).resolve().parents[1]
+if str(AGENT_DIR) not in sys.path:
+    sys.path.insert(0, str(AGENT_DIR))
+
+from tests.unit import judgment_builders as b  # noqa: E402
+
+from returns_manager.canonical.hashing import sha256_hex  # noqa: E402
+from returns_manager.canonical.jcs import canonical_bytes  # noqa: E402
+from returns_manager.contract.service import build_evidence_record  # noqa: E402
+from returns_manager.disposition.params import load_params, rules_version  # noqa: E402
+from returns_manager.judgment.pipeline import PhotoGate, PipelineResult, run_pipeline  # noqa: E402
+from returns_manager.judgment.types import JudgmentContext  # noqa: E402
+from returns_manager.llm.schemas import JudgmentV1  # noqa: E402
+
+EXAMPLES_DIR = AGENT_DIR / "contract" / "examples"
+MODEL_VERSION = "synthetic-example@judgment-v1"
+ORG = "org_demo_alpha"
 
 
-def _make_minimal_document(*, decision: str = "REFURBISH", status: str = "finalized") -> dict[str, Any]:
-    """Build a minimal valid evidence record document for example generation."""
-    checks = [
-        {
-            "check_key": "identity",
-            "verdict": "PASS",
-            "confidence_bp": 9300,
-            "detail": "Product body features match the catalogue card.",
-            "model_version": "gemini-3.8-flash@judgment-v1.0.0",
-            "latency_ms": 12000,
-        },
-        {
-            "check_key": "completeness",
-            "verdict": "FAIL",
-            "confidence_bp": 10000,
-            "detail": "USB cable missing (1 of 1 expected).",
-            "model_version": "gemini-3.8-flash@judgment-v1.0.0",
-            "latency_ms": 12000,
-        },
-        {
-            "check_key": "condition_grade",
-            "verdict": "UNCERTAIN",
-            "confidence_bp": 5000,
-            "detail": "Condition grade could not be reliably determined from the photos.",
-            "model_version": "gemini-3.8-flash@judgment-v1.0.0",
-            "latency_ms": 12000,
-        },
-        {
-            "check_key": "photo_quality",
-            "verdict": "PASS",
-            "confidence_bp": 10000,
-            "detail": "2 usable photos received.",
-            "model_version": "deterministic@quality-gate-1.0.0",
-            "latency_ms": 5,
-        },
-        {
-            "check_key": "unit_presence",
-            "verdict": "PASS",
-            "confidence_bp": 10000,
-            "detail": "Product is present in the packaging.",
-            "model_version": "gemini-3.8-flash@judgment-v1.0.0",
-            "latency_ms": 12000,
-        },
-        {
-            "check_key": "relistable_as_is",
-            "verdict": "FAIL",
-            "confidence_bp": 10000,
-            "detail": "Listing blockers: essential_component_missing, functional_test_required.",
-            "model_version": "deterministic@disposition-3f9a1c2b",
-            "latency_ms": 1,
-        },
-        {
-            "check_key": "category_policy",
-            "verdict": "PASS",
-            "confidence_bp": 10000,
-            "detail": "Category policy allows the recommended route.",
-            "model_version": "deterministic@disposition-3f9a1c2b",
-            "latency_ms": 1,
-        },
+def _edit(j: JudgmentV1, fn: Callable[[dict[str, Any]], None]) -> JudgmentV1:
+    data = j.model_dump()
+    fn(data)
+    return JudgmentV1.model_validate(data)
+
+
+def _missing(*component_ids: str) -> Callable[[dict[str, Any]], None]:
+    def apply(d: dict[str, Any]) -> None:
+        for c in d["completeness"]["components"]:
+            if c["component_id"] in component_ids:
+                c.update(
+                    status="missing",
+                    visibility="observed_absent_in_clear_view",
+                    observed_quantity=0,
+                    photos=["P2"],
+                )
+
+    return apply
+
+
+def _defects(*defects: dict[str, Any], grade: str | None) -> Callable[[dict[str, Any]], None]:
+    def apply(d: dict[str, Any]) -> None:
+        d["condition"]["observations"] = list(defects)
+        d["condition"]["signs_of_use"] = "moderate" if defects else "none_visible"
+        d["condition"]["proposed_grade"].update(
+            grade_code=grade,
+            rubric_phrases_matched=[],
+            uncertainty_reason=None if grade else "condition_ambiguous",
+        )
+        d["model_observed_state"] = "damaged" if defects else d["model_observed_state"]
+
+    return apply
+
+
+def _wrong_item(d: dict[str, Any]) -> None:
+    d["identity"].update(identity_match="no", risk_flags=["model_mismatch"], confidence=0.9)
+    for fc in d["identity"]["feature_checks"]:
+        fc["result"] = "mismatch"
+
+
+def _similar(d: dict[str, Any]) -> None:
+    d["identity"].update(identity_match="uncertain", uncertainty_reason="similar_product", confidence=0.5)
+    d["identity"]["feature_checks"][1]["result"] = "not_visible"
+
+
+def _sealed(d: dict[str, Any]) -> None:
+    d["condition"]["packaging_state"] = "factory_sealed_intact"
+    d["model_observed_state"] = "factory_sealed"
+
+
+def _empty_box(d: dict[str, Any]) -> None:
+    d["unit_presence"]["status"] = "empty_packaging"
+    d["model_observed_state"] = "empty_box"
+
+
+def _uncountable_card() -> Any:
+    card = b.headphones_card()
+    comps = [
+        c.model_copy(update={"verifiable_by_photo": False}) if c.id == "usb_cable" else c
+        for c in card.components
     ]
-
-    doc_without_hash: dict[str, Any] = {
-        "record_id": "RTN-0014",
-        "schema_version": SCHEMA_VERSION,
-        "organization_id": "org_demo_alpha",
-        "client_id": "org_demo_alpha",
-        "agent": AGENT_NAME,
-        "subject": {
-            "unit_id": "UNIT-0014",
-            "return_id": "01JRETURN14",
-            "order_id": "ORD-DUMMY-50014",
-            "sku": "SKU-LAMP-LED",
-            "asin": "B0DUMMY357",
-        },
-        "captured_at": "2026-07-18T07:36:00Z",
-        "operator_label": "op_eli",
-        "images": [
-            {
-                "image_id": "01JPHOTO001",
-                "slot": 1,
-                "role": "front",
-                "sha256": "a" * 64,
-                "quality": "pass",
-                "url": None,
-            }
-        ],
-        "checks": checks,
-        "outcome": {
-            "decision": decision,
-            "decided_by": "rules_engine@disposition-3f9a1c2b",
-            "decided_at": "2026-07-18T07:37:12Z",
-        },
-        "overrides": [],
-        "status": status,
-        "extensions": {
-            "returns": {
-                "contract_version": "1.0.0",
-                "record_id": "RTN-0014",
-                "record_version": 1,
-                "org_id": "org_demo_alpha",
-                "unit_id": "UNIT-0014",
-                "return_id": "01JRETURN14",
-                "order_id": "ORD-DUMMY-50014",
-                "ordered_sku": "SKU-LAMP-LED",
-                "ordered_asin": "B0DUMMY357",
-                "captured_at": "2026-07-18T07:36:00Z",
-                "finalized_at": "2026-07-18T07:37:12Z",
-                "comparison_mode": "catalogue_return",
-                "integrity": {
-                    "document_sha256": "placeholder",
-                    "head_event_hash": "a" * 64,
-                    "event_count": 5,
-                    "ledger_seq": 1,
-                    "ledger_hash": "b" * 64,
-                    "claim": INTEGRITY_CLAIM,
-                },
-                "disposition": {
-                    "recommended_disposition": "refurbish",
-                    "no_recommendation_reason": None,
-                    "provisional": False,
-                    "assumptions": [],
-                    "requires_review": False,
-                    "review_reasons": [],
-                    "final_disposition": "refurbish",
-                    "listing_condition": "Used - Good",
-                    "relistable_as_is": False,
-                    "rule_id": "R09",
-                    "rules_version": "disposition-3f9a1c2b",
-                    "decided_by": "deterministic_engine",
-                    "requires_signoff": False,
-                    "signoff": None,
-                    "expected_recovery": None,
-                },
-                "identity": {
-                    "identity_match": "yes",
-                    "evidence_strength": "strong",
-                    "risk_flags": [],
-                    "reasons": [],
-                    "observed_identifiers": ["barcode_match"],
-                    "feature_checks": [],
-                    "evidence": [],
-                },
-                "completeness": {
-                    "status": "incomplete",
-                    "parts_list": "usb cable",
-                    "parts_missing": "usb cable",
-                    "parts_uncertain": "",
-                    "components": [],
-                },
-                "condition": {
-                    "amazon_condition": "Used - Good",
-                    "cosmetic_grade": "used_good",
-                    "listing_blockers": ["essential_component_missing", "functional_test_required"],
-                    "functional_check": "not_performed",
-                    "packaging_state": "opened",
-                    "signs_of_use": "light",
-                    "observations": [],
-                    "rubric": None,
-                },
-                "claim_signals": {
-                    "item_not_returned": False,
-                    "wrong_item_returned": False,
-                    "returned_damaged": {"value": False, "basis": [], "evidence": []},
-                    "parts_missing": ["usb cable"],
-                    "parts_uncertain": [],
-                },
-                "links": {
-                    "self": "/api/v1/units/UNIT-0014/return-evidence",
-                    "chain": "/api/v1/units/UNIT-0014/chain",
-                    "verification": "/api/v1/units/UNIT-0014/chain/verification",
-                    "explain": "/api/v1/units/UNIT-0014/explain",
-                },
-            }
-        },
-    }
-    doc_without_hash = {k: v for k, v in doc_without_hash.items() if k != "content_hash"}
-    doc_without_hash["content_hash"] = "sha256:" + sha256_hex(canonical_bytes(doc_without_hash))
-    return doc_without_hash
+    return card.model_copy(update={"components": comps})
 
 
-base = Path(__file__).resolve().parents[1] / "contract" / "examples"
-base.mkdir(parents=True, exist_ok=True)
+# (file slug, scenario description, context factory, judgment edit, grade code for the clean judgment)
+Scenario = tuple[str, str, Callable[[], JudgmentContext], Callable[[JudgmentV1, JudgmentContext], JudgmentV1]]
 
-scenarios = [
+
+def _ctx() -> JudgmentContext:
+    return b.context(b.headphones_card())
+
+
+SCENARIOS: list[Scenario] = [
     (
-        "rtn-example-001-refurbish",
-        "REFURBISH",
-        "finalized",
-        "UNIT-EXAMPLE-001",
-        "ORD-DEMO-50001",
-        "SKU-BT-HEADPHONES",
-        "B0DEMO1234",
-        "usb charging cable",
+        "001-refurbish",
+        "S01 correct product, opened, used electrical item: needs a functional test",
+        _ctx,
+        lambda j, c: j,
     ),
     (
-        "rtn-example-002-correct-product",
-        "RESTOCK",
-        "finalized",
-        "UNIT-EXAMPLE-002",
-        "ORD-DEMO-50002",
-        "SKU-LAMP-LED",
-        "B0DEMO2345",
-        None,
+        "002-correct-product",
+        "S01 correct product, factory sealed",
+        _ctx,
+        lambda j, c: b.grade(_edit(j, _sealed), "new", c),
+    ),
+    ("003-wrong-product", "S02 wrong product returned", _ctx, lambda j, c: _edit(j, _wrong_item)),
+    (
+        "004-missing-accessory",
+        "S03 one replaceable accessory missing in clear view",
+        _ctx,
+        lambda j, c: _edit(j, _missing("usb_cable")),
     ),
     (
-        "rtn-example-003-wrong-product",
-        "PENDING_REVIEW",
-        "awaiting_review",
-        "UNIT-EXAMPLE-003",
-        "ORD-DEMO-50003",
-        "SKU-CHARGER-USB",
-        "B0DEMO3456",
-        "different item",
+        "005-missing-multiple",
+        "S04 several accessories missing in clear view",
+        _ctx,
+        lambda j, c: _edit(j, _missing("usb_cable", "carrying_case")),
     ),
     (
-        "rtn-example-004-missing-accessory",
-        "REFURBISH",
-        "finalized",
-        "UNIT-EXAMPLE-004",
-        "ORD-DEMO-50004",
-        "SKU-HEADSET-BT",
-        "B0DEMO4567",
-        "left ear cup",
+        "006-new-looking",
+        "S05 new-looking return, opened box, no wear",
+        _ctx,
+        lambda j, c: b.grade(j, "used_like_new", c),
     ),
     (
-        "rtn-example-005-missing-multiple",
-        "REFURBISH",
-        "finalized",
-        "UNIT-EXAMPLE-005",
-        "ORD-DEMO-50005",
-        "SKU-GAMEPAD",
-        "B0DEMO5678",
-        "usb cable; battery cover",
+        "007-lightly-used",
+        "S06 lightly used: minor cosmetic scratch",
+        _ctx,
+        lambda j, c: _edit(j, _defects(b.defect("scratch", "minor"), grade="used_very_good")),
     ),
     (
-        "rtn-example-006-new-looking",
-        "RESTOCK",
-        "finalized",
-        "UNIT-EXAMPLE-006",
-        "ORD-DEMO-50006",
-        "SKU-SPEAKER",
-        "B0DEMO6789",
-        None,
+        "008-damaged",
+        "S07 damaged: moderate crack on the headband",
+        _ctx,
+        lambda j, c: _edit(j, _defects(b.defect("crack", "moderate"), grade="used_acceptable")),
     ),
     (
-        "rtn-example-007-lightly-used",
-        "RESTOCK",
-        "finalized",
-        "UNIT-EXAMPLE-007",
-        "ORD-DEMO-50007",
-        "SKU-MOUSE",
-        "B0DEMO7890",
-        None,
+        "009-heavily-damaged",
+        "S08 heavily damaged: severe crack and deformation",
+        _ctx,
+        lambda j, c: _edit(
+            j, _defects(b.defect("crack", "severe"), b.defect("deformation", "severe"), grade=None)
+        ),
     ),
     (
-        "rtn-example-008-damaged",
-        "REFURBISH",
-        "finalized",
-        "UNIT-EXAMPLE-008",
-        "ORD-DEMO-50008",
-        "SKU-KB-KEYBOARD",
-        "B0DEMO8901",
-        "screen bezel crack",
+        "010-ambiguous-condition",
+        "S09 ambiguous condition: grade not determinable",
+        _ctx,
+        lambda j, c: b.grade(j, None),
     ),
     (
-        "rtn-example-009-heavily-damaged",
-        "PENDING_REVIEW",
-        "awaiting_review",
-        "UNIT-EXAMPLE-009",
-        "ORD-DEMO-50009",
-        "SKU-CAMERA",
-        "B0DEMO9012",
-        "lens housing damaged",
+        "011-similar-product",
+        "S10 a similar-looking product: identity not verified",
+        _ctx,
+        lambda j, c: _edit(j, _similar),
     ),
     (
-        "rtn-example-010-ambiguous-condition",
-        "PENDING_REVIEW",
-        "awaiting_review",
-        "UNIT-EXAMPLE-010",
-        "ORD-DEMO-50010",
-        "SKU-DRONE",
-        "B0DEMO0123",
-        "condition unclear",
+        "012-box-swap",
+        "X06 box swap: packaging barcode matches, product body does not",
+        lambda: b.labelled(b.headphones_card(), code="X00HEADPHONES"),
+        lambda j, c: _edit(j, _wrong_item),
     ),
     (
-        "rtn-example-011-similar-product",
-        "PENDING_REVIEW",
-        "awaiting_review",
-        "UNIT-EXAMPLE-011",
-        "ORD-DEMO-50011",
-        "SKU-MONITOR",
-        "B0DEMO1122",
-        "same model but different serial",
+        "013-uncountable-component-opened",
+        "X07 a part that photos cannot verify, packaging opened",
+        lambda: b.context(_uncountable_card()),
+        lambda j, c: j,
     ),
-    (
-        "rtn-example-012-box-swap",
-        "PENDING_REVIEW",
-        "awaiting_review",
-        "UNIT-EXAMPLE-012",
-        "ORD-DEMO-50012",
-        "SKU-ROUTER",
-        "B0DEMO2233",
-        "box mismatch",
-    ),
-    (
-        "rtn-example-013-uncountable-component-opened",
-        "REFURBISH",
-        "finalized",
-        "UNIT-EXAMPLE-013",
-        "ORD-DEMO-50013",
-        "SKU-TOY",
-        "B0DEMO3344",
-        "small screws missing",
-    ),
-    (
-        "rtn-example-014-unknown-sku",
-        "PENDING_REVIEW",
-        "awaiting_review",
-        "UNIT-EXAMPLE-014",
-        "ORD-DEMO-50014",
-        "SKU-UNKNOWN-1",
-        "B0DEMO4455",
-        "unknown accessory set",
-    ),
+    ("014-empty-box", "X01 empty box: primary unit not present", _ctx, lambda j, c: _edit(j, _empty_box)),
 ]
 
-for idx, (filename, decision, status, unit_id, order_id, sku, asin, missing) in enumerate(scenarios, start=1):
-    record_id = f"RTN-EXAMPLE-{idx:03d}"
-    doc = _make_minimal_document(decision=decision, status=status)
-    doc["record_id"] = record_id
-    doc["subject"] = {
-        "unit_id": unit_id,
-        "return_id": f"01JRETURN_{idx:03d}",
-        "order_id": order_id,
-        "sku": sku,
-        "asin": asin,
+
+def _plain(value: Any) -> Any:
+    return json.loads(json.dumps(dataclasses.asdict(value) if dataclasses.is_dataclass(value) else value))
+
+
+def _checks(r: PipelineResult, rv: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "check_key": c.check_key,
+            "verdict": c.verdict,
+            "confidence_bp": c.confidence_bp,
+            "detail": c.detail,
+            "model_version": MODEL_VERSION if c.source == "model" else f"deterministic@{rv}",
+            "latency_ms": 0,
+        }
+        for c in r.checks
+    ]
+
+
+def build_example(index: int, slug: str, description: str, make_ctx: Any, change: Any) -> dict[str, Any]:
+    ctx = make_ctx()
+    rv = rules_version(load_params())
+    r = run_pipeline(change(b.judgment(ctx), ctx), ctx, photo_gate=PhotoGate(3, False), rules_version=rv)
+    d = r.decision
+    settled = d.recommended_disposition is not None and not r.requires_review and not d.requires_signoff
+    captured = datetime(2026, 7, index, 7, 36, tzinfo=UTC)
+    record_id = f"RTN-EXAMPLE-{index:03d}"
+    ret = {
+        "record_id": record_id,
+        "unit_id": f"UNIT-EXAMPLE-{index:03d}",
+        "return_id": f"RET-EXAMPLE-{index:03d}",
+        "order_id": f"ORD-EXAMPLE-{index:03d}",
+        "ordered_sku": ctx.card.sku,
+        "ordered_asin": "",
+        "created_at": captured,
     }
-    doc["captured_at"] = f"2026-07-{(idx % 28) + 1:02d}T07:36:00Z"
-    doc["operator_label"] = f"op_demo_{idx}"
-    doc["images"][0]["image_id"] = f"01JPHOTO{idx:03d}"
-    doc["outcome"]["decision"] = decision
-    doc["outcome"]["decided_by"] = (
-        "rules_engine@disposition-3f9a1c2b" if decision != "PENDING_REVIEW" else "reviewer:rev_demo"
+    result = {
+        "fused_identity": _plain(r.identity),
+        "components": _plain(r.completeness),
+        "completeness_status": r.completeness.status,
+        "condition": _plain(r.condition),
+        "model_observed_state": r.judgment.model_observed_state,
+        "disposition": {**_plain(d), "escalation_triggers": list(r.escalation_triggers)},
+        "relistable_as_is": r.condition.relistable_as_is,
+        "claim_signals": _plain(r.claims),
+        "uncertainties": [u.model_dump() for u in r.judgment.uncertainties],
+        "checks": _checks(r, rv),
+    }
+    values = {
+        # an operator accepts only a settled route; anything needing review or sign-off stays open
+        "disposition": d.recommended_disposition if settled else None,
+        "identity_match": r.identity.identity_match,
+        "unit_presence": r.presence.status,
+        "amazon_condition": r.condition.amazon_condition,
+        "cosmetic_grade": r.condition.cosmetic_grade,
+        "components": {},
+    }
+    photos = [
+        {
+            "photo_id": f"PHOTO-EXAMPLE-{index:03d}-{slot}",
+            "slot": slot,
+            "role_hint": "other",
+            "sha256_original": sha256_hex(f"synthetic example {index} photo {slot}".encode()),
+            "quality_status": "pass",
+        }
+        for slot in (1, 2, 3)
+    ]
+    doc = build_evidence_record(
+        org_id=ORG,
+        ret=ret,
+        result=result,
+        values=values,
+        overrides=[],
+        photos=photos,
+        record_version=1,
+        actor_id="synthetic-example (no real operator)",
+        decided_by=f"rules_engine@{rv}" if settled else "pending",
     )
-    doc["outcome"]["decided_at"] = f"2026-07-{(idx % 28) + 1:02d}T07:37:45Z"
+    # Fixed timestamps and status so regenerating is reproducible; the content hash is recomputed.
+    doc["outcome"]["decided_at"] = captured.isoformat().replace("+00:00", "Z")
+    doc["extensions"]["returns"]["finalized_at"] = doc["outcome"]["decided_at"]
+    doc["status"] = "finalized" if settled else r.target_status
+    doc["extensions"]["returns"]["scenario"] = f"SYNTHETIC EXAMPLE. {description}."
+    for image in doc["images"]:
+        image.pop("storage_key", None)
+    doc.pop("content_hash", None)
+    doc["content_hash"] = "sha256:" + sha256_hex(canonical_bytes(doc))
+    return doc
 
-    ext = doc["extensions"]["returns"]
-    ext["record_id"] = record_id
-    ext["unit_id"] = unit_id
-    ext["return_id"] = doc["subject"]["return_id"]
-    ext["order_id"] = order_id
-    ext["ordered_sku"] = sku
-    ext["ordered_asin"] = asin
-    ext["captured_at"] = doc["captured_at"]
-    ext["finalized_at"] = doc["outcome"]["decided_at"]
-    ext["identity"]["identity_match"] = "yes" if decision != "PENDING_REVIEW" else "uncertain"
-    ext["identity"]["reasons"] = (
-        ["barcode_match"] if decision != "PENDING_REVIEW" else ["barcode_match", "manual_review"]
-    )
-    ext["identity"]["observed_identifiers"] = [asin] if decision != "PENDING_REVIEW" else [asin, "UNKNOWN"]
-    ext["completeness"]["status"] = "incomplete" if decision in {"REFURBISH", "RESTOCK"} else "uncertain"
-    ext["completeness"]["parts_list"] = "usb charging cable" if missing else "none listed"
-    ext["completeness"]["parts_missing"] = missing if missing else ""
-    ext["completeness"]["parts_uncertain"] = "" if missing else "condition unclear"
-    ext["disposition"]["recommended_disposition"] = (
-        decision.lower().replace("_", "") if decision != "PENDING_REVIEW" else "review"
-    )
-    ext["disposition"]["final_disposition"] = (
-        decision.lower().replace("_", "") if decision != "PENDING_REVIEW" else "review"
-    )
-    ext["disposition"]["requires_review"] = decision == "PENDING_REVIEW"
-    ext["disposition"]["review_reasons"] = ["identity_conflict"] if decision == "PENDING_REVIEW" else []
-    ext["condition"]["amazon_condition"] = (
-        "Used - Good" if decision in {"RESTOCK", "REFURBISH"} else "Uncertain"
-    )
-    ext["condition"]["listing_blockers"] = (
-        ["essential_component_missing"] if decision in {"RESTOCK", "REFURBISH"} else []
-    )
-    ext["claim_signals"]["wrong_item_returned"] = decision == "PENDING_REVIEW"
-    ext["claim_signals"]["parts_missing"] = (
-        ["usb charging cable"] if decision in {"REFURBISH", "RESTOCK"} and missing else []
-    )
-    ext["claim_signals"]["parts_uncertain"] = ["condition unclear"] if decision == "PENDING_REVIEW" else []
-    ext["claim_signals"]["returned_damaged"] = {"value": False}
 
-    for check in doc["checks"]:
-        key = check["check_key"]
-        if key == "identity":
-            check["verdict"] = "PASS" if decision != "PENDING_REVIEW" else "UNCERTAIN"
-        elif key == "completeness":
-            check["verdict"] = "FAIL" if decision in {"REFURBISH", "RESTOCK"} else "UNCERTAIN"
-        elif key == "condition_grade":
-            check["verdict"] = "PASS" if decision in {"RESTOCK", "REFURBISH"} else "UNCERTAIN"
-        elif key == "relistable_as_is":
-            check["verdict"] = "FAIL" if decision in {"REFURBISH", "RESTOCK"} else "UNCERTAIN"
-        elif key in {"category_policy", "photo_quality", "unit_presence"}:
-            check["verdict"] = "PASS"
+def all_examples() -> dict[str, dict[str, Any]]:
+    return {
+        f"rtn-example-{slug}.json": build_example(i, slug, desc, make_ctx, change)
+        for i, (slug, desc, make_ctx, change) in enumerate(SCENARIOS, start=1)
+    }
 
-    doc_without_hash = {k: v for k, v in doc.items() if k != "content_hash"}
-    doc["content_hash"] = "sha256:" + sha256_hex(canonical_bytes(doc_without_hash))
-    path = base / f"{filename}.json"
-    path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
-    print(path.name)
+
+def main() -> None:
+    EXAMPLES_DIR.mkdir(parents=True, exist_ok=True)
+    wanted = all_examples()
+    for stale in EXAMPLES_DIR.glob("rtn-example-*.json"):
+        if stale.name not in wanted:
+            stale.unlink()
+    for name, doc in wanted.items():
+        (EXAMPLES_DIR / name).write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8", newline="\n")
+        dispo = doc["extensions"]["returns"]["disposition"]
+        print(f"{name}: {dispo['rule_id']} -> {dispo['recommended_disposition']} ({doc['status']})")
+
+
+if __name__ == "__main__":
+    main()
