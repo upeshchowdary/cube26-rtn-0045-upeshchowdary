@@ -230,12 +230,28 @@ class BatchJobsService:
         return path if path.exists() else None
 
     def output_rows(self, org_id: str, job_id: str) -> list[dict[str, str]] | None:
-        """The run's output rows exactly as written - never recomputed or filled in on read."""
+        """The run's output rows with reference_photo_ref from before.csv attached."""
         path = self.output_path(org_id, job_id)
         if path is None:
             return None
+        before_path = self._job_dir(org_id, job_id) / "before.csv"
+        ref_by_unit: dict[str, str] = {}
+        if before_path.exists():
+            try:
+                with before_path.open(newline="", encoding="utf-8") as bf:
+                    for brow in csv.DictReader(bf):
+                        uid = brow.get("unit_id")
+                        pref = brow.get("photo_ref")
+                        if uid and pref:
+                            ref_by_unit[uid] = pref
+            except Exception as e:
+                logger.debug("Failed reading before.csv for job %s: %s", job_id, e)
         with path.open(newline="", encoding="utf-8") as f:
-            return list(csv.DictReader(f))
+            rows = list(csv.DictReader(f))
+            for r in rows:
+                if not r.get("reference_photo_ref") and r.get("unit_id") in ref_by_unit:
+                    r["reference_photo_ref"] = ref_by_unit[r["unit_id"]]
+            return rows
 
     def _detail_path(self, org_id: str, job_id: str) -> Path:
         return self._job_dir(org_id, job_id) / "rows_detail.json"

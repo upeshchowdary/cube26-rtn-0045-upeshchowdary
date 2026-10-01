@@ -50,7 +50,7 @@ export default function Returns() {
     }
     if (tab === 'Finalized') return row.status === 'Finalized' || row.auto_approved === 'true' || !!row.latest_decision
     if (tab === 'Auto approved') return row.auto_approved === 'true'
-    if (tab === 'Auto disapproved') return (row.status === 'Auto-disapproved' || row.wrong_item_flag) && !row.latest_decision
+    if (tab === 'Auto disapproved') return (row.status === 'Auto-disapproved' || row.wrong_item_flag || row.auto_disapproved === 'true') && !row.latest_decision
     return tab === row.status
   }
   const tabCount = (name: string) => {
@@ -63,7 +63,7 @@ export default function Returns() {
     }
     if (name === 'Auto approved') return rows.filter((row) => row.auto_approved === 'true').length
     if (name === 'Auto disapproved') {
-      return rows.filter((row) => (row.status === 'Auto-disapproved' || row.wrong_item_flag) && !row.latest_decision).length
+      return rows.filter((row) => (row.status === 'Auto-disapproved' || row.wrong_item_flag || row.auto_disapproved === 'true') && !row.latest_decision).length
     }
     return rows.filter((row) => row.status === name).length
   }
@@ -166,7 +166,13 @@ export default function Returns() {
                   <tr key={r.record_id} onClick={() => navigate(`/returns/${r.record_id}/inspection`)}>
                     <td>
                       <span className="product-cell">
-                        {r.image ? <img src={r.image} alt="" /> : <Package size={18} />}
+                        {r.image ? (
+                          <img src={r.image} alt="" />
+                        ) : r.reference_image ? (
+                          <img src={r.reference_image} alt="Catalog Ref" title="Reference photo (No return photo in CSV)" style={{ opacity: 0.8 }} />
+                        ) : (
+                          <Package size={18} />
+                        )}
                         <span>
                           <b>{r.ordered_sku}</b>
                           <small>{r.unit_id}</small>
@@ -195,6 +201,9 @@ export default function Returns() {
                       <Pill value={r.status === 'Needs attention' ? 'Awaiting review' : r.status} />
                       {r.auto_approved === 'true' && !r.latest_decision && (
                         <small style={{ color: '#2563eb', fontWeight: 600 }}>Auto-approved</small>
+                      )}
+                      {r.auto_disapproved === 'true' && !r.latest_decision && (
+                        <small style={{ color: 'var(--danger)', fontWeight: 600 }}>Auto-rejected</small>
                       )}
                       {r.latest_decision && (
                         <small>Operator accepted</small>

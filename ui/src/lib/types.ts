@@ -37,6 +37,7 @@ export interface BatchRowFlat {
   auto_approved: string // 'true' | 'false' - decided by the backend (batch/auto_approve.py)
   auto_disapproved: string // 'true' only for a proven sold/returned ID or image identity mismatch
   photo_refs: string
+  reference_photo_ref?: string
   captured_at: string
   sold_vs_returned_id_check: string
   failure_reason: string // why the row failed open; empty on a real model + engine result

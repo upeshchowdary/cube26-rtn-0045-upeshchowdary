@@ -35,21 +35,24 @@ export interface ProductReasoning {
  * - Otherwise: 'damaged', 'unused', or 'used'
  */
 export function deriveProductCondition(row: DerivedRow | BatchRowFlat): ProductCondition {
-  // 1. Keep uncertain if the product is not a match (wrong item)
+  // 1. Keep uncertain if any photo is missing in the input file
+  const hasReturnPhoto = Boolean(
+    (row as DerivedRow).image || (row.photo_refs && row.photo_refs.trim().length > 0)
+  )
+  const hasRefPhoto = Boolean(
+    (row as DerivedRow).reference_image || (row as BatchRowFlat).reference_photo_ref
+  )
+  if (!hasReturnPhoto || !hasRefPhoto || row.failure_reason === 'no_return_photo' || row.failure_reason === 'no_reference_photo') {
+    return 'uncertain'
+  }
+
+  // 2. Keep uncertain if the product is not a match (wrong item)
   if (
     row.photo_identity_match === 'no' ||
     Boolean((row as DerivedRow).wrong_item_flag) ||
     row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') ||
     row.auto_disapproved === 'true'
   ) {
-    return 'uncertain'
-  }
-
-  // 2. Keep uncertain if no image of the product is given
-  const hasPhoto = Boolean(
-    (row as DerivedRow).image || (row.photo_refs && row.photo_refs.trim().length > 0)
-  )
-  if (!hasPhoto || row.failure_reason === 'no_return_photo') {
     return 'uncertain'
   }
 
@@ -94,7 +97,18 @@ export function deriveProductCondition(row: DerivedRow | BatchRowFlat): ProductC
  * - Dispose — item has no recoverable value
  */
 export function deriveProductDisposition(row: DerivedRow | BatchRowFlat): DispositionCategory {
-  // 1. Operator manual override / finalized decision
+  // 1. Missing photo in input file -> Auto reject (Dispose)
+  const hasReturnPhoto = Boolean(
+    (row as DerivedRow).image || (row.photo_refs && row.photo_refs.trim().length > 0)
+  )
+  const hasRefPhoto = Boolean(
+    (row as DerivedRow).reference_image || (row as BatchRowFlat).reference_photo_ref
+  )
+  if (!hasReturnPhoto || !hasRefPhoto || row.failure_reason === 'no_return_photo' || row.failure_reason === 'no_reference_photo') {
+    return 'Dispose'
+  }
+
+  // 2. Operator manual override / finalized decision
   const explicit = (
     (row as DerivedRow).latest_decision?.new_disposition ||
     row.operator_disposition ||
@@ -104,13 +118,13 @@ export function deriveProductDisposition(row: DerivedRow | BatchRowFlat): Dispos
     return (explicit.charAt(0).toUpperCase() + explicit.slice(1)) as DispositionCategory
   }
 
-  // 2. Model / agent recommended disposition
+  // 3. Model / agent recommended disposition
   const agent = (row.agent_disposition || '').toLowerCase()
   if (['restock', 'refurbish', 'liquidate', 'dispose'].includes(agent)) {
     return (agent.charAt(0).toUpperCase() + agent.slice(1)) as DispositionCategory
   }
 
-  // 3. Wrong item returned has no recoverable catalog value -> Dispose
+  // 4. Wrong item returned has no recoverable catalog value -> Dispose
   if (
     row.photo_identity_match === 'no' ||
     Boolean((row as DerivedRow).wrong_item_flag) ||
@@ -120,7 +134,7 @@ export function deriveProductDisposition(row: DerivedRow | BatchRowFlat): Dispos
     return 'Dispose'
   }
 
-  // 4. Physical condition fallbacks
+  // 5. Physical condition fallbacks
   const obs = (row.observed_state || '').toLowerCase()
   const cond = (row.amazon_condition || '').toLowerCase()
 
@@ -156,14 +170,6 @@ export function deriveProductDisposition(row: DerivedRow | BatchRowFlat): Dispos
     return hasMissing ? 'Refurbish' : 'Liquidate'
   }
 
-  // No image or completely uninspected
-  const hasPhoto = Boolean(
-    (row as DerivedRow).image || (row.photo_refs && row.photo_refs.trim().length > 0)
-  )
-  if (!hasPhoto || row.failure_reason === 'no_return_photo') {
-    return '—'
-  }
-
   return '—'
 }
 
@@ -178,19 +184,22 @@ export function deriveProductDisposition(row: DerivedRow | BatchRowFlat): Dispos
  * Perfect returns are auto-approved and route directly to the Finalized section.
  */
 export function isPerfectReturn(row: DerivedRow | BatchRowFlat): boolean {
+  const hasReturnPhoto = Boolean(
+    (row as DerivedRow).image || (row.photo_refs && row.photo_refs.trim().length > 0)
+  )
+  const hasRefPhoto = Boolean(
+    (row as DerivedRow).reference_image || (row as BatchRowFlat).reference_photo_ref
+  )
+  if (!hasReturnPhoto || !hasRefPhoto || row.failure_reason === 'no_return_photo' || row.failure_reason === 'no_reference_photo') {
+    return false
+  }
+
   if (
     row.photo_identity_match === 'no' ||
     Boolean((row as DerivedRow).wrong_item_flag) ||
     row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') ||
     row.auto_disapproved === 'true'
   ) {
-    return false
-  }
-
-  const hasPhoto = Boolean(
-    (row as DerivedRow).image || (row.photo_refs && row.photo_refs.trim().length > 0)
-  )
-  if (!hasPhoto || row.failure_reason === 'no_return_photo') {
     return false
   }
 
@@ -229,27 +238,46 @@ export function deriveProductReasoning(
   const sku = (row.ordered_sku || '').toLowerCase()
   const isConsumable =
     sku.includes('cereal') || sku.includes('shampoo') || sku.includes('snack') || sku.includes('food')
-  const isMismatch =
-    row.photo_identity_match === 'no' ||
-    Boolean((row as DerivedRow).wrong_item_flag) ||
-    row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') ||
-    row.auto_disapproved === 'true'
-  const hasPhoto = Boolean(
+
+  const hasReturnPhoto = Boolean(
     (row as DerivedRow).image || (row.photo_refs && row.photo_refs.trim().length > 0)
   )
+  const hasRefPhoto = Boolean(
+    (row as DerivedRow).reference_image || (row as BatchRowFlat).reference_photo_ref
+  )
+  const isReturnPhotoMissing = !hasReturnPhoto || row.failure_reason === 'no_return_photo'
+  const isRefPhotoMissing = !hasRefPhoto || row.failure_reason === 'no_reference_photo'
+  const isMissingPhoto = isReturnPhotoMissing || isRefPhotoMissing
+
+  const isMismatch =
+    !isMissingPhoto &&
+    (row.photo_identity_match === 'no' ||
+      Boolean((row as DerivedRow).wrong_item_flag) ||
+      row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') ||
+      (row.auto_disapproved === 'true' && !isMissingPhoto))
 
   // 1. Condition Reason & Short Condition Reason
   let conditionReason = ''
   let shortConditionReason = ''
 
-  if (isMismatch) {
+  if (isMissingPhoto) {
+    if (isReturnPhotoMissing && isRefPhotoMissing) {
+      conditionReason =
+        'Condition is uncertain because both the reference catalog photo and return photo were missing in the input file.'
+      shortConditionReason = 'Missing intake photographs'
+    } else if (isReturnPhotoMissing) {
+      conditionReason =
+        'Condition is uncertain because the product return photograph was not provided in the intake file.'
+      shortConditionReason = 'Missing return photo in input'
+    } else {
+      conditionReason =
+        'Condition is uncertain because the baseline catalog reference photograph was not provided in the intake file.'
+      shortConditionReason = 'Missing reference photo in input'
+    }
+  } else if (isMismatch) {
     conditionReason =
       'Condition cannot be reliably graded against catalog specs because the returned item does not match the sold record.'
     shortConditionReason = 'Unmatched item cannot be graded'
-  } else if (!hasPhoto || row.failure_reason === 'no_return_photo') {
-    conditionReason =
-      'Condition is uncertain because no returned product photograph was provided for visual inspection.'
-    shortConditionReason = 'No return photo provided'
   } else if (cond === 'damaged') {
     const defectDetails = detail?.judgment?.condition?.observations
       ?.map((d) => `${d.defect_type} (${d.severity})`)
@@ -286,6 +314,20 @@ export function deriveProductReasoning(
   if (latestDecision?.reason) {
     dispositionReason = `Operator finalized decision: ${latestDecision.reason} (${latestDecision.action.replace('_', ' ')})`
     shortDispositionReason = `Operator finalized (${latestDecision.action.replace('_', ' ')})`
+  } else if (isMissingPhoto) {
+    if (isReturnPhotoMissing && isRefPhotoMissing) {
+      dispositionReason =
+        'Auto-rejected: Return and reference photographs are missing from the input file. Returns cannot be inspected or verified without visual evidence; routed to disposal.'
+      shortDispositionReason = 'Missing intake photos — auto-rejected'
+    } else if (isReturnPhotoMissing) {
+      dispositionReason =
+        'Auto-rejected: Mandatory return photograph was not provided in uploaded file. Returns without visual evidence cannot be accepted or restocked; routed to disposal.'
+      shortDispositionReason = 'Missing return photo — auto-rejected'
+    } else {
+      dispositionReason =
+        'Auto-rejected: Baseline catalog reference photograph is missing in input data. Cannot verify returned unit against baseline specifications; routed to disposal.'
+      shortDispositionReason = 'Missing reference photo — auto-rejected'
+    }
   } else if (isMismatch) {
     const mismatchDetail =
       row.sold_vs_returned_id_check?.replace(/^NOT MATCHED:\s*/, '') || 'Item or paperwork mismatch'
@@ -335,6 +377,17 @@ export function deriveProductReasoning(
   let primaryReason = ''
   if (latestDecision?.reason) {
     primaryReason = `Operator decision: ${latestDecision.reason}`
+  } else if (isMissingPhoto) {
+    if (isReturnPhotoMissing && isRefPhotoMissing) {
+      primaryReason =
+        'Missing intake and reference photos in input file. Product placed in uncertain condition and auto-rejected.'
+    } else if (isReturnPhotoMissing) {
+      primaryReason =
+        'Missing return photo in input file. Product placed in uncertain condition and auto-rejected.'
+    } else {
+      primaryReason =
+        'Missing reference photo in input file. Product placed in uncertain condition and auto-rejected.'
+    }
   } else if (isMismatch) {
     primaryReason = `Wrong item returned (${row.sold_vs_returned_id_check?.replace(/^NOT MATCHED:\s*/, '') || 'identity mismatch'}). Auto-disapproved.`
   } else if (perfect) {
@@ -359,22 +412,35 @@ export function deriveProductReasoning(
     } else {
       primaryReason = 'No recoverable inventory value. Routed for disposal.'
     }
-  } else if (!hasPhoto) {
-    primaryReason = 'No return photograph provided in intake record. Awaiting manual review.'
   } else {
     primaryReason = 'Intake inspection requires manual verification.'
   }
 
   // 4. Bullets (Key factual evidence points)
+  let photoBullet: string
+  if (isMissingPhoto) {
+    photoBullet = isReturnPhotoMissing && isRefPhotoMissing
+      ? 'Evidence: Missing Intake & Reference Photos (Auto-rejected)'
+      : isReturnPhotoMissing
+      ? 'Evidence: Missing Return Photo in Input File (Auto-rejected)'
+      : 'Evidence: Missing Reference Photo in Input File (Auto-rejected)'
+  } else if (isMismatch) {
+    photoBullet = `Identity: Mismatch (${row.sold_vs_returned_id_check || 'Returned item does not match sold SKU'})`
+  } else {
+    photoBullet = `Identity: 100% Verified (${row.ordered_sku}, ASIN: ${row.ordered_asin || 'n/a'})`
+  }
+
   const missingParts = (row.parts_missing || '').trim()
+  const componentBullet = isMissingPhoto
+    ? 'Components: Unverified (No intake photo to inspect)'
+    : missingParts && missingParts !== '—' && missingParts !== '-' && missingParts.toLowerCase() !== 'none'
+    ? `Components: Incomplete (Missing: ${missingParts})`
+    : 'Components: 100% Complete (All standard parts present)'
+
   const bullets: string[] = [
-    isMismatch
-      ? `Identity: Mismatch (${row.sold_vs_returned_id_check || 'Returned item does not match sold SKU'})`
-      : `Identity: 100% Verified (${row.ordered_sku}, ASIN: ${row.ordered_asin || 'n/a'})`,
+    photoBullet,
     `Condition: ${cond.toUpperCase()} — ${shortConditionReason}`,
-    missingParts && missingParts !== '—' && missingParts !== '-' && missingParts.toLowerCase() !== 'none'
-      ? `Components: Incomplete (Missing: ${missingParts})`
-      : 'Components: 100% Complete (All standard parts present)',
+    componentBullet,
     `Disposition: ${disp.toUpperCase()} — ${shortDispositionReason}`,
   ]
 

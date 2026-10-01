@@ -8,9 +8,12 @@ import {
   CheckCircle2,
   CircleAlert,
   Clock3,
+  Columns2,
   Download,
   Image as ImageIcon,
+  Info,
   LockKeyhole,
+  Maximize2,
   Package,
   RotateCcw,
   ShieldCheck,
@@ -113,7 +116,8 @@ export default function Inspection() {
   const [detailError, setDetailError] = useState('')
   const [detailLoading, setDetailLoading] = useState(true)
   const [decisions, setDecisions] = useState<Awaited<ReturnType<typeof getDecisions>>>([])
-  const [photoIndex, setPhotoIndex] = useState(0)
+  const [viewMode, setViewMode] = useState<'dual' | 'single'>('dual')
+  const [selectedPhoto, setSelectedPhoto] = useState<'ref' | string>('p0')
   const [zoom, setZoom] = useState(1)
   const [modal, setModal] = useState<DecisionAction | ''>('')
   const [toast, setToast] = useState('')
@@ -157,8 +161,41 @@ export default function Inspection() {
     )
   }
 
-  const photos = row.photos.length ? row.photos : row.image ? [row.image] : []
-  const currentPhoto = photos[photoIndex] ?? photos[0]
+  const refPhoto = (row.reference_image || row.reference_photo_ref || detail?.reference_photo_ref || '').trim()
+  const returnedPhotos = (row.photos.length ? row.photos : row.image ? [row.image] : [])
+    .map((p) => p.trim())
+    .filter(Boolean)
+
+  const hasRef = Boolean(refPhoto.length > 0)
+  const hasReturn = Boolean(returnedPhotos.length > 0)
+  const isReturnPhotoMissing = !hasReturn || row.failure_reason === 'no_return_photo'
+  const isRefPhotoMissing = !hasRef || row.failure_reason === 'no_reference_photo'
+  const isMissingPhoto = isReturnPhotoMissing || isRefPhotoMissing
+  const canShowDual = hasRef && hasReturn
+  const isIdenticalUrl = canShowDual && refPhoto === returnedPhotos[0]
+
+  const effectiveViewMode = canShowDual ? viewMode : 'single'
+
+  let currentPhotoSrc = ''
+  let currentPhotoLabel = ''
+  let currentPhotoCaption = ''
+
+  if (selectedPhoto === 'ref' && hasRef) {
+    currentPhotoSrc = refPhoto
+    currentPhotoLabel = 'PHOTO REF: CATALOG REFERENCE'
+    currentPhotoCaption = 'Baseline reference catalog photo (Before-sale specification)'
+  } else if (hasReturn) {
+    const idx = selectedPhoto.startsWith('p') ? Math.max(0, parseInt(selectedPhoto.slice(1), 10) || 0) : 0
+    const safeIdx = idx < returnedPhotos.length ? idx : 0
+    currentPhotoSrc = returnedPhotos[safeIdx]
+    currentPhotoLabel = `PHOTO P${safeIdx + 1}: RETURNED ITEM (${safeIdx + 1} OF ${returnedPhotos.length})`
+    currentPhotoCaption = `Live URL from the returned-item CSV (P${safeIdx + 1})`
+  } else if (hasRef) {
+    currentPhotoSrc = refPhoto
+    currentPhotoLabel = 'PHOTO REF: CATALOG REFERENCE'
+    currentPhotoCaption = 'Baseline reference catalog photo (No return photo in intake CSV)'
+  }
+
   // From the backend's value record only: the CSV gave no list price, so the default was used.
   const priceAssumed = detail?.value?.value_source === 'synthetic_default'
   const reasoning = deriveProductReasoning(row, detail)
@@ -215,19 +252,157 @@ export default function Inspection() {
               <small className="kicker">01 / VISUAL EVIDENCE</small>
               <h2>Product evidence</h2>
             </div>
+            {canShowDual && (
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  className={`evidence-toggle-btn ${effectiveViewMode === 'dual' ? 'active' : ''}`}
+                  onClick={() => setViewMode('dual')}
+                  title="View both REF and P1 side-by-side"
+                >
+                  <Columns2 size={13} /> Side-by-side
+                </button>
+                <button
+                  className={`evidence-toggle-btn ${effectiveViewMode === 'single' ? 'active' : ''}`}
+                  onClick={() => setViewMode('single')}
+                  title="Focus single photo"
+                >
+                  <Maximize2 size={13} /> Single
+                </button>
+              </div>
+            )}
           </div>
-          {photos.length === 0 ? (
-            <div className="empty">
-              <ImageIcon size={22} />
-              <b>No photo URL available</b>
-              <span>This row's returned_photo_ref was empty or failed to fetch.</span>
+
+          {isMissingPhoto && (
+            <div className="missing-photo-alert">
+              <CircleAlert size={16} style={{ color: 'var(--danger)', flexShrink: 0, marginTop: 2 }} />
+              <div>
+                <b>
+                  {isReturnPhotoMissing && isRefPhotoMissing
+                    ? 'Missing Intake & Reference Photographs'
+                    : isReturnPhotoMissing
+                    ? 'Missing Returned Product Photograph'
+                    : 'Missing Reference Catalog Photograph'}
+                </b>
+                <p>{reasoning.conditionReason} Product placed in uncertain condition and auto-rejected.</p>
+              </div>
             </div>
+          )}
+
+          {!hasRef && !hasReturn ? (
+            <div className="empty">
+              <ImageIcon size={22} style={{ color: 'var(--danger)' }} />
+              <b style={{ color: 'var(--danger)' }}>No photo URLs available</b>
+              <span>Neither reference catalog photo nor return photo was provided in the intake CSV. Product placed in uncertain condition and auto-rejected.</span>
+            </div>
+          ) : effectiveViewMode === 'dual' && canShowDual ? (
+            <>
+              <div className="evidence-dual">
+                <div className="evidence-card">
+                  <div className="evidence-card-head">
+                    <span>REF · CATALOG REFERENCE</span>
+                    <span className="pill unused">Baseline Before-Sale</span>
+                  </div>
+                  <div className="viewer-image">
+                    <img src={refPhoto} alt={`Reference catalog photo for ${row.record_id}`} />
+                  </div>
+                  <div className="image-caption">
+                    <span>
+                      <ImageIcon size={13} /> Sold catalog reference photo
+                    </span>
+                    <button
+                      className="evidence-toggle-btn"
+                      onClick={() => {
+                        setSelectedPhoto('ref')
+                        setViewMode('single')
+                      }}
+                      title="Inspect REF full size"
+                    >
+                      <Maximize2 size={12} /> Inspect
+                    </button>
+                  </div>
+                </div>
+
+                <div className="evidence-card">
+                  <div className="evidence-card-head">
+                    <span>P1 · RETURNED ITEM</span>
+                    <span className="pill" style={{ background: '#e0edfd', color: '#1664ca' }}>
+                      Intake CSV
+                    </span>
+                  </div>
+                  <div className="viewer-image">
+                    <img src={returnedPhotos[0]} alt={`Returned photo P1 for ${row.record_id}`} />
+                  </div>
+                  <div className="image-caption">
+                    <span>
+                      <ImageIcon size={13} /> Live URL from returned-item CSV (P1)
+                    </span>
+                    <button
+                      className="evidence-toggle-btn"
+                      onClick={() => {
+                        setSelectedPhoto('p0')
+                        setViewMode('single')
+                      }}
+                      title="Inspect P1 full size"
+                    >
+                      <Maximize2 size={12} /> Inspect
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {isIdenticalUrl && (
+                <div className="identical-photo-notice">
+                  <Info size={14} style={{ color: '#0f3ea2', flexShrink: 0 }} />
+                  <span>
+                    The input dataset supplied the exact same photo URL for both the reference and returned item (100% identical return test scenario). Both are displayed above.
+                  </span>
+                </div>
+              )}
+
+              <div className="photo-strip">
+                <button
+                  className={effectiveViewMode === 'dual' ? 'chosen' : ''}
+                  onClick={() => setViewMode('dual')}
+                  title="View both REF and P1 side-by-side"
+                  style={{ minWidth: 62 }}
+                >
+                  <div style={{ display: 'flex', width: '100%', height: '100%' }}>
+                    <img src={refPhoto} alt="REF" style={{ width: '50%', height: '100%', objectFit: 'cover' }} />
+                    <img src={returnedPhotos[0]} alt="P1" style={{ width: '50%', height: '100%', objectFit: 'cover', borderLeft: '1px solid var(--line)' }} />
+                  </div>
+                  <span style={{ fontSize: '10px', fontWeight: 600 }}>BOTH</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setSelectedPhoto('ref')
+                    setViewMode('single')
+                  }}
+                  title="Focus Reference Catalog Photo"
+                >
+                  <img src={refPhoto} alt="Reference" />
+                  <span className="badge-ref">REF</span>
+                </button>
+                {returnedPhotos.map((src, index) => (
+                  <button
+                    key={index}
+                    onClick={() => {
+                      setSelectedPhoto(`p${index}`)
+                      setViewMode('single')
+                    }}
+                    title={`Focus Returned Photo P${index + 1}`}
+                  >
+                    <img src={src} alt={`P${index + 1}`} />
+                    <span className="badge-p1">P{index + 1}</span>
+                  </button>
+                ))}
+              </div>
+            </>
           ) : (
             <>
               <div className="viewer">
                 <div className="viewer-controls">
-                  <span>PHOTO {photoIndex + 1} OF {photos.length}</span>
-                  <div>
+                  <span>{currentPhotoLabel}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <button onClick={() => setZoom(Math.max(0.8, zoom - 0.2))} aria-label="Zoom out">
                       <ZoomOut size={14} />
                     </button>
@@ -235,28 +410,83 @@ export default function Inspection() {
                     <button onClick={() => setZoom(Math.min(1.8, zoom + 0.2))} aria-label="Zoom in">
                       <ZoomIn size={14} />
                     </button>
+                    {canShowDual && (
+                      <button
+                        className="evidence-toggle-btn"
+                        onClick={() => setViewMode('dual')}
+                        title="View both REF and P1 side-by-side"
+                        style={{ marginLeft: 6 }}
+                      >
+                        <Columns2 size={13} /> View both
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="viewer-image">
-                  <img style={{ transform: `scale(${zoom})` }} src={currentPhoto} alt={`Returned photo ${photoIndex + 1} for ${row.record_id}`} />
+                  <img
+                    style={{ transform: `scale(${zoom})` }}
+                    src={currentPhotoSrc}
+                    alt={`${currentPhotoLabel} for ${row.record_id}`}
+                  />
                 </div>
                 <div className="image-caption">
                   <span>
-                    <ImageIcon size={13} /> Live URL from the returned-item CSV
+                    <ImageIcon size={13} /> {currentPhotoCaption}
                   </span>
                 </div>
               </div>
               <div className="photo-strip">
-                {photos.map((src, index) => (
-                  <button className={photoIndex === index ? 'chosen' : ''} key={index} onClick={() => setPhotoIndex(index)}>
-                    <img src={src} alt={`Thumb ${index + 1}`} />
-                    <span>P{index + 1}</span>
+                {canShowDual && (
+                  <button
+                    className={effectiveViewMode === 'dual' ? 'chosen' : ''}
+                    onClick={() => setViewMode('dual')}
+                    title="View both REF and P1 side-by-side"
+                    style={{ minWidth: 62 }}
+                  >
+                    <div style={{ display: 'flex', width: '100%', height: '100%' }}>
+                      <img src={refPhoto} alt="REF" style={{ width: '50%', height: '100%', objectFit: 'cover' }} />
+                      <img src={returnedPhotos[0]} alt="P1" style={{ width: '50%', height: '100%', objectFit: 'cover', borderLeft: '1px solid var(--line)' }} />
+                    </div>
+                    <span style={{ fontSize: '10px', fontWeight: 600 }}>BOTH</span>
                   </button>
-                ))}
-                {detail?.reference_photo_ref && (
-                  <button onClick={() => setPhotoIndex(photos.length)} disabled>
-                    <img src={detail.reference_photo_ref} alt="Reference" />
-                    <span>REF</span>
+                )}
+                {hasRef ? (
+                  <button
+                    className={effectiveViewMode === 'single' && selectedPhoto === 'ref' ? 'chosen' : ''}
+                    onClick={() => {
+                      setSelectedPhoto('ref')
+                      setViewMode('single')
+                    }}
+                    title="Focus Reference Catalog Photo"
+                  >
+                    <img src={refPhoto} alt="Reference" />
+                    <span className="badge-ref">REF</span>
+                  </button>
+                ) : (
+                  <button className="missing-slot" disabled title="Reference catalog photo was not provided in input file">
+                    <ImageIcon size={16} style={{ color: 'var(--danger)' }} />
+                    <span className="badge-missing">REF (None)</span>
+                  </button>
+                )}
+                {hasReturn ? (
+                  returnedPhotos.map((src, index) => (
+                    <button
+                      className={effectiveViewMode === 'single' && selectedPhoto === `p${index}` ? 'chosen' : ''}
+                      key={index}
+                      onClick={() => {
+                        setSelectedPhoto(`p${index}`)
+                        setViewMode('single')
+                      }}
+                      title={`Focus Returned Photo P${index + 1}`}
+                    >
+                      <img src={src} alt={`Thumb ${index + 1}`} />
+                      <span className="badge-p1">P{index + 1}</span>
+                    </button>
+                  ))
+                ) : (
+                  <button className="missing-slot" disabled title="Product return photograph was not provided in input file">
+                    <ImageIcon size={16} style={{ color: 'var(--danger)' }} />
+                    <span className="badge-missing">P1 (None)</span>
                   </button>
                 )}
               </div>
@@ -269,6 +499,25 @@ export default function Inspection() {
         </section>
 
         <div className="findings">
+          {isMissingPhoto && (
+            <section className="panel finding-panel" style={{ border: '1px solid var(--danger-line)', background: 'var(--danger-50)' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '4px 0' }}>
+                <CircleAlert size={24} style={{ color: 'var(--danger)', flexShrink: 0, marginTop: 2 }} />
+                <div>
+                  <h3 style={{ margin: '0 0 4px', color: 'var(--danger)', fontSize: '14.5px', fontWeight: 600 }}>
+                    {isReturnPhotoMissing && isRefPhotoMissing
+                      ? 'Missing intake and reference photos in input file'
+                      : isReturnPhotoMissing
+                      ? 'Missing return photo in input file'
+                      : 'Missing reference photo in input file'}
+                  </h3>
+                  <small style={{ color: 'var(--text-2)', fontSize: '11.5px', lineHeight: 1.4, display: 'block' }}>
+                    {reasoning.dispositionReason}
+                  </small>
+                </div>
+              </div>
+            </section>
+          )}
           {row.sold_vs_returned_id_check && row.sold_vs_returned_id_check.startsWith('NOT MATCHED') && (
             <section className="panel finding-panel" style={{ border: '1px solid var(--danger-line)', background: 'var(--danger-50)' }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '4px 0' }}>
@@ -285,7 +534,7 @@ export default function Inspection() {
               </div>
             </section>
           )}
-          {row.auto_disapproved === 'true' && !row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') && (
+          {!isMissingPhoto && row.auto_disapproved === 'true' && !row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') && (
             <section className="panel finding-panel" style={{ border: '1px solid var(--danger-line)', background: 'var(--danger-50)' }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '4px 0' }}>
                 <CircleAlert size={24} style={{ color: 'var(--danger)', flexShrink: 0, marginTop: 2 }} />
@@ -305,7 +554,9 @@ export default function Inspection() {
               <div>
                 <small className="kicker">BATCH RUN RESULT</small>
                 <h2>
-                  {reasoning.isPerfect
+                  {isMissingPhoto
+                    ? 'Auto-rejected (Missing intake photo)'
+                    : reasoning.isPerfect
                     ? 'Auto-approved for Restock'
                     : row.auto_disapproved === 'true' || row.wrong_item_flag
                     ? 'Automatically disapproved'
@@ -316,7 +567,7 @@ export default function Inspection() {
                 value={
                   reasoning.isPerfect
                     ? 'Auto-approved'
-                    : row.auto_disapproved === 'true' || row.wrong_item_flag
+                    : isMissingPhoto || row.auto_disapproved === 'true' || row.wrong_item_flag
                     ? 'Auto-disapproved'
                     : row.status
                 }
@@ -326,7 +577,7 @@ export default function Inspection() {
               <div className="functional" style={{ color: '#2563eb' }}>
                 <BadgeCheck size={14} /> Auto-approved: {reasoning.primaryReason}
               </div>
-            ) : row.auto_disapproved === 'true' || row.wrong_item_flag ? (
+            ) : isMissingPhoto || row.auto_disapproved === 'true' || row.wrong_item_flag ? (
               <div className="functional" style={{ color: 'var(--danger)' }}>
                 <CircleAlert size={14} /> Auto-disapproved: {reasoning.primaryReason}
               </div>
@@ -339,12 +590,12 @@ export default function Inspection() {
               <button>
                 <CheckCircle2 size={15} />
                 <span>Identity on the returned photo (model)</span>
-                <b>{(row.photo_identity_match || 'uncertain').toUpperCase()}</b>
+                <b>{isReturnPhotoMissing ? 'MISSING PHOTO' : (row.photo_identity_match || 'uncertain').toUpperCase()}</b>
               </button>
               <button>
                 <CheckCircle2 size={15} />
                 <span>Identity carried from the before-file (not re-checked)</span>
-                <b>{(row.identity_match || 'not given').toUpperCase()}</b>
+                <b>{isRefPhotoMissing ? 'MISSING REF PHOTO' : (row.identity_match || 'not given').toUpperCase()}</b>
               </button>
               <button>
                 <CheckCircle2 size={15} />
@@ -354,7 +605,7 @@ export default function Inspection() {
             </div>
           </section>
 
-          <InspectionComparison detail={detail} loading={detailLoading} failureReason={row.failure_reason} detailError={detailError} />
+          <InspectionComparison detail={detail} loading={detailLoading} failureReason={row.failure_reason} detailError={detailError} row={row} />
 
           {detailLoading && <section className="panel finding-panel"><div className="no-data-note">Loading inspection detail...</div></section>}
           {!detailLoading && !detail && (
@@ -559,7 +810,7 @@ export default function Inspection() {
                 </small>
               </div>
               <i>
-                {detail?.decision?.rule_id || (reasoning.isPerfect ? 'AUTO-APPROVED' : row.wrong_item_flag ? 'AUTO-DISAPPROVED' : 'RECOMMENDED')}
+                {detail?.decision?.rule_id || (reasoning.isPerfect ? 'AUTO-APPROVED' : (isMissingPhoto || row.auto_disapproved === 'true' || row.wrong_item_flag) ? 'AUTO-REJECTED' : 'RECOMMENDED')}
                 {priceAssumed && detail?.value?.value_driven_outcomes.includes(detail.decision.rule_id) && (
                   <small className="price-assumed"> · price assumed (synthetic)</small>
                 )}
@@ -639,9 +890,14 @@ export default function Inspection() {
                 {detail.auto_approval.threshold_calibrated ? '' : ' (not yet calibrated by a threshold sweep)'}
               </div>
             )}
-            {!row.wrong_item_flag && (detail?.decision?.requires_review || !detail || row.operator_disposition === 'pending_review') && row.auto_approved !== 'true' && !reasoning.isPerfect && (
+            {!row.wrong_item_flag && !isMissingPhoto && (detail?.decision?.requires_review || !detail || row.operator_disposition === 'pending_review') && row.auto_approved !== 'true' && !reasoning.isPerfect && (
               <div className="functional" style={{ color: 'var(--warning)' }}>
                 <CircleAlert size={14} /> Requires review: {detail?.decision?.review_reasons?.map(titleCase).join(', ') || (row.sold_vs_returned_id_check?.startsWith('NOT MATCHED') ? 'Paperwork mismatch' : 'Manual verification recommended')}
+              </div>
+            )}
+            {isMissingPhoto && (
+              <div className="functional" style={{ color: 'var(--danger)' }}>
+                <CircleAlert size={14} /> Auto-rejected: {reasoning.shortDispositionReason}
               </div>
             )}
             {detail?.decision?.requires_signoff && (

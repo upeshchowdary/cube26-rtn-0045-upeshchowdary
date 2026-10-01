@@ -5,7 +5,7 @@
 // score, because the model output contains none.
 import { CircleAlert, ImageIcon, ShieldAlert } from 'lucide-react'
 import { titleCase } from '../lib/format'
-import type { DefectObservationJson, RowDetail } from '../lib/types'
+import type { DefectObservationJson, DerivedRow, RowDetail } from '../lib/types'
 import { Pill } from './shared'
 
 const FEATURE_RESULT_LABEL: Record<string, string> = {
@@ -47,11 +47,13 @@ export function InspectionComparison({
   loading,
   failureReason,
   detailError,
+  row,
 }: {
   detail: RowDetail | null
   loading: boolean
   failureReason: string
   detailError: string
+  row?: DerivedRow | null
 }) {
   if (loading) return null
 
@@ -68,6 +70,10 @@ export function InspectionComparison({
       ? `Not inspected: ${failureReason || detailError}`
       : 'Standard intake verification complete. No supplementary feature discrepancies reported.'
 
+    const refPhoto = row?.reference_image || (row as any)?.reference_photo_ref || null
+    const returnedPhoto = (row?.photos && row.photos[0]) || row?.image || null
+    const hasAnyPhoto = Boolean(refPhoto || returnedPhoto)
+
     return (
       <section className="panel finding-panel">
         <div className="panel-head">
@@ -76,6 +82,26 @@ export function InspectionComparison({
             <h2>Inspection comparison</h2>
           </div>
         </div>
+        {hasAnyPhoto && (
+          <div className="compare-photos">
+            {refPhoto ? (
+              <PhotoWithDefects alias="ref_before" url={refPhoto} defects={[]} />
+            ) : (
+              <div className="empty" style={{ padding: '16px', background: 'var(--canvas)', borderRadius: '6px' }}>
+                <ImageIcon size={18} />
+                <span>No reference photo in input file</span>
+              </div>
+            )}
+            {returnedPhoto ? (
+              <PhotoWithDefects alias="P1" url={returnedPhoto} defects={[]} />
+            ) : (
+              <div className="empty" style={{ padding: '16px', background: 'var(--canvas)', borderRadius: '6px' }}>
+                <ImageIcon size={18} />
+                <span>No return photo in input file</span>
+              </div>
+            )}
+          </div>
+        )}
         <div className="functional" style={{ color: 'var(--muted)' }}>
           <CircleAlert size={14} /> {displayMsg}
         </div>
