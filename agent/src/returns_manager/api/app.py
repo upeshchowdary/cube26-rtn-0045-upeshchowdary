@@ -83,7 +83,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 db=db,
             )
         app.state.services = Services(
-            settings=settings, db=db, jwt=jwt, storage=storage, batch_jobs=batch_jobs
+            settings=settings,
+            db=db,  # type: ignore[arg-type]
+            jwt=jwt,
+            storage=storage,
+            batch_jobs=batch_jobs,
         )
         try:
             yield
@@ -175,7 +179,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.mount("/assets", StaticFiles(directory=str(ui_dist / "assets")), name="assets")
 
         @app.get("/{full_path:path}", include_in_schema=False)
-        async def serve_spa(full_path: str):
+        async def serve_spa(full_path: str) -> FileResponse | Response:
             target = ui_dist / full_path
             if full_path and target.is_file():
                 return FileResponse(str(target))

@@ -109,8 +109,13 @@ def _git(repo: Path, *args: str) -> str:
                 encoding="utf-8",
             ).stdout
         except subprocess.CalledProcessError as exc:
-            # Handle transient Windows 0xC0000005 native crash
-            if attempt == 2 or exc.returncode not in (3221225477, -1073741819):
+            # Handle transient Windows native crashes (0xC0000005, 0xC0000135, etc.)
+            if attempt == 2 or exc.returncode not in (
+                3221225477,
+                -1073741819,
+                3221225501,
+                -1073741795,
+            ):
                 raise
     raise RuntimeError("unreachable")
 

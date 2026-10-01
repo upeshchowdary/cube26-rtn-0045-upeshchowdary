@@ -272,18 +272,12 @@ export default function Inspection() {
             )}
           </div>
 
-          {isMissingPhoto && (
+          {isReturnPhotoMissing && (
             <div className="missing-photo-alert">
               <CircleAlert size={16} style={{ color: 'var(--danger)', flexShrink: 0, marginTop: 2 }} />
               <div>
-                <b>
-                  {isReturnPhotoMissing && isRefPhotoMissing
-                    ? 'Missing Intake & Reference Photographs'
-                    : isReturnPhotoMissing
-                    ? 'Missing Returned Product Photograph'
-                    : 'Missing Reference Catalog Photograph'}
-                </b>
-                <p>{reasoning.conditionReason} Product placed in uncertain condition and auto-rejected.</p>
+                <b>Missing Returned Product Photograph</b>
+                <p>{reasoning.conditionReason} Product placed in uncertain condition awaiting manual review.</p>
               </div>
             </div>
           )}
@@ -292,7 +286,7 @@ export default function Inspection() {
             <div className="empty">
               <ImageIcon size={22} style={{ color: 'var(--danger)' }} />
               <b style={{ color: 'var(--danger)' }}>No photo URLs available</b>
-              <span>Neither reference catalog photo nor return photo was provided in the intake CSV. Product placed in uncertain condition and auto-rejected.</span>
+              <span>Neither reference catalog photo nor return photo was provided in the intake CSV. Product placed in uncertain condition awaiting manual review.</span>
             </div>
           ) : effectiveViewMode === 'dual' && canShowDual ? (
             <>
@@ -499,17 +493,13 @@ export default function Inspection() {
         </section>
 
         <div className="findings">
-          {isMissingPhoto && (
+          {isReturnPhotoMissing && (
             <section className="panel finding-panel" style={{ border: '1px solid var(--danger-line)', background: 'var(--danger-50)' }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '4px 0' }}>
                 <CircleAlert size={24} style={{ color: 'var(--danger)', flexShrink: 0, marginTop: 2 }} />
                 <div>
                   <h3 style={{ margin: '0 0 4px', color: 'var(--danger)', fontSize: '14.5px', fontWeight: 600 }}>
-                    {isReturnPhotoMissing && isRefPhotoMissing
-                      ? 'Missing intake and reference photos in input file'
-                      : isReturnPhotoMissing
-                      ? 'Missing return photo in input file'
-                      : 'Missing reference photo in input file'}
+                    Missing return photo in input record
                   </h3>
                   <small style={{ color: 'var(--text-2)', fontSize: '11.5px', lineHeight: 1.4, display: 'block' }}>
                     {reasoning.dispositionReason}

@@ -31,8 +31,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY agent/pyproject.toml agent/README.md /app/agent/
 RUN pip install --no-cache-dir -e /app/agent
 
-# Copy backend source
+# Copy backend source, reference definitions and contract schemas
 COPY agent/ /app/agent/
+COPY reference/ /app/reference/
+COPY contract/ /app/contract/
 
 # Copy built frontend from Stage 1 into ui/dist
 COPY --from=frontend-builder /app/ui/dist /app/ui/dist

@@ -14,14 +14,14 @@ from returns_manager.intake.service import IntakeService
 from returns_manager.review.service import HumanReviewService
 from returns_manager.security import api_keys
 from returns_manager.security.auth_jwt import JwtVerifier, user_principal
-from returns_manager.security.roles import Principal, Unauthenticated
+from returns_manager.security.roles import Principal, Role, Unauthenticated
 from returns_manager.storage.photos import PhotoStorage
 
 
 @dataclass
 class Services:
     settings: Settings
-    db: Database | None = None
+    db: Database = None  # type: ignore[assignment]
     jwt: JwtVerifier | None = None
     storage: PhotoStorage | None = None
     batch_jobs: BatchJobsService | None = None
@@ -61,10 +61,10 @@ async def principal(
         raise Unauthenticated("send either a bearer token or an API key, not both")
     if svc.db is None:
         return Principal(
+            kind="user",
             org_id="00000000-0000-0000-0000-000000000001",
-            role="authenticated",
-            subject="demo-user",
-            api_key_id=None,
+            actor_id="demo-user",
+            role=Role.ADMIN,
         )
     if x_api_key:
         p = await api_keys.authenticate(svc.db, x_api_key, env=svc.settings.rm_env)
@@ -78,7 +78,7 @@ async def principal(
         if svc.jwt is None:
             raise Unauthenticated("user tokens are not configured on this deployment")
         verified = await svc.jwt.verify(token.strip())
-        return user_principal(verified, x_org_id)
+        return await user_principal(svc.db, verified, x_org_id)
     raise Unauthenticated("missing credentials")
 
 

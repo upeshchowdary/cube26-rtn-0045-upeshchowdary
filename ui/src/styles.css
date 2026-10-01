@@ -1531,3 +1531,39 @@
   background: #dc2626e0;
 }
 
+/* Returns ledger table improvements */
+.returns-table {
+  min-width: 1180px;
+  width: 100%;
+  border-collapse: collapse;
+}
+.returns-table th {
+  padding: 10px 14px;
+  white-space: nowrap;
+}
+.returns-table td {
+  padding: 10px 14px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.returns-table .product-cell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 210px;
+}
+.returns-table .product-cell span {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.returns-table .product-cell b {
+  font-size: 13px;
+  white-space: nowrap;
+}
+.returns-table .product-cell small {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+

@@ -42,38 +42,27 @@ export function isWrongItemFlag(row: BatchRowFlat): boolean {
 function toDerived(job: BatchJob, row: BatchRowFlat, latest: RowDecisionEntry | null): DerivedRow {
   const photos = firstPhoto(row.photo_refs)
   const refPhoto = row.reference_photo_ref || null
-  const hasReturnPhoto = Boolean(photos.length > 0 && photos[0].trim().length > 0)
-  const hasRefPhoto = Boolean(refPhoto && refPhoto.trim().length > 0)
-  const isMissingPhoto =
-    !hasReturnPhoto ||
-    !hasRefPhoto ||
-    row.failure_reason === 'no_return_photo' ||
-    row.failure_reason === 'no_reference_photo'
-
-  const isAutoDisapproved = row.auto_disapproved === 'true' || isMissingPhoto
-  const isPerfect = !isMissingPhoto && isPerfectReturn({ ...row, reference_photo_ref: refPhoto || '' })
-  const isAutoApproved = isPerfect || (row.auto_approved === 'true' && !isMissingPhoto)
+  const isPerfect = isPerfectReturn(row)
+  const isAutoApproved = isPerfect || row.auto_approved === 'true'
 
   const disposition =
     latest && latest.new_disposition
       ? latest.new_disposition
-      : isMissingPhoto
-      ? 'dispose'
       : row.operator_disposition
 
   return {
     ...row,
     reference_photo_ref: refPhoto || '',
     operator_disposition: disposition,
-    auto_approved: isAutoApproved ? 'true' : 'false',
-    auto_disapproved: isAutoDisapproved ? 'true' : 'false',
+    auto_approved: isAutoApproved ? 'true' : (row.auto_approved || 'false'),
+    auto_disapproved: row.auto_disapproved === 'true' ? 'true' : 'false',
     job_id: job.job_id,
     job_status: job.status,
     job_created_at: job.created_at,
     image: photos[0] ?? null,
     reference_image: refPhoto,
     photos,
-    status: isMissingPhoto && !latest ? 'Auto-disapproved' : deriveStatus(row, latest),
+    status: deriveStatus(row, latest),
     wrong_item_flag: isWrongItemFlag(row),
     latest_decision: latest,
   }

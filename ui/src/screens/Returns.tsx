@@ -137,26 +137,26 @@ export default function Returns() {
           </div>
         </div>
         <div className="table-scroll">
-          <table>
+          <table className="returns-table">
             <thead>
               <tr>
-                <th>PRODUCT</th>
-                <th>
+                <th style={{ minWidth: '220px' }}>PRODUCT</th>
+                <th style={{ minWidth: '150px' }}>
                   <button onClick={() => { setSortKey('record'); setRecordAscending(!recordAscending); }}>
                     RETURN <ArrowDownUp size={12} />
                   </button>
                 </th>
-                <th>CATALOG IDENTITY</th>
-                <th>PARTS MISSING</th>
-                <th>CONDITION</th>
-                <th>DISPOSITION</th>
-                <th>STATUS</th>
-                <th>
+                <th style={{ minWidth: '130px' }}>CATALOG IDENTITY</th>
+                <th style={{ minWidth: '110px' }}>PARTS MISSING</th>
+                <th style={{ minWidth: '150px' }}>CONDITION</th>
+                <th style={{ minWidth: '150px' }}>DISPOSITION</th>
+                <th style={{ minWidth: '140px' }}>STATUS</th>
+                <th style={{ minWidth: '150px' }}>
                   <button onClick={() => { setSortKey('time'); setTimeAscending(!timeAscending); }}>
                     CAPTURED TIME <ArrowDownUp size={12} />
                   </button>
                 </th>
-                <th />
+                <th style={{ width: '36px' }} />
               </tr>
             </thead>
             <tbody>
@@ -199,12 +199,6 @@ export default function Returns() {
                     </td>
                     <td>
                       <Pill value={r.status === 'Needs attention' ? 'Awaiting review' : r.status} />
-                      {r.auto_approved === 'true' && !r.latest_decision && (
-                        <small style={{ color: '#2563eb', fontWeight: 600 }}>Auto-approved</small>
-                      )}
-                      {r.auto_disapproved === 'true' && !r.latest_decision && (
-                        <small style={{ color: 'var(--danger)', fontWeight: 600 }}>Auto-rejected</small>
-                      )}
                       {r.latest_decision && (
                         <small>Operator accepted</small>
                       )}

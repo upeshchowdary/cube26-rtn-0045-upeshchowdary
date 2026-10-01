@@ -92,6 +92,9 @@ def app_dsn() -> str:
 @pytest_asyncio.fixture()
 async def db() -> AsyncIterator[Database]:
     """Open rm_app_login database, run migrations (idempotent), yield the Database."""
+    reason = _db_unreachable_reason()
+    if reason:
+        pytest.skip(reason)
     m_dsn = migrator_dsn()
     a_dsn = app_dsn()
     await migrate(m_dsn, a_dsn)

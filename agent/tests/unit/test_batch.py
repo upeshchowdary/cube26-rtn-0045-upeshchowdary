@@ -1757,6 +1757,7 @@ async def test_request_cap_refuses_before_sending_and_counts_each_take() -> None
     assert uncapped.cap_reached is False
 
 
+@pytest.mark.db
 async def test_batch_records_real_requests_in_the_quota_ledger_when_db_is_available(
     db: Any, tmp_path: Path, monkeypatch: Any
 ) -> None:
