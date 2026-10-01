@@ -18,6 +18,14 @@ import re
 import sys
 from pathlib import Path
 
+# How engine.decide() resolves each gate (directives 3, 4, 9). Gates not listed have no route.
+GATE_OUTCOMES = {
+    "R02": "dispose + S01 sign-off if clearly empty; else provisional route (review required)",
+    "R03": "dispose + S01 sign-off (review required)",
+    "R03b": "provisional route from the other evidence (review required)",
+    "R05b": "no recommendation (review required)",
+}
+
 ENGINE = (
     Path(__file__).resolve().parents[1]
     / "agent"
@@ -74,7 +82,9 @@ def rows() -> list[tuple[str, str, str, str, str, int]]:
                     (
                         _text(rule),
                         "1 gate",
-                        "no recommendation (review required)",
+                        GATE_OUTCOMES.get(
+                            _text(rule), "no recommendation (review required)"
+                        ),
                         _conditions(parents, node),
                         _text(reason),
                         node.lineno,

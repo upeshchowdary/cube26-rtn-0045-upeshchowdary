@@ -50,7 +50,11 @@ _REGIONS_FOR_ABSENCE = {"accessory_area", "interior_of_packaging"}
 def apply_consistency(j: JudgmentV1, ctx: JudgmentContext, rep: ValidationReport) -> JudgmentV1:
     j = j.model_copy(deep=True)
     usable = {r.photo for r in j.photo_reports if r.usable}
-    absence_capable = any(r.usable and _REGIONS_FOR_ABSENCE & set(r.visible_regions) for r in j.photo_reports)
+    absence_capable_photos = {
+        r.photo
+        for r in j.photo_reports
+        if r.usable and (not r.visible_regions or bool(_REGIONS_FOR_ABSENCE & set(r.visible_regions)))
+    }
     packaging = j.condition.packaging_state
     card_components = {c.id: c for c in ctx.card.components}
 
@@ -69,7 +73,9 @@ def apply_consistency(j: JudgmentV1, ctx: JudgmentContext, rep: ValidationReport
             rep.act("C01", target, "missing", "uncertain", "absence not observed in clear view")
             c.status = "uncertain"
             rep.component_reasons[c.component_id] = "component_area_not_visible"
-        if c.status == "missing" and not absence_capable:
+        # Directive 6: a clear-view absence stands when the photo the model cites for it is usable and was
+        # not reported as showing only areas where the part could not be (e.g. product_body alone).
+        if c.status == "missing" and not (set(c.photos) & absence_capable_photos):
             rep.act(
                 "C02", target, "missing", "uncertain", "no usable photo shows the accessory/interior area"
             )
@@ -186,7 +192,14 @@ def apply_consistency(j: JudgmentV1, ctx: JudgmentContext, rep: ValidationReport
         uncertain(
             "condition", "condition_ambiguous", "Grade 'New' contradicted by packaging, use or defects."
         )
-    if grade.grade_code == "used_like_new" and (cond.observations or cond.signs_of_use != "none_visible"):
+    # Directive 7: an opened box or broken seal is packaging, not wear on the unit. The schema has no seal
+    # defect type, so a defect the model located on the packaging or seal is excluded here.
+    body_observations = [
+        d
+        for d in cond.observations
+        if not any(w in d.location_note.lower() for w in ("packag", "seal", "box", "shrink"))
+    ]
+    if grade.grade_code == "used_like_new" and (body_observations or cond.signs_of_use != "none_visible"):
         rep.act("C09", "condition_grade", "used_like_new", None, "'Like New' allows no signs of wear")
         grade.grade_code = None
         grade.uncertainty_reason = "condition_ambiguous"

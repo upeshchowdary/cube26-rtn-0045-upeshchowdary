@@ -20,6 +20,18 @@ from returns_manager.judgment.types import (
 from returns_manager.llm.schemas import JudgmentV1
 
 _SEVERITY_ORDER = {"none": 0, "minor": 1, "moderate": 2, "severe": 3}
+# Directive 10: structural/functional damage makes a unit unlistable as-is from "moderate" up; cosmetic wear
+# never does on its own (the rubric grade carries it). Other types block only when "severe".
+STRUCTURAL_DEFECTS = frozenset({"crack", "deformation", "water_damage", "burn"})
+COSMETIC_DEFECTS = frozenset({"scratch", "scuff", "signs_of_use", "discoloration", "label_damage"})
+
+
+def is_structural_damage(defect_type: str, severity: str) -> bool:
+    if defect_type in STRUCTURAL_DEFECTS:
+        return severity in ("moderate", "severe")
+    if defect_type in COSMETIC_DEFECTS:
+        return False
+    return severity == "severe"
 
 
 def grade_condition(j: JudgmentV1, ctx: JudgmentContext, completeness: CompletenessResult) -> ConditionResult:
@@ -45,7 +57,7 @@ def grade_condition(j: JudgmentV1, ctx: JudgmentContext, completeness: Completen
     gate("essential_component_missing", bool(completeness.essential_missing))
     gate(
         "damaged_difficult_to_use",
-        any(d.severity == "severe" and d.defect_type != "label_damage" for d in defects),
+        any(is_structural_damage(d.defect_type, d.severity) for d in defects),
     )
     gate(
         "not_clean",

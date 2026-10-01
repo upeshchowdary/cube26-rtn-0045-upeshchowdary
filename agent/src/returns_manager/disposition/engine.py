@@ -171,12 +171,11 @@ def _route(
     inp: DispositionInputs,
     blockers: frozenset[str],
     essential_missing: tuple[MissingPart, ...],
+    *,
+    rules_version: str = "",
 ) -> _Route:
     grade = inp.cosmetic_grade
-    damaged = bool(blockers & {"damaged_difficult_to_use", "not_clean"}) or inp.max_severity in (
-        "moderate",
-        "severe",
-    )
+    damaged = bool(blockers & {"damaged_difficult_to_use", "not_clean"}) or inp.max_severity == "severe"
 
     if inp.new_only:
         if grade == "new" and not blockers and not inp.blockers_undetermined:
@@ -198,7 +197,7 @@ def _route(
         replaceable = all(p.replaceable is True for p in essential_missing)
         gain = _net_gain_refurbish(inp)
         if replaceable and gain >= inp.refurbish_min_net_gain_minor:
-            base = _route(inp, blockers - {"essential_component_missing"}, ())
+            base = _route(inp, blockers - {"essential_component_missing"}, (), rules_version=rules_version)
             if base.route is not None and ROUTE_RANK[base.route] >= ROUTE_RANK["refurbish"]:
                 return _Route(
                     "R09", "refurbish", None, f"replaceable essential part(s) missing; net gain {gain}"
@@ -220,8 +219,13 @@ def _route(
         return _Route("R12", "restock", "new", "factory-sealed and intact")
 
     if grade in inp.restock_used_grades:
+        seal_note = (
+            " (box seal broken; internal unit pristine)"
+            if grade == "used_like_new" and "packaging_opened" in inp.flags
+            else ""
+        )
         if inp.completeness_status == "complete":
-            return _Route("R13", "restock", grade, f"used grade {grade} is restockable by policy")
+            return _Route("R13", "restock", grade, f"used grade {grade} is restockable by policy{seal_note}")
         if (
             inp.completeness_status == "incomplete"
             and not essential_missing
@@ -231,6 +235,13 @@ def _route(
                 "R13", "restock", grade, f"{grade}: rubric allows non-essential material to be missing"
             )
         if inp.completeness_status == "incomplete" and not essential_missing:
+            # Directive 5: a cheap non-essential accessory never sends an otherwise relistable unit to
+            # liquidation when re-kitting it pays for itself.
+            gain = _net_gain_refurbish(inp)
+            if gain >= inp.refurbish_min_net_gain_minor:
+                return _Route(
+                    "R09b", "refurbish", None, f"replaceable non-essential part(s) missing; net gain {gain}"
+                )
             return _Route(
                 "R14", "liquidate", None, f"non-essential parts missing; not permitted at grade {grade}"
             )
@@ -253,12 +264,23 @@ def decide(inp: DispositionInputs, rules_version: str) -> DispositionDecision:
         review.append("assisted_mode")  # R00
     review += [f for f in REVIEW_FLAGS if f in inp.flags]  # R04
     provisional = bool(inp.essential_uncertain) and inp.inspection_state == "complete"
+    # Directives 1/5: an accessory the photos simply do not show is not evidence that it is missing. Only an
+    # unseen non-replaceable part (the main unit) is assumed missing; an unseen replaceable accessory is
+    # assumed present for the provisional route and a person checks it (review flag).
+    assumed_missing = tuple(p for p in inp.essential_uncertain if p.replaceable is not True)
+    assumed_present = tuple(p for p in inp.essential_uncertain if p.replaceable is True)
     if provisional:  # R05
         review.append("essential_component_uncertain")
-        assumptions.append(
-            "uncertain essential components are treated as missing: "
-            + ", ".join(p.component_id for p in inp.essential_uncertain)
-        )
+        if assumed_missing:
+            assumptions.append(
+                "uncertain non-replaceable components are treated as missing: "
+                + ", ".join(p.component_id for p in assumed_missing)
+            )
+        if assumed_present:
+            assumptions.append(
+                "not visible in the provided photos, assumed present pending review: "
+                + ", ".join(p.component_id for p in assumed_present)
+            )
     if inp.nonessential_uncertain:  # R05c
         review.append("nonessential_component_uncertain")
     if inp.blockers_undetermined:  # R05c
@@ -277,12 +299,70 @@ def decide(inp: DispositionInputs, rules_version: str) -> DispositionDecision:
     elif inp.identity == "uncertain":
         gate = ("R03b", "identity_unverified")
 
-    essential_missing = inp.essential_missing + (inp.essential_uncertain if provisional else ())
+    essential_missing = inp.essential_missing + (assumed_missing if provisional else ())
     blockers = frozenset(inp.listing_blockers) | (
         {"essential_component_missing"} if essential_missing else frozenset()
     )
     if gate is None and inp.cosmetic_grade is None and not (blockers & DECIDING_BLOCKERS):
         gate = ("R05b", "condition_uncertain")
+
+    # Directives 3/4/9: a proven wrong item or clearly empty package still gets a concrete route (dispose,
+    # which always needs human sign-off via S01); an unverified identity or an ungraded condition gets a
+    # provisional route computed from the remaining evidence, held for review. No usable evidence (R01/R01b),
+    # an unknown condition (R05b) and a rule gap stay without a route.
+    if gate is not None and gate[0] == "R02" and inp.identity == "no" and not _gate_routable(inp, "R02"):
+        gate = ("R03", "wrong_item_returned")  # presence unclear, but the body seen is not the sold item
+    if gate is not None and gate[0] in ("R02", "R03") and _gate_routable(inp, gate[0]):
+        rule_id, reason = gate
+        signoff = ["S01_dispose_always"]
+        if inp.escalation_disagreement_resolved_by_reviewer:
+            signoff.append("S03_escalation_disagreement_resolved")
+        why = (
+            "wrong item returned: returned unit does not match the sold SKU"
+            if rule_id == "R03"
+            else "primary unit not present in the returned package"
+        )
+        return DispositionDecision(
+            recommended_disposition="dispose",
+            no_recommendation_reason=None,
+            provisional=False,
+            assumptions=(),
+            requires_review=True,
+            review_reasons=tuple(dict.fromkeys([reason, *review])),
+            listing_condition=None,
+            rule_id=rule_id,
+            rules_version=rules_version,
+            reasons=(why,)
+            + ((f"actual_sku:{inp.actual_sku}",) if rule_id == "R03" and inp.actual_sku else ()),
+            requires_signoff=True,
+            signoff_reasons=tuple(signoff),
+            expected_recovery_minor=_expected(inp),
+            inputs_sha256=inputs_sha,
+            currency=inp.currency,
+        )
+    # R05b is not here: when the condition itself is unknown, any route would rest on a guessed grade.
+    if gate is not None and gate[0] in ("R03b", "R02"):
+        rule_id, reason = gate
+        r = _route(inp, blockers, essential_missing, rules_version=rules_version)
+        if r.route is not None:
+            signoff = _signoffs(inp, r.route)
+            return DispositionDecision(
+                recommended_disposition=r.route,
+                no_recommendation_reason=None,
+                provisional=True,
+                assumptions=(f"provisional: {reason}; route computed from the remaining evidence",),
+                requires_review=True,
+                review_reasons=tuple(dict.fromkeys([reason, *review])),
+                listing_condition=r.listing_condition,
+                rule_id=f"{rule_id}+{r.rule_id}",
+                rules_version=rules_version,
+                reasons=(f"{reason}; provisional {r.reason}",),
+                requires_signoff=bool(signoff),
+                signoff_reasons=tuple(signoff),
+                expected_recovery_minor=_expected(inp),
+                inputs_sha256=inputs_sha,
+                currency=inp.currency,
+            )
 
     if gate is not None:
         rule_id, reason = gate
@@ -305,17 +385,11 @@ def decide(inp: DispositionInputs, rules_version: str) -> DispositionDecision:
             currency=inp.currency,
         )
 
-    r = _route(inp, blockers, essential_missing)
+    r = _route(inp, blockers, essential_missing, rules_version=rules_version)
     if r.route is None:
         review.append("rule_gap" if r.reason == "rule_gap" else "policy_conflict")
 
-    signoff: list[str] = []
-    if r.route == "dispose":
-        signoff.append("S01_dispose_always")
-    if r.route not in (None, "restock") and inp.list_price_minor >= inp.high_value_threshold_minor:
-        signoff.append("S02_high_value")
-    if inp.escalation_disagreement_resolved_by_reviewer:
-        signoff.append("S03_escalation_disagreement_resolved")
+    signoff = _signoffs(inp, r.route)
 
     return DispositionDecision(
         recommended_disposition=r.route,
@@ -334,6 +408,23 @@ def decide(inp: DispositionInputs, rules_version: str) -> DispositionDecision:
         inputs_sha256=inputs_sha,
         currency=inp.currency,
     )
+
+
+def _gate_routable(inp: DispositionInputs, rule_id: str) -> bool:
+    """R03 (wrong item) is always routable; R02 only when the package is clearly empty or holds non-product
+    contents. An *uncertain* unit presence is not proof of absence and gets a provisional route instead."""
+    return rule_id == "R03" or inp.unit_presence in ("empty_packaging", "non_product_contents")
+
+
+def _signoffs(inp: DispositionInputs, route: str | None) -> list[str]:
+    signoff: list[str] = []
+    if route == "dispose":
+        signoff.append("S01_dispose_always")
+    if route not in (None, "restock") and inp.list_price_minor >= inp.high_value_threshold_minor:
+        signoff.append("S02_high_value")
+    if inp.escalation_disagreement_resolved_by_reviewer:
+        signoff.append("S03_escalation_disagreement_resolved")
+    return signoff
 
 
 def _expected(inp: DispositionInputs) -> tuple[tuple[str, int], ...]:

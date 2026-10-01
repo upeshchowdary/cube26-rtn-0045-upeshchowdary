@@ -70,7 +70,11 @@ def test_parse_parts_list_first_part_is_root_non_replaceable() -> None:
     assert [p.name for p in parts] == ["lamp", "usb cable", "manual"]
     assert parts[0].essential
     assert not parts[0].replaceable
-    assert all(p.essential and p.replaceable for p in parts[1:])
+    assert all(p.replaceable for p in parts[1:])
+    # directive 5: a standard cable or a manual is a cheap, non-essential accessory
+    assert not parts[1].essential
+    assert not parts[2].essential
+    assert parse_parts_list("laptop;charger")[1].essential  # a charger is needed to use the unit
 
 
 def test_parse_parts_list_quantity_suffix() -> None:
@@ -207,7 +211,8 @@ def test_write_output_csv_uses_fixed_column_order(tmp_path: Path) -> None:
     assert header == (
         "record_id,unit_id,org_id,order_id,ordered_sku,ordered_asin,identity_match,photo_identity_match,"
         "parts_list,parts_missing,observed_state,amazon_condition,operator_disposition,agent_disposition,"
-        "auto_approved,auto_disapproved,photo_refs,captured_at,sold_vs_returned_id_check,failure_reason,value_source"
+        "auto_approved,auto_disapproved,photo_refs,captured_at,sold_vs_returned_id_check,failure_reason,value_source,"
+        "requires_review,rationale"
     )
     assert "unexpected_extra" not in out.read_text(encoding="utf-8")
 
@@ -391,7 +396,7 @@ def test_operator_disposition_is_a_route_or_pending_review_only() -> None:
         assert _operator_disposition(route, auto_approved=True) in DISPOSITIONS
 
 
-def test_wrong_item_is_r03_null_recommendation_and_pending_review() -> None:
+def test_wrong_item_is_r03_dispose_with_signoff_and_pending_review() -> None:
     from returns_manager.llm.schemas import JudgmentV1
 
     ctx = b.context(b.headphones_card())
@@ -402,12 +407,15 @@ def test_wrong_item_is_r03_null_recommendation_and_pending_review() -> None:
     result = b.run(ctx, JudgmentV1.model_validate(raw))
 
     assert result.decision.rule_id == "R03"
-    assert result.decision.recommended_disposition is None
-    assert result.decision.no_recommendation_reason == "wrong_item_returned"
+    # directive 3: never null for a confirmed wrong item; dispose always keeps its human sign-off
+    assert result.decision.recommended_disposition == "dispose"
+    assert "S01_dispose_always" in result.decision.signoff_reasons
+    assert "wrong_item_returned" in result.decision.review_reasons
     assert result.claims.wrong_item_returned.value == "yes"
-    assert (
-        _operator_disposition(result.decision.recommended_disposition, auto_approved=True) == "pending_review"
-    )
+    # it can never be auto-approved, so the operator column stays pending_review until a person signs off
+    from returns_manager.batch import auto_approve
+
+    assert not auto_approve.evaluate(result, id_mismatch=False, id_not_checked=False, threshold_bp=0).approved
 
 
 @pytest.mark.parametrize("value", ["wrong_product", "pending_review", "RESTOCK", "return_to_vendor"])
@@ -453,9 +461,10 @@ class _FakeCompleteness:
         self.parts_uncertain = uncertain
 
 
-def test_missing_parts_field_merges_missing_and_uncertain_without_duplicates() -> None:
-    merged = _missing_parts_field(_FakeCompleteness("battery", "battery;battery cover"))
-    assert merged == "battery;battery cover"
+def test_missing_parts_field_lists_only_confirmed_missing_parts() -> None:
+    # a part that is merely not visible is never reported as missing
+    assert _missing_parts_field(_FakeCompleteness("battery", "battery;battery cover")) == "battery"
+    assert _missing_parts_field(_FakeCompleteness("", "charger")) == ""
     assert _missing_parts_field(_FakeCompleteness("", "")) == ""
     assert _missing_parts_field(_FakeCompleteness("lid", "")) == "lid"
 
@@ -677,7 +686,8 @@ def test_render_output_csv_reflects_latest_override_not_the_stored_file(tmp_path
     assert lines[0] == (
         "record_id,unit_id,org_id,order_id,ordered_sku,ordered_asin,identity_match,photo_identity_match,"
         "parts_list,parts_missing,observed_state,amazon_condition,operator_disposition,agent_disposition,"
-        "auto_approved,auto_disapproved,photo_refs,captured_at,sold_vs_returned_id_check,failure_reason,value_source"
+        "auto_approved,auto_disapproved,photo_refs,captured_at,sold_vs_returned_id_check,failure_reason,value_source,"
+        "requires_review,rationale"
     )
     assert "refurbish" in lines[1]
     assert "liquidate" not in after_override.decode("utf-8")
@@ -1038,7 +1048,7 @@ def test_auto_approve_blocked_by_id_mismatch_and_by_null_recommendation() -> Non
     wrong = b.run(ctx, JudgmentV1.model_validate(raw))
     approval = auto_approve.evaluate(wrong, id_mismatch=False, id_not_checked=False, threshold_bp=0)
     assert approval.approved is False
-    assert "no_recommendation:wrong_item_returned" in approval.blocked_by
+    assert "requires_signoff" in approval.blocked_by  # R03 dispose (S01)
     assert "image_identity_not_matched" in approval.blocked_by
 
 

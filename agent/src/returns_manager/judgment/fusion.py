@@ -64,7 +64,12 @@ def unit_presence(j: JudgmentV1) -> UnitPresenceResult:
     )
 
 
-def fuse_identity(j: JudgmentV1, ctx: JudgmentContext) -> FusedIdentity:
+def fuse_identity(
+    j: JudgmentV1,
+    ctx: JudgmentContext,
+    *,
+    relaxed_features: bool = False,
+) -> FusedIdentity:
     ident = j.identity
     presence = unit_presence(j)
     status, other_sku = barcode_status(ctx)
@@ -112,6 +117,13 @@ def fuse_identity(j: JudgmentV1, ctx: JudgmentContext) -> FusedIdentity:
     if status == "matches_ordered":
         if model == "yes":
             return out("yes", "strong", "barcode_matches_and_product_body_features_match")
+        if relaxed_features:
+            return out(
+                "no",
+                "conflict",
+                "barcode_matches_ordered_but_product_differs",
+                extra="possible_product_swap",
+            )
         return out(
             "uncertain",
             "conflict",
@@ -128,6 +140,8 @@ def fuse_identity(j: JudgmentV1, ctx: JudgmentContext) -> FusedIdentity:
     if model == "yes":
         if body_matches >= 2:
             return out("yes", "moderate", "two_or_more_critical_product_body_features_match")
+        if relaxed_features and body_matches >= 1 and body_mismatches == 0 and ident.confidence >= 0.70:
+            return out("yes", "moderate", "critical_product_body_features_match")
         return out("uncertain", "weak", "insufficient_product_body_evidence")
     if body_mismatches >= 1:
         return out("no", "moderate", "critical_product_body_feature_mismatch", actual=ident.likely_actual_sku)

@@ -8,7 +8,7 @@ confidence (basis points) and a plain-English detail that cites the photo slots.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from returns_manager.disposition.engine import DispositionDecision, DispositionInputs, MissingPart, decide
@@ -154,8 +154,10 @@ def build_checks(
                 "deterministic",
             )
         )
+    elif gate.non_fail_photos == 1:
+        checks.append(Check("photo_quality", "PASS", 10000, SINGLE_PHOTO_NOTE, "deterministic"))
     else:
-        checks.append(Check("photo_quality", "FAIL", 10000, "Fewer than 2 usable photos.", "deterministic"))
+        checks.append(Check("photo_quality", "FAIL", 10000, "No usable return photos.", "deterministic"))
 
     ev = _photos(list(presence.evidence_photos))
     if presence.status == "product_present":
@@ -341,7 +343,24 @@ def build_checks(
                 "deterministic",
             )
         )
+    if gate.non_fail_photos == 1:
+        # Directive 1: one photo cannot show the unseen sides, so every model-reported confidence is
+        # lowered by SINGLE_PHOTO_PENALTY_BP (15%). Deterministic checks keep their confidence.
+        checks = [
+            replace(c, confidence_bp=calibrate_single_photo(c.confidence_bp)) if c.source == "model" else c
+            for c in checks
+        ]
     return tuple(checks)
+
+
+SINGLE_PHOTO_PENALTY_BP = 1500  # 15% of the reported confidence, the low end of the directive's 15-20%
+SINGLE_PHOTO_NOTE = (
+    "Evaluated from single photograph; single-angle view verified. Confidence calibrated accordingly."
+)
+
+
+def calibrate_single_photo(confidence_bp: int) -> int:
+    return confidence_bp * (10000 - SINGLE_PHOTO_PENALTY_BP) // 10000
 
 
 def run_pipeline(
@@ -356,10 +375,12 @@ def run_pipeline(
     j, rep = validate_references(judgment, ctx)
     j = apply_consistency(j, ctx, rep)
     presence = unit_presence(j)
-    identity = fuse_identity(j, ctx)
+    identity = fuse_identity(j, ctx, relaxed_features=True)
     completeness = compute_completeness(j, ctx, rep)
     condition = grade_condition(j, ctx, completeness)
     flags = tuple(dict.fromkeys([*rep.flags, *identity.risk_flags, *photo_gate.integrity_flags]))
+    if j.condition.packaging_state in ("opened_packaging_intact", "packaging_damaged"):
+        flags = (*flags, "packaging_opened")  # observed opened box: lets R13 state the seal note
     triggers = escalation_triggers(
         identity,
         completeness,

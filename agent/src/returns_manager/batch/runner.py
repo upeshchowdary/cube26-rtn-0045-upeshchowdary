@@ -43,7 +43,7 @@ from returns_manager.db.pool import Database
 from returns_manager.errors import QuotaExhaustedError
 from returns_manager.jobs.budget import TokenBucketRateLimiter
 from returns_manager.jobs.retry import classify_error
-from returns_manager.judgment.pipeline import PhotoGate, run_pipeline
+from returns_manager.judgment.pipeline import SINGLE_PHOTO_NOTE, PhotoGate, run_pipeline
 from returns_manager.judgment.types import EffectivePolicy
 from returns_manager.llm.client import ModelClient
 from returns_manager.llm.context import ContextBundle, ReturnPhoto, assemble
@@ -363,6 +363,58 @@ def comparison_record(
     }
 
 
+def build_rationale(result: Any, *, single_photo: bool, id_mismatch: bool, auto_disapproved: bool) -> str:
+    """One plain-language explanation of the row, built only from the pipeline's own results (identity
+    fusion, completeness, condition, the engine's rule and reason, review and sign-off reasons). It
+    states what the rules engine computed; it never adds a judgment of its own."""
+    d = result.decision
+    ident = result.identity
+    parts: list[str] = []
+    if d.rule_id == "R03":
+        parts.append(
+            "Wrong item returned (visual identity discrepancy: returned unit model does not match sold SKU). "
+            "Auto-disapproved. Rules engine route: dispose, human sign-off required"
+        )
+    elif d.rule_id == "R02" and d.recommended_disposition:
+        parts.append(
+            "Primary unit not present in returned package; possible empty return, requires review. "
+            "Auto-disapproved. Rules engine route: dispose, human sign-off required"
+        )
+    else:
+        parts.append(f"Identity {ident.identity_match} ({ident.reasons[0].replace('_', ' ')})")
+        comp = result.completeness
+        if comp.status == "complete":
+            parts.append("all listed parts present")
+        elif comp.status == "incomplete":
+            parts.append(f"missing: {comp.parts_missing}")
+        else:
+            parts.append(f"not visible in the provided photos: {comp.parts_uncertain}")
+        parts.append(f"condition {result.condition.amazon_condition}; functional test not performed")
+        if d.recommended_disposition:
+            prov = "provisional " if d.provisional else ""
+            parts.append(
+                f"rules engine {prov}route {d.recommended_disposition} ({d.rule_id}: {d.reasons[0]})"
+            )
+        else:
+            parts.append(f"no route computed ({d.rule_id}: {d.no_recommendation_reason})")
+    if "possible_product_swap" in ident.risk_flags:
+        parts.append(
+            "possible product swap: packaging matches but the product body does not; requires review"
+        )
+    if id_mismatch:
+        parts.append("sold and returned records disagree (see sold_vs_returned_id_check)")
+    if auto_disapproved and d.rule_id not in ("R02", "R03"):
+        parts.append("auto-disapproved")
+    reasons = [r for r in result.review_reasons if r not in ("wrong_item_returned",)]
+    if reasons:
+        parts.append("review: " + ", ".join(reasons))
+    if d.signoff_reasons:
+        parts.append("sign-off: " + ", ".join(d.signoff_reasons))
+    if single_photo:
+        parts.append(SINGLE_PHOTO_NOTE)
+    return ". ".join(p.rstrip(".") for p in parts) + "."
+
+
 def _operator_disposition(recommended: str | None, *, auto_approved: bool) -> str:
     """`operator_disposition` before any human decision (§14.3): the engine's route only when the
     row is auto-approved (engine route, no review, no sign-off, IDs agree - see auto_approve.py);
@@ -421,14 +473,9 @@ def _uncertain_row(row: ReturnedRow, before: BeforeRow | None, reason: str) -> d
 
 
 def _missing_parts_field(pipeline_completeness: Any) -> str:
-    """The sample schema has one column for "missing"; a confirmed-missing part and an
-    uncertain one are both reported here (matches the sample's own RTN-0092 precedent,
-    where observed_state=uncertain and parts_missing both carry the affected part)."""
-    names = [n for n in pipeline_completeness.parts_missing.split(";") if n]
-    for n in pipeline_completeness.parts_uncertain.split(";"):
-        if n and n not in names:
-            names.append(n)
-    return ";".join(names)
+    """Only parts confirmed missing in clear view. A part the photos do not show is "not visible in the
+    provided photos", never "missing" (CLAUDE.md forbidden language); the rationale column lists those."""
+    return ";".join(n for n in pipeline_completeness.parts_missing.split(";") if n)
 
 
 async def _run_judgment_with_fallback(
@@ -502,14 +549,12 @@ async def process_returned_row(
         return _fail_open(row, None, "no_before_record")
     if not before.photo_ref:
         return _fail_open(row, before, "no_reference_photo")
+    if not row.returned_photo_refs:
+        return _fail_open(row, before, "no_return_photo")
 
-    # Single-photo mode: no return photo was supplied in the CSV, but we can still run the AI
-    # on the sold/reference photo alone.  Confidence is automatically reduced: PhotoGate will
-    # report non_fail_photos=1, the photo_quality check will be FAIL, auto-approve is blocked,
-    # and failure_reason is set to signal the reduced-confidence result to the UI.
-    # The AI can still determine identity (same product?), condition, and damage from a single
-    # image and will produce a real disposition rather than defaulting to uncertain/pending.
-    _single_photo_mode = not row.returned_photo_refs
+    # Single-photo mode: 1 return photo was supplied. The AI evaluates the return
+    # with scaled confidence and full diagnostic reasoning.
+    _single_photo_mode = len(row.returned_photo_refs) == 1
 
     category = before.category or default_category
     if not category:
@@ -555,13 +600,7 @@ async def process_returned_row(
             photo_errors.append(str(exc))
             unfetched_urls.append(url)
     if not return_bytes:
-        if _single_photo_mode:
-            # No return URLs were provided at all; use the reference photo as the sole
-            # return image so the AI can still produce a real verdict.
-            return_bytes = [ref_bytes]
-            fetched_urls = [before.photo_ref]
-        else:
-            return _fail_open(row, before, f"image_fetch_failed:{'; '.join(photo_errors)}")
+        return _fail_open(row, before, f"image_fetch_failed:{'; '.join(photo_errors)}")
 
     photos = [
         ReturnPhoto(
@@ -621,9 +660,9 @@ async def process_returned_row(
 
     id_check = check_id_match(before, row)
     id_mismatch = _id_mismatch(before, id_check)
-    auto_disapproved = _is_auto_disapproved(before, row, result.identity.identity_match)
-    # A wrong item (model identity "no") is §12.2 R03 and has no disposition route. It is
-    # separately auto-disapproved; a sold-vs-returned paperwork mismatch has the same outcome.
+    unit_absent = result.presence.clearly_evidenced  # empty_packaging / non_product_contents, seen
+    auto_disapproved = _is_auto_disapproved(before, row, result.identity.identity_match) or unit_absent
+
     approval = auto_approve.evaluate(
         result,
         id_mismatch=id_mismatch,
@@ -632,6 +671,12 @@ async def process_returned_row(
     )
     disposition = _operator_disposition(
         result.decision.recommended_disposition, auto_approved=approval.approved
+    )
+
+    # The engine's own route (directive 9: always a route when there is evidence); never edited here.
+    rec_disp = result.decision.recommended_disposition
+    rationale = build_rationale(
+        result, single_photo=_single_photo_mode, id_mismatch=id_mismatch, auto_disapproved=auto_disapproved
     )
 
     output_row = {
@@ -649,32 +694,24 @@ async def process_returned_row(
         "observed_state": result.judgment.model_observed_state,
         "amazon_condition": result.condition.amazon_condition,
         "operator_disposition": disposition,
-        "agent_disposition": result.decision.recommended_disposition or "",
-        "auto_approved": "true" if approval.approved else "false",
+        "agent_disposition": rec_disp or "",
+        "auto_approved": "true" if (approval.approved and not auto_disapproved) else "false",
         "auto_disapproved": "true" if auto_disapproved else "false",
-        # In single-photo mode, record the reference URL so the UI knows which image was used.
-        "photo_refs": before.photo_ref if _single_photo_mode else ";".join(row.returned_photo_refs),
+        # In single-photo mode, record the photo URL
+        "photo_refs": ";".join(row.returned_photo_refs),
         "captured_at": row.time,
         "sold_vs_returned_id_check": id_check,
-        # In single-photo mode, tag the row so the UI can show a reduced-confidence notice.
-        # This is NOT a fail-open: a real model verdict was produced, just with one image.
-        "failure_reason": (
-            "single_photo_mode:no_return_photo_supplied;reference_image_used_as_proxy;"
-            "confidence_reduced;operator_review_recommended"
-            if _single_photo_mode
-            else ""
-        ),
+        "failure_reason": "",  # a real model + engine result: this row did not fail open
         "value_source": _value_source(before),
+        "requires_review": "true"
+        if (result.requires_review or result.decision.requires_signoff)
+        else "false",
+        "rationale": rationale,
     }
-    # Build the warning string.  In single-photo mode the reduced-confidence message is already
-    # in failure_reason; any URL-fetch errors (from the normal multi-photo path) are appended too.
+    # Build the warning string.
     warning_parts: list[str] = []
     if _single_photo_mode:
-        warning_parts.append(
-            "Single-photo mode: no return photo supplied. "
-            "Reference (before-sale) image used as proxy. "
-            "Confidence is reduced; operator review is recommended."
-        )
+        warning_parts.append(SINGLE_PHOTO_NOTE)
     if photo_errors:
         warning_parts.append(
             f"{len(photo_errors)} of {len(row.returned_photo_refs)} return photo(s) failed to fetch: "
@@ -684,6 +721,8 @@ async def process_returned_row(
     detail = _build_row_detail(session_judgment=result.judgment, result=result, row=row, before=before)
     detail["auto_approval"] = approval.as_dict()
     detail["single_photo_mode"] = _single_photo_mode
+    detail["recommended_operator_disposition"] = rec_disp
+    detail["rationale"] = rationale
     detail["value"] = value_record(before, list_price_minor, result.decision)
     detail["comparison"] = comparison_record(
         card, result.judgment, photo_aliases(before.photo_ref, fetched_urls), unfetched_urls

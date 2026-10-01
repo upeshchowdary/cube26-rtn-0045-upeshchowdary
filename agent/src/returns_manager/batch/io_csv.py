@@ -233,6 +233,8 @@ OUTPUT_FIELDNAMES = [
     "sold_vs_returned_id_check",
     "failure_reason",  # why a row failed open (empty on a real model + engine result)
     "value_source",  # csv_list_price, or synthetic_default when the CSV gave no price
+    "requires_review",  # "true" when the engine or pipeline wants a person (review or sign-off)
+    "rationale",  # plain-language summary of the evidence and the engine's rule (batch/runner.py)
 ]
 
 

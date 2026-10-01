@@ -51,6 +51,18 @@ NON_ESSENTIAL_ACCESSORIES = frozenset(
         "stickers",
         "leaflet",
         "pamphlet",
+        # Directive 5: cheap, standard accessories a re-kit replaces (not chargers/power supplies, which a
+        # unit may need in order to work, and not device-specific parts).
+        "usb cable",
+        "usb-c cable",
+        "usb-a cable",
+        "micro-usb cable",
+        "charging cable",
+        "manual",
+        "user manual",
+        "quick start guide",
+        "booklet",
+        "documentation",
     }
 )
 

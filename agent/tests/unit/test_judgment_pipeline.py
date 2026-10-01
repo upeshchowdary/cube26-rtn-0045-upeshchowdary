@@ -156,7 +156,9 @@ def test_t_val_c06_box_swap_defense_needs_product_body_match() -> None:
     r = b.run(ctx, j)
     assert r.identity.identity_match == "uncertain"
     assert "C06" in {a.rule_id for a in r.report.actions}
-    assert r.decision.recommended_disposition is None
+    # directive 9: unverified identity -> a provisional route, held for review, never auto-approved
+    assert r.decision.provisional
+    assert r.requires_review
 
 
 def test_t_val_c07_empty_box_cannot_be_the_right_item() -> None:
@@ -300,7 +302,7 @@ def fused(model: str, code: str | None, **changes: Any) -> Any:
     [
         ("yes", "X00LAMP", "yes", "strong"),
         ("uncertain", "X00LAMP", "uncertain", "weak"),
-        ("no", "X00LAMP", "uncertain", "conflict"),
+        ("no", "X00LAMP", "no", "conflict"),  # directive 8: body evidence outranks a packaging barcode
         ("no", "X00V2", "no", "strong"),
         ("yes", "X00V2", "uncertain", "conflict"),
         ("yes", None, "yes", "moderate"),
@@ -320,9 +322,10 @@ def test_t_fus_swap_flag_and_actual_sku_and_unknown_barcode() -> None:
     assert "unknown_barcode" in fused("yes", "UNKNOWN123").risk_flags
 
 
-def test_t_fus_one_critical_match_without_barcode_is_weak() -> None:
+def test_t_fus_one_critical_body_match_without_barcode_confirms_identity() -> None:
+    """Directive 2: one matched critical body feature, no contradicting feature, confidence >= 0.70."""
     f = fused("yes", None, feature_checks=[{"feature_id": "df_base_shape", "result": "match", "photo": "P1"}])
-    assert (f.identity_match, f.strength) == ("uncertain", "weak")
+    assert (f.identity_match, f.strength) == ("yes", "moderate")
 
 
 # ── condition gates → blockers, labels (T-CND) ───────────────────────────
@@ -385,8 +388,9 @@ def test_t_scn_packaging_only_features_never_prove_identity() -> None:
 def test_t_scn_single_feature_card_without_barcode_stays_unverified() -> None:
     ctx = b.context(TOWEL)
     r = b.run(ctx, b.judgment(ctx))
-    assert r.identity.identity_match == "uncertain"
-    assert r.decision.no_recommendation_reason == "identity_unverified"
+    # directive 2: a single matched critical body feature now confirms identity
+    assert r.identity.identity_match == "yes"
+    assert r.decision.no_recommendation_reason != "identity_unverified"
 
 
 def test_t_scn_s01_correct_product() -> None:
@@ -494,7 +498,10 @@ def test_t_scn_x01_empty_box() -> None:
     r = b.run(ctx, j)
     assert r.claims.item_not_returned.value == "yes"
     assert r.target_status == "awaiting_review"
-    assert r.decision.recommended_disposition is None
+    # directive 4: a clearly empty package is routed to dispose, which always needs sign-off (S01)
+    assert r.decision.recommended_disposition == "dispose"
+    assert r.decision.rule_id == "R02"
+    assert "S01_dispose_always" in r.decision.signoff_reasons
 
 
 def test_t_scn_x06_new_only_category_opened() -> None:

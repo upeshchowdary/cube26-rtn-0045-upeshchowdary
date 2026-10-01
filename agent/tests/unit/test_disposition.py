@@ -64,6 +64,7 @@ LAMP = MissingPart("lamp", False)
 
 
 # ── Step 1 gates ──────────────────────────────────────────────────────────
+# Directive 9: only "no usable evidence" and "no grade and no deciding blocker" leave the route blank.
 @pytest.mark.parametrize(
     ("changes", "rule", "reason"),
     [
@@ -74,11 +75,6 @@ LAMP = MissingPart("lamp", False)
             "R01b",
             "no_product_reference",
         ),
-        ({"unit_presence": "empty_packaging"}, "R02", "item_not_present_or_unverified"),
-        ({"unit_presence": "non_product_contents"}, "R02", "item_not_present_or_unverified"),
-        ({"unit_presence": "uncertain"}, "R02", "item_not_present_or_unverified"),
-        ({"identity": "no", "actual_sku": "SKU-X"}, "R03", "wrong_item_returned"),
-        ({"identity": "uncertain"}, "R03b", "identity_unverified"),
         ({"cosmetic_grade": None}, "R05b", "condition_uncertain"),
     ],
 )
@@ -87,6 +83,61 @@ def test_t_dsp_gates_blank_the_recommendation(changes: dict[str, Any], rule: str
     assert d.recommended_disposition is None
     assert d.rule_id == rule
     assert d.no_recommendation_reason == reason
+    assert d.requires_review
+    assert reason in d.review_reasons
+
+
+# Directives 3/4: a proven wrong item or a clearly empty package is routed to dispose, never left null,
+# and dispose always keeps its human sign-off (S01).
+@pytest.mark.parametrize(
+    ("changes", "rule", "reason"),
+    [
+        ({"unit_presence": "empty_packaging"}, "R02", "item_not_present_or_unverified"),
+        ({"unit_presence": "non_product_contents"}, "R02", "item_not_present_or_unverified"),
+        ({"identity": "no", "actual_sku": "SKU-X"}, "R03", "wrong_item_returned"),
+        ({"identity": "no", "unit_presence": "uncertain"}, "R03", "wrong_item_returned"),
+    ],
+)
+def test_t_dsp_wrong_item_and_empty_box_route_to_dispose(
+    changes: dict[str, Any], rule: str, reason: str
+) -> None:
+    d = decide(inputs(**changes), RV)
+    assert d.recommended_disposition == "dispose"
+    assert d.rule_id == rule
+    assert d.no_recommendation_reason is None
+    assert d.requires_review
+    assert reason in d.review_reasons
+    assert d.requires_signoff
+    assert "S01_dispose_always" in d.signoff_reasons
+
+
+def test_t_dsp_unseen_replaceable_accessory_is_not_assumed_missing() -> None:
+    """Directives 1/5: a charger that the single photo does not show must not send the unit to liquidation."""
+    d = decide(inputs(essential_uncertain=(CABLE,)), RV)
+    assert d.recommended_disposition == "restock"
+    assert d.provisional
+    assert "essential_component_uncertain" in d.review_reasons
+    unseen_main = decide(inputs(essential_uncertain=(LAMP,)), RV)
+    assert unseen_main.recommended_disposition in ("liquidate", "dispose")
+
+
+# Directive 9: an unverified identity or unit presence still gets the route the rest of the evidence
+# supports, marked provisional and held for review.
+@pytest.mark.parametrize(
+    ("changes", "rule", "reason"),
+    [
+        ({"unit_presence": "uncertain"}, "R02", "item_not_present_or_unverified"),
+        ({"identity": "uncertain"}, "R03b", "identity_unverified"),
+    ],
+)
+def test_t_dsp_unverified_gates_give_a_provisional_route(
+    changes: dict[str, Any], rule: str, reason: str
+) -> None:
+    d = decide(inputs(**changes), RV)
+    assert d.recommended_disposition is not None
+    assert d.rule_id.startswith(rule + "+")
+    assert d.provisional
+    assert d.assumptions
     assert d.requires_review
     assert reason in d.review_reasons
 
@@ -121,7 +172,7 @@ def test_t_dsp_r04_flags_require_review(flag: str) -> None:
     assert flag in d.review_reasons
 
 
-def test_t_dsp_r05_uncertain_essential_is_provisional_and_assumed_missing() -> None:
+def test_t_dsp_r05_unseen_replaceable_essential_is_provisional_and_assumed_present() -> None:
     d = decide(
         inputs(
             essential_uncertain=(CABLE,),
@@ -134,8 +185,10 @@ def test_t_dsp_r05_uncertain_essential_is_provisional_and_assumed_missing() -> N
     assert d.requires_review
     assert d.assumptions
     assert "essential_component_uncertain" in d.review_reasons
-    assert d.recommended_disposition == "refurbish"  # computed as if the cable were missing (R09)
-    assert d.rule_id == "R09"
+    # directives 1/5: the unseen cable is assumed present pending review, so the route is the complete
+    # unit's own route (R11: used electrical item needs a functional test), not a missing-part route
+    assert d.recommended_disposition == "refurbish"
+    assert d.rule_id == "R11"
 
 
 def test_t_dsp_r05c_nonessential_uncertain_and_undetermined_blockers() -> None:
@@ -231,6 +284,17 @@ def test_t_dsp_r05c_nonessential_uncertain_and_undetermined_blockers() -> None:
                 "cosmetic_grade": "used_like_new",
                 "completeness_status": "incomplete",
                 "nonessential_missing": ("manual",),
+            },
+            "refurbish",  # directive 5: re-kitting a cheap accessory pays for itself
+            "R09b",
+            None,
+        ),
+        (
+            {
+                "cosmetic_grade": "used_like_new",
+                "completeness_status": "incomplete",
+                "nonessential_missing": ("manual",),
+                "refurbish_cost_minor": 10_000_000,  # re-kit costs more than it recovers
             },
             "liquidate",
             "R14",
@@ -430,8 +494,12 @@ def any_inputs(draw: st.DrawFn) -> DispositionInputs:
 @given(any_inputs())
 def test_property_invariants(inp: DispositionInputs) -> None:
     d = decide(inp, RV)
-    if inp.identity != "yes":
-        assert d.recommended_disposition != "restock"
+    if inp.identity == "no":
+        assert d.recommended_disposition in (None, "dispose")
+    if inp.identity == "uncertain" and d.recommended_disposition == "restock":
+        # directive 9: an unverified identity still gets a route, but only a provisional one for review
+        assert d.provisional
+        assert d.requires_review
     if inp.new_only and d.recommended_disposition == "restock":
         assert d.listing_condition == "new"
     if d.recommended_disposition == "dispose":

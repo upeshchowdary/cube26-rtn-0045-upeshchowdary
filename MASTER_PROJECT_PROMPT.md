@@ -144,36 +144,39 @@ Sign-off rules are added on top of the route. The table is produced by `python s
 <!-- rule-table:start -->
 | Rule | Step | Outcome | When (engine condition) | Reason recorded | engine.py line |
 |---|---|---|---|---|---|
-| R01b | 1 gate | no recommendation (review required) | `inp.inspection_state == 'skipped'` | `inp.skip_reason or 'no_product_reference'` | 270 |
-| R01 | 1 gate | no recommendation (review required) | `inp.inspection_state != 'complete' or inp.usable_photo_count == 0` | `inspection_incomplete` | 272 |
-| R02 | 1 gate | no recommendation (review required) | `inp.unit_presence != 'product_present'` | `item_not_present_or_unverified` | 274 |
-| R03 | 1 gate | no recommendation (review required) | `inp.identity == 'no'` | `wrong_item_returned` | 276 |
-| R03b | 1 gate | no recommendation (review required) | `inp.identity == 'uncertain'` | `identity_unverified` | 278 |
-| R05b | 1 gate | no recommendation (review required) | `gate is None and inp.cosmetic_grade is None and (not blockers & DECIDING_BLOCKERS)` | `condition_uncertain` | 285 |
-| R00 | 2 flag | review flag (route unchanged) | `not inp.auto_disposition_enabled` | `review.append("assisted_mode")` | 253 |
-| R04 | 2 flag | review flag (route unchanged) | `always` | `review += [f for f in REVIEW_FLAGS if f in inp.flags]` | 254 |
-| R05 | 2 flag | review flag (route unchanged) | `provisional` | `review.append("essential_component_uncertain")` | 256 |
-| R05c | 2 flag | review flag (route unchanged) | `inp.nonessential_uncertain` | `review.append("nonessential_component_uncertain")` | 262 |
-| R05c | 2 flag | review flag (route unchanged) | `inp.blockers_undetermined` | `review.append("listing_blockers_undetermined")` | 264 |
-| R06 | 3 route | restock | `inp.new_only and grade == 'new' and (not blockers) and (not inp.blockers_undetermined)` | `New-only category, factory-sealed and intact` | 183 |
-| R99 | 3 route | no recommendation (review required) | `inp.new_only and policy_route in ('restock', 'refurbish')` | `f'policy {which}={policy_route} is not allowed for a New-only category'` | 187 |
-| R07 | 3 route | liquidate if salvage > dispose_max_salvage, else dispose | `inp.new_only and policy_route == 'liquidate'` | `f'New-only category, not sealed-new; policy {which}=liquidate'` | 191 |
-| R07 | 3 route | dispose | `inp.new_only` | `f'New-only category, not sealed-new; policy {which}=dispose'` | 192 |
-| R08 | 3 route | dispose | `'consumable_used' in blockers` | `consumable item shows use` | 195 |
-| R09 | 3 route | refurbish | `essential_missing and replaceable and gain >= inp.refurbish_min_net_gain_minor and base.route is not None and ROUTE_RANK[base.route] >= ROUTE_RANK['refurbish']` | `f'replaceable essential part(s) missing; net gain {gain}'` | 203 |
-| R10 | 3 route | liquidate if salvage > dispose_max_salvage, else dispose | `essential_missing` | `essential part(s) missing and not refurbishable` | 206 |
-| R10 | 3 route | liquidate if salvage > dispose_max_salvage, else dispose | `blockers & {'damaged_difficult_to_use', 'not_clean'}` | `damage or dirt makes the item unlistable as-is` | 209 |
-| R11 | 3 route | refurbish | `'functional_test_required' in blockers and gain >= inp.refurbish_min_net_gain_minor` | `f'used electrical item needs a functional test; net gain {gain}'` | 214 |
-| R11 | 3 route | liquidate | `'functional_test_required' in blockers` | `f'functional test needed but net gain {gain} too small'` | 217 |
-| R12 | 3 route | restock | `grade == 'new' and (not blockers)` | `factory-sealed and intact` | 220 |
-| R13 | 3 route | restock | `grade in inp.restock_used_grades and inp.completeness_status == 'complete'` | `f'used grade {grade} is restockable by policy'` | 224 |
-| R13 | 3 route | restock | `grade in inp.restock_used_grades and inp.completeness_status == 'incomplete' and (not essential_missing) and (grade in GRADES_ALLOWING_NONESSENTIAL_MISSING)` | `f'{grade}: rubric allows non-essential material to be missing'` | 230 |
-| R14 | 3 route | liquidate | `grade in inp.restock_used_grades and inp.completeness_status == 'incomplete' and (not essential_missing)` | `f'non-essential parts missing; not permitted at grade {grade}'` | 234 |
-| R14 | 3 route | liquidate | `grade is not None and grade != 'new' and (grade not in inp.restock_used_grades)` | `f'used grade {grade} is outside restock_used_grades (business policy)'` | 239 |
-| R99 | 3 route | no recommendation (review required) | `always (fallthrough)` | `rule_gap` | 243 |
-| S01 | sign-off | route stands; human sign-off required | `r.route == 'dispose'` | `S01_dispose_always` | 314 |
-| S02 | sign-off | route stands; human sign-off required | `r.route not in (None, 'restock') and inp.list_price_minor >= inp.high_value_threshold_minor` | `S02_high_value` | 316 |
-| S03 | sign-off | route stands; human sign-off required | `inp.escalation_disagreement_resolved_by_reviewer` | `S03_escalation_disagreement_resolved` | 318 |
+| R01b | 1 gate | no recommendation (review required) | `inp.inspection_state == 'skipped'` | `inp.skip_reason or 'no_product_reference'` | 292 |
+| R01 | 1 gate | no recommendation (review required) | `inp.inspection_state != 'complete' or inp.usable_photo_count == 0` | `inspection_incomplete` | 294 |
+| R02 | 1 gate | dispose + S01 sign-off if clearly empty; else provisional route (review required) | `inp.unit_presence != 'product_present'` | `item_not_present_or_unverified` | 296 |
+| R03 | 1 gate | dispose + S01 sign-off (review required) | `inp.identity == 'no'` | `wrong_item_returned` | 298 |
+| R03b | 1 gate | provisional route from the other evidence (review required) | `inp.identity == 'uncertain'` | `identity_unverified` | 300 |
+| R05b | 1 gate | no recommendation (review required) | `gate is None and inp.cosmetic_grade is None and (not blockers & DECIDING_BLOCKERS)` | `condition_uncertain` | 307 |
+| R03 | 1 gate | dispose + S01 sign-off (review required) | `gate is not None and gate[0] == 'R02' and (inp.identity == 'no') and (not _gate_routable(inp, 'R02'))` | `wrong_item_returned` | 314 |
+| R00 | 2 flag | review flag (route unchanged) | `not inp.auto_disposition_enabled` | `review.append("assisted_mode")` | 264 |
+| R04 | 2 flag | review flag (route unchanged) | `always` | `review += [f for f in REVIEW_FLAGS if f in inp.flags]` | 265 |
+| R05 | 2 flag | review flag (route unchanged) | `provisional` | `review.append("essential_component_uncertain")` | 272 |
+| R05c | 2 flag | review flag (route unchanged) | `inp.nonessential_uncertain` | `review.append("nonessential_component_uncertain")` | 284 |
+| R05c | 2 flag | review flag (route unchanged) | `inp.blockers_undetermined` | `review.append("listing_blockers_undetermined")` | 286 |
+| R06 | 3 route | restock | `inp.new_only and grade == 'new' and (not blockers) and (not inp.blockers_undetermined)` | `New-only category, factory-sealed and intact` | 182 |
+| R99 | 3 route | no recommendation (review required) | `inp.new_only and policy_route in ('restock', 'refurbish')` | `f'policy {which}={policy_route} is not allowed for a New-only category'` | 186 |
+| R07 | 3 route | liquidate if salvage > dispose_max_salvage, else dispose | `inp.new_only and policy_route == 'liquidate'` | `f'New-only category, not sealed-new; policy {which}=liquidate'` | 190 |
+| R07 | 3 route | dispose | `inp.new_only` | `f'New-only category, not sealed-new; policy {which}=dispose'` | 191 |
+| R08 | 3 route | dispose | `'consumable_used' in blockers` | `consumable item shows use` | 194 |
+| R09 | 3 route | refurbish | `essential_missing and replaceable and gain >= inp.refurbish_min_net_gain_minor and base.route is not None and ROUTE_RANK[base.route] >= ROUTE_RANK['refurbish']` | `f'replaceable essential part(s) missing; net gain {gain}'` | 202 |
+| R10 | 3 route | liquidate if salvage > dispose_max_salvage, else dispose | `essential_missing` | `essential part(s) missing and not refurbishable` | 205 |
+| R10 | 3 route | liquidate if salvage > dispose_max_salvage, else dispose | `blockers & {'damaged_difficult_to_use', 'not_clean'}` | `damage or dirt makes the item unlistable as-is` | 208 |
+| R11 | 3 route | refurbish | `'functional_test_required' in blockers and gain >= inp.refurbish_min_net_gain_minor` | `f'used electrical item needs a functional test; net gain {gain}'` | 213 |
+| R11 | 3 route | liquidate | `'functional_test_required' in blockers` | `f'functional test needed but net gain {gain} too small'` | 216 |
+| R12 | 3 route | restock | `grade == 'new' and (not blockers)` | `factory-sealed and intact` | 219 |
+| R13 | 3 route | restock | `grade in inp.restock_used_grades and inp.completeness_status == 'complete'` | `f'used grade {grade} is restockable by policy{seal_note}'` | 228 |
+| R13 | 3 route | restock | `grade in inp.restock_used_grades and inp.completeness_status == 'incomplete' and (not essential_missing) and (grade in GRADES_ALLOWING_NONESSENTIAL_MISSING)` | `f'{grade}: rubric allows non-essential material to be missing'` | 234 |
+| R09b | 3 route | refurbish | `grade in inp.restock_used_grades and inp.completeness_status == 'incomplete' and (not essential_missing) and gain >= inp.refurbish_min_net_gain_minor` | `f'replaceable non-essential part(s) missing; net gain {gain}'` | 242 |
+| R14 | 3 route | liquidate | `grade in inp.restock_used_grades and inp.completeness_status == 'incomplete' and (not essential_missing)` | `f'non-essential parts missing; not permitted at grade {grade}'` | 245 |
+| R14 | 3 route | liquidate | `grade is not None and grade != 'new' and (grade not in inp.restock_used_grades)` | `f'used grade {grade} is outside restock_used_grades (business policy)'` | 250 |
+| R99 | 3 route | no recommendation (review required) | `always (fallthrough)` | `rule_gap` | 254 |
+| S03 | sign-off | route stands; human sign-off required | `gate is not None and gate[0] in ('R02', 'R03') and _gate_routable(inp, gate[0]) and inp.escalation_disagreement_resolved_by_reviewer` | `S03_escalation_disagreement_resolved` | 319 |
+| S01 | sign-off | route stands; human sign-off required | `route == 'dispose'` | `S01_dispose_always` | 422 |
+| S02 | sign-off | route stands; human sign-off required | `route not in (None, 'restock') and inp.list_price_minor >= inp.high_value_threshold_minor` | `S02_high_value` | 424 |
+| S03 | sign-off | route stands; human sign-off required | `inp.escalation_disagreement_resolved_by_reviewer` | `S03_escalation_disagreement_resolved` | 426 |
 <!-- rule-table:end -->
 
 S02's threshold is `RM_HIGH_VALUE_THRESHOLD_MINOR`, default 500000 paise (₹5,000). In the batch tool, a
